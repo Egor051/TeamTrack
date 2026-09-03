@@ -1,0 +1,24 @@
+{
+	"mcpServers": {
+		"context7": {
+			"type": "streamable-http",
+			"url": "https://mcp.context7.com/mcp"
+		},
+		"playwright": {
+			"type": "stdio",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx",
+				"-y",
+				"@playwright/mcp@latest"
+			]
+		},
+		"github": {
+			"type": "streamable-http",
+			"url": "https://api.githubcopilot.com/mcp/",
+			"disabled": true,
+			"alwaysAllow": []
+		}
+	}
+}

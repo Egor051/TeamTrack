@@ -1,0 +1,4 @@
+-- Compatibility no-op.
+-- This migration was applied to production before the migration order was
+-- corrected. The actual publication configuration lives in the later
+-- `enable_tasktrace_realtime_after_provisioning` migration.

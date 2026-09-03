@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tasktrace-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    env:
+      # Static export imports the Supabase client, so it needs syntactically
+      # valid public configuration even though CI never contacts Supabase.
+      # These values are deliberately non-secret and are not deployment config.
+      EXPO_PUBLIC_SUPABASE_URL: https://ci.invalid.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-public-anon-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm audit --omit=optional
+      - run: npx expo export --platform web
+      - run: npx expo-doctor
+
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx --yes supabase@2.116.0 start
+      - run: npm run test:sql
+      - run: npx --yes supabase@2.116.0 db lint --local
+      - run: npx --yes supabase@2.116.0 db advisors --local

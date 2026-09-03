@@ -1,0 +1,5 @@
+export const colors = { primary: '#176B5B', primaryPressed: '#105347', primarySoft: '#E7F4F0', secondary: '#334155', destructive: '#B42318', destructiveSoft: '#FEECEB', success: '#16835D', successSoft: '#E8F7F0', warning: '#A15C07', warningSoft: '#FFF4D6', error: '#B42318', errorSoft: '#FEECEB', background: '#F4F7F6', surface: '#FFFFFF', surfaceMuted: '#EEF2F1', border: '#D6DEDC', borderStrong: '#A8B7B3', text: '#17211F', textSecondary: '#5C6B67', textMuted: '#76837F', focus: '#2B7FFF', overlay: 'rgba(16, 29, 26, 0.48)' } as const;
+export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 48 } as const;
+export const radii = { sm: 6, md: 8 } as const;
+export const layout = { appMaxWidth: 1120, readingMaxWidth: 760, authMaxWidth: 440, desktopBreakpoint: 900 } as const;
+export const shadows = { card: { shadowColor: '#10201C', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 1 } } as const;
