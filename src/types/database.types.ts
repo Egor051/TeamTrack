@@ -400,7 +400,15 @@ export type Database = {
           p_user_id: string
         }
         Returns: undefined
-      }
+      },
+      add_project_member_by_identifier: {
+        Args: {
+          p_identifier: string
+          p_project_id: string
+          p_role: Database["public"]["Enums"]["project_role"]
+        }
+        Returns: undefined
+      },
       add_task_assignee: {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
@@ -410,6 +418,8 @@ export type Database = {
         Returns: undefined
       }
       archive_project: { Args: { p_project_id: string }; Returns: undefined }
+      restore_project: { Args: { p_project_id: string }; Returns: undefined }
+      update_project: { Args: { p_description: string; p_name: string; p_project_id: string }; Returns: undefined }
       archive_task: { Args: { p_task_id: string }; Returns: undefined }
       archive_task_item: {
         Args: { p_task_item_id: string }

@@ -156,7 +156,7 @@ end $$;
 -- N8b: project member without task access cannot read task-scoped audit rows.
 do $$
 declare
-    v_proj uuid := (select v::uuid from tt_state where k = 'proj');
+    v_proj uuid;
     v_cnt int;
 begin
     perform set_config('role', 'authenticated', true);
@@ -174,6 +174,7 @@ declare
     v_proj uuid := (select v::uuid from tt_state where k = 'proj');
     v_frank uuid := (select v::uuid from tt_state where k = 'u_frank');
     v_carol uuid := (select v::uuid from tt_state where k = 'u_carol');
+    v_dave uuid := (select v::uuid from tt_state where k = 'u_dave');
     v_eve uuid := (select v::uuid from tt_state where k = 'u_eve');
     v_cnt int;
 begin
@@ -840,7 +841,7 @@ declare
     v_ok boolean := false;
 begin
     perform set_config('role', 'authenticated', true);
-    perform set_config('request.jwt.claim.sub', v_carol::text, true);
+    perform set_config('request.jwt.claim.sub', v_eve::text, true);
 
     begin
         update public.tasks set created_by = v_eve where id = v_t1;
@@ -902,6 +903,95 @@ begin
 end $$;
 
 -- =============================================================== summary
+
+-- Identifier-based project member RPC: resolution, authorization and audit.
+do $$
+declare
+    v_proj uuid;
+    v_alice uuid := (select v::uuid from tt_state where k = 'u_alice');
+    v_carol uuid := (select v::uuid from tt_state where k = 'u_carol');
+    v_dave uuid := (select v::uuid from tt_state where k = 'u_dave');
+    v_eve uuid := (select v::uuid from tt_state where k = 'u_eve');
+    v_grace uuid := gen_random_uuid();
+    v_other uuid := gen_random_uuid();
+    v_hank uuid := gen_random_uuid();
+    v_cnt int;
+begin
+    insert into auth.users (id, email, aud, role, raw_app_meta_data, raw_user_meta_data, email_confirmed_at, created_at, updated_at, is_anonymous, is_sso_user)
+    values (v_grace, 'grace@example.com', 'authenticated', 'authenticated', '{}', '{}', now(), now(), now(), false, false),
+           (v_other, 'other@example.com', 'authenticated', 'authenticated', '{}', '{}', now(), now(), now(), false, false);
+    insert into auth.users (id, email, aud, role, raw_app_meta_data, raw_user_meta_data, email_confirmed_at, created_at, updated_at, is_anonymous, is_sso_user)
+    values (v_hank, 'hank@example.com', 'authenticated', 'authenticated', '{}', '{}', now(), now(), now(), false, false);
+    insert into public.profiles (id, display_name) values (v_grace, 'Grace'), (v_other, 'Grace'), (v_hank, 'Hank')
+    on conflict (id) do update set display_name = excluded.display_name;
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_alice::text, true);
+    v_proj := public.create_project('Identifier RPC test');
+    perform public.add_project_member_by_identifier(v_proj, 'grace@example.com', 'member');
+    select count(*) into v_cnt from public.project_members where project_id = v_proj and user_id = v_grace;
+    if v_cnt <> 1 then raise exception 'FAIL: email identifier did not add member'; end if;
+    perform public.add_project_member_by_identifier(v_proj, 'other@example.com', 'member');
+    perform public.add_project_member_by_identifier(v_proj, 'Hank', 'member');
+    select count(*) into v_cnt from public.audit_log where project_id = v_proj and action = 'member_added' and entity_id = v_other;
+    if v_cnt <> 1 then raise exception 'FAIL: identifier add did not create audit'; end if;
+    begin perform public.add_project_member_by_identifier(v_proj, 'Grace', 'member'); raise exception 'FAIL: ambiguous display name was accepted'; exception when others then if sqlerrm <> 'display name is ambiguous' then raise; end if; end;
+    begin perform public.add_project_member_by_identifier(v_proj, 'missing@example.com', 'member'); raise exception 'FAIL: missing user was accepted'; exception when others then if sqlerrm <> 'user not found' then raise; end if; end;
+    begin perform public.add_project_member_by_identifier(v_proj, 'grace@example.com', 'member'); raise exception 'FAIL: duplicate member was accepted'; exception when others then if sqlerrm <> 'user is already a project member' then raise; end if; end;
+    perform set_config('request.jwt.claim.sub', v_dave::text, true);
+    begin perform public.add_project_member_by_identifier(v_proj, 'missing@example.com', 'member'); raise exception 'FAIL: viewer could call identifier RPC'; exception when others then null; end;
+    perform set_config('request.jwt.claim.sub', v_eve::text, true);
+    begin perform public.add_project_member_by_identifier(v_proj, 'missing@example.com', 'member'); raise exception 'FAIL: outsider could call identifier RPC'; exception when others then null; end;
+end $$;
+
+-- Project lifecycle RPCs: authorization, state transitions and immutable audit snapshots.
+do $$
+declare
+    v_proj uuid := (select v::uuid from tt_state where k = 'p2');
+    v_alice uuid := (select v::uuid from tt_state where k = 'u_alice');
+    v_bob uuid := (select v::uuid from tt_state where k = 'u_bob');
+    v_carol uuid := (select v::uuid from tt_state where k = 'u_carol');
+    v_eve uuid := (select v::uuid from tt_state where k = 'u_eve');
+    v_ok boolean := false;
+    v_cnt int;
+begin
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_alice::text, true);
+    perform public.update_project(v_proj, 'Orion renamed', 'Updated description');
+    select count(*) into v_cnt from public.audit_log where project_id=v_proj and action='updated'
+      and old_data->>'name'='Orion' and new_data->>'name'='Orion renamed';
+    if v_cnt < 1 then raise exception 'FAIL: update_project audit missing'; end if;
+
+    begin perform public.update_project(v_proj, '   ', 'x'); raise exception 'FAIL: blank project name accepted';
+    exception when others then if sqlerrm <> 'project name cannot be empty' then raise; end if; end;
+
+    perform set_config('request.jwt.claim.sub', v_bob::text, true);
+    perform public.restore_project(v_proj); -- p2 is active; verify invalid state first
+    raise exception 'FAIL: active project restored';
+exception when raise_exception then
+    if sqlerrm <> 'project is not archived' then raise; end if;
+end $$;
+
+do $$
+declare
+    v_proj uuid := (select v::uuid from tt_state where k = 'proj');
+    v_alice uuid := (select v::uuid from tt_state where k = 'u_alice');
+    v_bob uuid := (select v::uuid from tt_state where k = 'u_bob');
+    v_carol uuid := (select v::uuid from tt_state where k = 'u_carol');
+    v_ok boolean := false;
+    v_cnt int;
+begin
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_alice::text, true);
+    perform public.archive_project(v_proj);
+    perform public.restore_project(v_proj);
+    select count(*) into v_cnt from public.projects where id=v_proj and status='active' and archived_at is null;
+    if v_cnt <> 1 then raise exception 'FAIL: restore_project did not activate project'; end if;
+    select count(*) into v_cnt from public.audit_log where project_id=v_proj and action='updated'
+      and old_data->>'status'='archived' and new_data->>'status'='active';
+    if v_cnt < 1 then raise exception 'FAIL: restore audit missing'; end if;
+    perform set_config('request.jwt.claim.sub', v_carol::text, true);
+    begin perform public.update_project(v_proj, 'forbidden', null); raise exception 'FAIL: member updated project'; exception when others then null; end;
+end $$;
 
 do $$
 begin

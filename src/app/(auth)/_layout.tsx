@@ -1,7 +1,7 @@
 /**
  * (auth) group layout — guards unauthenticated routes.
  *
- * Redirects to /(app)/profile if the user is already authenticated.
+ * Redirects to /projects if the user is already authenticated.
  * The LoadingScreen is shown while the session is being restored.
  */
 import { Redirect, Stack, usePathname } from "expo-router";
@@ -19,7 +19,7 @@ export default function AuthGroupLayout() {
   // A recovery session is intentionally active while the reset form is open.
   // Keep that route mounted so the user can submit the new password.
   if (state.session && !pathname.endsWith('/reset-password')) {
-    return <Redirect href="/(app)/profile" />;
+    return <Redirect href="/projects" />;
   }
 
   return <Stack screenOptions={{ headerShown: false }} />;

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
+import { getCurrentUser } from '@/features/auth/auth';
 import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/client';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -62,8 +63,10 @@ export async function listProjects(includeArchived = false): Promise<ProjectWith
 export async function getProject(projectId: string): Promise<ProjectWithRole> {
   assertUuid(projectId, 'project id');
   const project = await requireData(await supabase.from('projects').select('*').eq('id', projectId).single());
-  const membershipResult = await supabase.from('project_members').select('role').eq('project_id', projectId).single();
-  if (membershipResult.error || !membershipResult.data) throw new Error(membershipResult.error?.message || 'Project membership not found');
+  const { data: userData, error: userError } = await getCurrentUser();
+  if (userError || !userData.user) throw new Error('Требуется авторизация.');
+  const membershipResult = await supabase.from('project_members').select('role').eq('project_id', projectId).eq('user_id', userData.user.id).single();
+  if (membershipResult.error || !membershipResult.data) throw new Error('У вас нет доступа к этому проекту.');
   return { ...(project as Project), role: membershipResult.data.role as ProjectRole };
 }
 
@@ -72,8 +75,8 @@ export async function listProjectTasks(projectId: string): Promise<Task[]> {
   return fetchAll<Task>((from, to) => supabase.from('tasks').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).range(from, to));
 }
 
-export async function listTasksWithStats(projectId: string, includeArchived = false): Promise<TaskWithStats[]> {
-  const tasks = (await listProjectTasks(projectId)).filter((t) => includeArchived || t.status !== 'archived');
+export async function listTasksWithStats(projectId: string, archivedOnly = false): Promise<TaskWithStats[]> {
+  const tasks = (await listProjectTasks(projectId)).filter((t) => archivedOnly ? t.status === 'archived' : t.status !== 'archived');
   if (!tasks.length) return [];
   const ids = tasks.map((t) => t.id);
   const items = (await Promise.all(chunks(ids).map((chunk) => fetchAll<{ task_id: string; is_completed: boolean }>((from, to) => supabase.from('task_items').select('task_id,is_completed').in('task_id', chunk).eq('is_archived', false).range(from, to))))).flat();
@@ -136,6 +139,12 @@ export async function addProjectMember(projectId: string, userId: string, role: 
   assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('add_project_member', { p_project_id: projectId, p_user_id: userId, p_role: role }));
 }
 
+export async function addProjectMemberByIdentifier(projectId: string, identifier: string, role: ProjectRole) {
+  assertUuid(projectId, 'project id');
+  if (typeof identifier !== 'string' || !identifier.trim()) throw new Error('Укажите email или ник пользователя.');
+  return requireSuccess(await supabase.rpc('add_project_member_by_identifier', { p_project_id: projectId, p_identifier: identifier.trim(), p_role: role }));
+}
+
 export async function changeMemberRole(projectId: string, userId: string, role: ProjectRole) {
   assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('change_member_role', { p_project_id: projectId, p_user_id: userId, p_new_role: role }));
 }
@@ -146,6 +155,15 @@ export async function removeProjectMember(projectId: string, userId: string) {
 
 export async function archiveProject(projectId: string) {
   assertUuid(projectId, 'project id'); return requireSuccess(await supabase.rpc('archive_project', { p_project_id: projectId }));
+}
+
+export async function restoreProject(projectId: string) {
+  assertUuid(projectId, 'project id'); return requireSuccess(await supabase.rpc('restore_project', { p_project_id: projectId }));
+}
+
+export async function updateProject(projectId: string, name: string, description: string) {
+  assertUuid(projectId, 'project id');
+  return requireSuccess(await supabase.rpc('update_project', { p_project_id: projectId, p_name: name, p_description: description }));
 }
 
 export async function archiveTask(taskId: string) {
