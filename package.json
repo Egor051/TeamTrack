@@ -28,7 +28,8 @@
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.7"
   },
   "overrides": {
     "decode-uri-component": "0.5.0",
@@ -41,7 +42,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && npm run lint",
+    "test": "npm run typecheck && npm run lint && npm run test:unit",
+    "test:unit": "vitest run",
     "test:sql": "node scripts/run-sql-tests.mjs",
     "gen:types": "node scripts/gen-types.mjs"
   },

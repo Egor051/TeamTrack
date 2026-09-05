@@ -1,7 +1,10 @@
+import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
+
 export function userMessage(error: unknown, fallback: string): string {
-  if (process.env.NODE_ENV !== 'production') console.error('[TaskTrace]', error);
+  if (process.env.NODE_ENV !== 'production' && !(error instanceof ResourceAccessDeniedError)) console.error('[TaskTrace]', error);
   const value = error as { message?: string; code?: string; status?: number } | null;
   const message = value?.message?.toLowerCase() ?? '';
+  if (error instanceof ResourceAccessDeniedError) return error.message;
   if (message.includes('user not found')) return 'Пользователь не найден.';
   if (message.includes('already a project member')) return 'Пользователь уже добавлен в проект.';
   if (message.includes('display name is ambiguous')) return 'Найдено несколько пользователей с таким ником. Укажите email.';
