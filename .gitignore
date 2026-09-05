@@ -49,4 +49,5 @@ supabase/.temp/
 supabase/.branches/
 
 # Local MCP credentials/overrides
-.roo/*.local.json
+.vscode/
+.roo/
