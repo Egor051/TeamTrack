@@ -33,6 +33,7 @@ export default function History() {
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [details, setDetails] = useState<number | null>(null);
   const requestRef = useRef(0);
+  const realtimeConnectedRef = useRef(false);
   const load = useCallback(async () => {
     if (!id || !taskId) return;
     const request = ++requestRef.current;
@@ -70,7 +71,12 @@ export default function History() {
       if (!id || !taskId) return;
       const onStatus = (next: RealtimeStatus) => {
         setStatus(next);
-        if (next === "connected") void load();
+        if (next === "connected" && !realtimeConnectedRef.current) {
+          realtimeConnectedRef.current = true;
+          void load();
+        } else if (next !== "connected") {
+          realtimeConnectedRef.current = false;
+        }
       };
       return subscribeMany([
         {

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/ui/screen";
@@ -21,7 +21,7 @@ import {
   type ProjectWithRole,
   type TaskWithStats,
 } from "@/features/projects/projects";
-import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
+import { subscribeMany, type RealtimeEvent, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
 import { colors, layout, spacing } from "@/components/ui/theme";
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
@@ -40,12 +40,16 @@ export default function ProjectScreen() {
   const [editDescription, setEditDescription] = useState("");
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const requestRef = useRef(0);
+  const taskIdsRef = useRef<Set<string>>(new Set());
+  const realtimeConnectedRef = useRef(false);
+  useEffect(() => {
+    taskIdsRef.current = new Set(tasks.map((task) => task.id));
+  }, [tasks]);
   const load = useCallback(async () => {
     if (!id) return;
     const request = ++requestRef.current;
     setLoading(true);
     setError("");
-    setTasks([]);
     try {
       const [nextProject, nextTasks] = await Promise.all([
         getProject(id),
@@ -58,12 +62,15 @@ export default function ProjectScreen() {
       setTasks(nextTasks);
     } catch (e) {
       if (request === requestRef.current)
+        setProject(null);
+      if (request === requestRef.current)
+        setTasks([]);
+      if (request === requestRef.current)
         setError(userMessage(e, "Не удалось загрузить проект."));
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
   }, [id, archived]);
-  const taskIdsKey = tasks.map((task) => task.id).join(",");
   useFocusEffect(
     useCallback(() => {
       void load();
@@ -75,9 +82,15 @@ export default function ProjectScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!id) return;
+      realtimeConnectedRef.current = false;
       const onStatus = (next: RealtimeStatus) => {
         setStatus(next);
-        if (next === "connected") void load();
+        if (next === "connected" && !realtimeConnectedRef.current) {
+          realtimeConnectedRef.current = true;
+          void load();
+        } else if (next !== "connected") {
+          realtimeConnectedRef.current = false;
+        }
       };
       const specs = [
         {
@@ -96,20 +109,19 @@ export default function ProjectScreen() {
             onStatus,
           },
         },
-        ...taskIdsKey
-          .split(",")
-          .filter(Boolean)
-          .map((taskId) => ({
-            table: "task_items",
-            options: {
-              taskId,
-              onEvent: () => void load(),
-              onStatus,
+        {
+          table: "task_items",
+          options: {
+            onEvent: (event: RealtimeEvent) => {
+              const taskId = String(event.new.task_id ?? event.old.task_id ?? "");
+              if (taskIdsRef.current.has(taskId)) void load();
             },
-          })),
+            onStatus,
+          },
+        },
       ];
       return subscribeMany(specs);
-    }, [id, load, taskIdsKey]),
+    }, [id, load]),
   );
   async function archive() {
     setBusy(true);
@@ -262,7 +274,7 @@ export default function ProjectScreen() {
         </View>
         {error ? (
           <ErrorState message={error} onRetry={load} />
-        ) : loading ? (
+        ) : loading && !project ? (
           <LoadingState />
         ) : !tasks.length ? (
           <EmptyState

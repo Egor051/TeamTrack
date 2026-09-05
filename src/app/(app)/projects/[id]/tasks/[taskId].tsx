@@ -63,6 +63,7 @@ export default function TaskScreen() {
   } | null>(null);
   const requestRef = useRef(0);
   const busyRef = useRef(false);
+  const realtimeConnectedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!id || !taskId) return;
@@ -121,7 +122,12 @@ export default function TaskScreen() {
       };
       const onStatus = (next: RealtimeStatus) => {
         setStatus(next);
-        if (next === "connected") void load();
+        if (next === "connected" && !realtimeConnectedRef.current) {
+          realtimeConnectedRef.current = true;
+          void load();
+        } else if (next !== "connected") {
+          realtimeConnectedRef.current = false;
+        }
       };
       return subscribeMany([
         {
