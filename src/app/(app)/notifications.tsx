@@ -101,7 +101,7 @@ export default function NotificationsScreen() {
   return <Screen padded={false} centerContent={false}>
     <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <PageHeader title="Уведомления" onBack={() => router.back()} actions={items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" onPress={() => void allRead()}>Прочитать все</Button> : null} />
-      {error ? <ErrorState message={error} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится контекст о доступе к задачам и изменениях checklist." /> : <View style={styles.list}>
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к задачам и изменениях чек-листа." /> : <View style={styles.list}>
         {items.map((item) => <Card key={item.id} style={!item.is_read ? styles.readCard : undefined}>
           <Pressable onPress={() => void read(item)} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${item.title}`} style={styles.pressableContent}>
             <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{item.title}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
