@@ -156,7 +156,7 @@ end $$;
 -- N8b: project member without task access cannot read task-scoped audit rows.
 do $$
 declare
-    v_proj uuid;
+    v_proj uuid := (select v::uuid from tt_state where k = 'proj');
     v_cnt int;
 begin
     perform set_config('role', 'authenticated', true);
@@ -166,6 +166,8 @@ begin
      where project_id = v_proj
        and entity_type in ('task', 'task_item', 'task_member', 'task_assignee');
     if v_cnt <> 0 then raise exception 'FAIL N8b: frank sees task-scoped audit rows (cnt=%)', v_cnt; end if;
+    select count(*) into v_cnt from public.task_members where task_id = (select v::uuid from tt_state where k = 't1');
+    if v_cnt <> 0 then raise exception 'FAIL N8b: project member without task access sees task_members (cnt=%)', v_cnt; end if;
 end $$;
 
 -- N8c: profile visibility is limited to self and users sharing a project.
@@ -233,6 +235,14 @@ begin
     perform set_config('request.jwt.claim.sub', v_dave::text, true);
     select count(*) into v_cnt from public.tasks where id = v_t1;
     if v_cnt <> 1 then raise exception 'FAIL P5: approved task member cannot read task'; end if;
+    select count(*) into v_cnt from public.task_members where task_id = v_t1;
+    if v_cnt <> 3 then raise exception 'FAIL: task member cannot read task_members (cnt=%)', v_cnt; end if;
+    perform set_config('request.jwt.claim.sub', v_alice::text, true);
+    select count(*) into v_cnt from public.task_members where task_id = v_t1;
+    if v_cnt <> 3 then raise exception 'FAIL: project owner cannot read task_members (cnt=%)', v_cnt; end if;
+    perform set_config('request.jwt.claim.sub', v_bob::text, true);
+    select count(*) into v_cnt from public.task_members where task_id = v_t1;
+    if v_cnt <> 3 then raise exception 'FAIL: project admin cannot read task_members (cnt=%)', v_cnt; end if;
     select count(*) into v_cnt from public.project_members where project_id = v_proj;
     if v_cnt <> 5 then raise exception 'FAIL: project member cannot read project_members (cnt=%)', v_cnt; end if;
 end $$;
@@ -268,6 +278,7 @@ declare
     v_carol uuid := (select v::uuid from tt_state where k = 'u_carol');
     v_res boolean;
     v_completed boolean;
+    v_status text;
     v_acts int; v_audits int;
 begin
     perform set_config('role', 'authenticated', true);
@@ -275,6 +286,9 @@ begin
 
     v_res := public.set_task_item_state(v_i1, true);
     if v_res is not true then raise exception 'FAIL P11: set_task_item_state returned %', v_res; end if;
+
+    select status::text into v_status from public.tasks where id = (select v::uuid from tt_state where k = 't1');
+    if v_status <> 'in_progress' then raise exception 'FAIL P11: task status was not derived as in_progress'; end if;
 
     select is_completed into v_completed from public.task_items where id = v_i1;
     if v_completed is not true then raise exception 'FAIL P11: is_completed not updated'; end if;
@@ -302,6 +316,8 @@ begin
     v_res := public.set_task_item_state(v_i1, false);
     select count(*) into v_acts from public.item_actions where task_item_id = v_i1;
     if v_acts <> 2 then raise exception 'FAIL: uncheck did not create event (cnt=%)', v_acts; end if;
+    select status::text into v_status from public.tasks where id = (select v::uuid from tt_state where k = 't1');
+    if v_status <> 'not_started' then raise exception 'FAIL: task status was not derived as not_started'; end if;
 end $$;
 
 -- last-write-wins sequence: carol checks, frank unchecks -> state false, both events
@@ -704,6 +720,8 @@ begin
     perform public.archive_project(v_proj);
     select count(*) into v_cnt from public.projects where id = v_proj and status = 'archived';
     if v_cnt <> 1 then raise exception 'FAIL: project not archived'; end if;
+    select count(*) into v_cnt from public.tasks where id = (select v::uuid from tt_state where k = 't2') and status = 'archived' and archived_by_project_at is not null;
+    if v_cnt <> 1 then raise exception 'FAIL: project archive did not cascade to active task'; end if;
 
     -- N15: archived project is read-only via direct UPDATE (0 rows affected)
     perform set_config('request.jwt.claim.sub', v_carol::text, true);
@@ -988,8 +1006,20 @@ begin
     if v_cnt <> 1 then raise exception 'FAIL: restore_project did not activate project'; end if;
     select count(*) into v_cnt from public.audit_log where project_id=v_proj and action='updated'
       and old_data->>'status'='archived' and new_data->>'status'='active';
+    if v_cnt <> 0 then raise exception 'FAIL: restore audit was incorrectly classified as updated'; end if;
+    select count(*) into v_cnt from public.audit_log where project_id=v_proj and action='restored'
+      and entity_type='project' and old_data->>'status'='archived' and new_data->>'status'='active';
     if v_cnt < 1 then raise exception 'FAIL: restore audit missing'; end if;
+    select count(*) into v_cnt from public.tasks where id=(select v::uuid from tt_state where k='t2') and status <> 'archived' and archived_by_project_at is null;
+    if v_cnt <> 1 then raise exception 'FAIL: cascaded task was not restored with project'; end if;
     perform set_config('request.jwt.claim.sub', v_carol::text, true);
+    select count(*) into v_cnt from public.tasks where id=(select v::uuid from tt_state where k='t1') and status='archived';
+    if v_cnt <> 1 then raise exception 'FAIL: manually archived task was incorrectly restored with project'; end if;
+    perform set_config('request.jwt.claim.sub', v_alice::text, true);
+    perform public.restore_task((select v::uuid from tt_state where k='t1'));
+    perform set_config('request.jwt.claim.sub', v_carol::text, true);
+    select count(*) into v_cnt from public.tasks where id=(select v::uuid from tt_state where k='t1') and status='not_started' and archived_at is null;
+    if v_cnt <> 1 then raise exception 'FAIL: restore_task did not derive active checklist status'; end if;
     begin perform public.update_project(v_proj, 'forbidden', null); raise exception 'FAIL: member updated project'; exception when others then null; end;
 end $$;
 

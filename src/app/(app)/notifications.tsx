@@ -76,7 +76,13 @@ export default function NotificationsScreen() {
         return;
       }
     }
-    if (item.task_id && item.project_id) router.push(`/projects/${item.project_id}/tasks/${item.task_id}` as never);
+    if (item.project_id) {
+      router.push(
+        (item.task_id
+          ? `/projects/${item.project_id}/tasks/${item.task_id}`
+          : `/projects/${item.project_id}`) as never,
+      );
+    }
   }
 
   async function markReadOnly(item: Notification) {

@@ -38,8 +38,8 @@ export default function ProjectsScreen() {
         if (active && request === unreadRequestRef.current) setUnread(count);
       }).catch(() => undefined);
     };
-    refreshUnread();
     const cleanup = subscribeToNotifications(userId, refreshUnread);
+    refreshUnread();
     return () => {
       active = false;
       unreadRequestRef.current += 1;

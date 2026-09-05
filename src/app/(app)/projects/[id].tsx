@@ -75,13 +75,17 @@ export default function ProjectScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!id) return;
+      const onStatus = (next: RealtimeStatus) => {
+        setStatus(next);
+        if (next === "connected") void load();
+      };
       const specs = [
         {
           table: "tasks",
           options: {
             projectId: id,
             onEvent: () => void load(),
-            onStatus: setStatus,
+            onStatus,
           },
         },
         {
@@ -89,7 +93,7 @@ export default function ProjectScreen() {
           options: {
             projectId: id,
             onEvent: () => void load(),
-            onStatus: setStatus,
+            onStatus,
           },
         },
         ...taskIdsKey
@@ -100,7 +104,7 @@ export default function ProjectScreen() {
             options: {
               taskId,
               onEvent: () => void load(),
-              onStatus: setStatus,
+              onStatus,
             },
           })),
       ];

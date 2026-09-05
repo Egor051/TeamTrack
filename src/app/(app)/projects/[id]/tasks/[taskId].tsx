@@ -29,6 +29,7 @@ import {
   approveTaskMember,
   revokeTaskMember,
   archiveTask,
+  restoreTask,
   type Task,
   type TaskItem,
   type ProjectMember,
@@ -38,9 +39,11 @@ import {
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
 import { colors, layout, spacing } from "@/components/ui/theme";
+import { useUser } from "@/features/auth/AuthProvider";
 
 export default function TaskScreen() {
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
+  const user = useUser();
   const [task, setTask] = useState<Task | null>(null);
   const [project, setProject] = useState<ProjectWithRole | null>(null);
   const [items, setItems] = useState<TaskItem[]>([]);
@@ -59,6 +62,7 @@ export default function TaskScreen() {
     action: () => Promise<unknown>;
   } | null>(null);
   const requestRef = useRef(0);
+  const busyRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!id || !taskId) return;
@@ -88,8 +92,15 @@ export default function TaskScreen() {
       setAssignees(nextAssignees);
       setError("");
     } catch (e) {
-      if (request === requestRef.current)
+      if (request === requestRef.current) {
+        setTask(null);
+        setProject(null);
+        setItems([]);
+        setProjectMembers([]);
+        setTaskMembers([]);
+        setAssignees([]);
         setError(userMessage(e, "Нет доступа к задаче."));
+      }
     }
   }, [id, taskId]);
 
@@ -108,24 +119,40 @@ export default function TaskScreen() {
       const onEvent = () => {
         void load();
       };
+      const onStatus = (next: RealtimeStatus) => {
+        setStatus(next);
+        if (next === "connected") void load();
+      };
       return subscribeMany([
         {
+          table: "tasks",
+          options: { taskId, onEvent, onStatus },
+        },
+        {
           table: "task_items",
-          options: { taskId, onEvent, onStatus: setStatus },
+          options: { taskId, onEvent, onStatus },
         },
         {
           table: "task_members",
-          options: { taskId, onEvent, onStatus: setStatus },
+          options: { taskId, onEvent, onStatus },
         },
         {
           table: "task_assignees",
-          options: { taskId, onEvent, onStatus: setStatus },
+          options: { taskId, onEvent, onStatus },
         },
+        ...(user
+          ? [{
+              table: "notifications",
+              options: { userId: user.id, onEvent, onStatus },
+            }]
+          : []),
       ]);
-    }, [id, taskId, load]),
+    }, [id, taskId, user, load]),
   );
 
   async function run(fn: () => Promise<unknown>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError("");
     try {
@@ -134,6 +161,7 @@ export default function TaskScreen() {
     } catch (e) {
       setError(userMessage(e, "Операция не выполнена."));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -153,6 +181,10 @@ export default function TaskScreen() {
     project?.status === "active" &&
     project.role !== "viewer" &&
     task?.status !== "archived";
+  const canRestore =
+    (project?.role === "owner" || project?.role === "admin") &&
+    project?.status === "active" &&
+    task?.status === "archived";
   const done = items.filter((item) => item.is_completed).length;
 
   return (
@@ -277,7 +309,7 @@ export default function TaskScreen() {
                           Отмена
                         </Button>
                       </View>
-                    ) : canEdit ? (
+                    ) : canManage ? (
                       <View style={styles.actions}>
                         <Button
                           size="sm"
@@ -442,6 +474,15 @@ export default function TaskScreen() {
                   Архивировать задачу
                 </Button>
               </>
+            ) : null}
+            {canRestore ? (
+              <Button
+                disabled={busy}
+                loading={busy}
+                onPress={() => void run(() => restoreTask(taskId))}
+              >
+                Восстановить задачу
+              </Button>
             ) : null}
           </>
         )}

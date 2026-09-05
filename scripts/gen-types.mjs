@@ -51,8 +51,15 @@ function loadEnvFile() {
 }
 
 function run(...args) {
+  const commandArgs = ['--yes', SUPABASE_CLI, 'gen', 'types', 'typescript', ...args];
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  return execFileSync(npx, ['--yes', SUPABASE_CLI, 'gen', 'types', 'typescript', ...args], {
+  const executable = process.platform === 'win32'
+    ? (process.env.ComSpec || 'cmd.exe')
+    : npx;
+  const executableArgs = process.platform === 'win32'
+    ? ['/d', '/s', '/c', npx, ...commandArgs]
+    : commandArgs;
+  return execFileSync(executable, executableArgs, {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],

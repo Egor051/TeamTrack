@@ -116,6 +116,24 @@ do $$ begin
   if (select count(*) from public.notifications where user_id=(select id from ntf_state where key='user_b') and dedupe_key='notifications-test:dedupe') <> 1 then raise exception 'FAIL NTF16'; end if; raise notice 'PASS NTF16: duplicate delivery is suppressed';
 end $$;
 
+-- Archive/restore notifications follow the same audit transaction as the
+-- project/task state transition.  The actor is excluded and an outsider is
+-- never addressed.
+set local role authenticated;
+select set_config('request.jwt.claim.sub', (select id::text from ntf_state where key='user_a'), true);
+select public.archive_project((select id from ntf_state where key='project'));
+select public.restore_project((select id from ntf_state where key='project'));
+reset role;
+do $$ begin
+  if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and project_id=(select id from ntf_state where key='project') and type='project_archived') then raise exception 'FAIL NTF16b: project archive notification missing'; end if;
+  if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_for_a') and type='task_archived') then raise exception 'FAIL NTF16c: task archive notification missing'; end if;
+  if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and project_id=(select id from ntf_state where key='project') and type='project_restored') then raise exception 'FAIL NTF16d: project restore notification missing'; end if;
+  if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_for_a') and type='task_restored') then raise exception 'FAIL NTF16e: task restore notification missing'; end if;
+  if exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_a') and type in ('project_archived','project_restored','task_archived','task_restored')) then raise exception 'FAIL NTF16f: archive actor received self-notification'; end if;
+  if exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_c') and type in ('project_archived','project_restored','task_archived','task_restored')) then raise exception 'FAIL NTF16g: outsider received archive notification'; end if;
+  raise notice 'PASS NTF16b-g: archive/restore notifications are scoped and atomic';
+end $$;
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub', (select id::text from ntf_state where key='user_a'), true);
 select public.approve_task_member((select id from ntf_state where key='task_main'), (select id from ntf_state where key='user_b'));

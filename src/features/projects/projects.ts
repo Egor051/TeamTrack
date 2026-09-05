@@ -169,3 +169,7 @@ export async function updateProject(projectId: string, name: string, description
 export async function archiveTask(taskId: string) {
   assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('archive_task', { p_task_id: taskId }));
 }
+
+export async function restoreTask(taskId: string) {
+  assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('restore_task', { p_task_id: taskId }));
+}

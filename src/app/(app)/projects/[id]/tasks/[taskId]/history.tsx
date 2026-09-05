@@ -68,17 +68,21 @@ export default function History() {
   useFocusEffect(
     useCallback(() => {
       if (!id || !taskId) return;
+      const onStatus = (next: RealtimeStatus) => {
+        setStatus(next);
+        if (next === "connected") void load();
+      };
       return subscribeMany([
         {
           table: "item_actions",
-          options: { taskId, onEvent: () => void load(), onStatus: setStatus },
+          options: { taskId, onEvent: () => void load(), onStatus },
         },
         {
           table: "audit_log",
           options: {
             projectId: id,
             onEvent: () => void load(),
-            onStatus: setStatus,
+            onStatus,
           },
         },
       ]);
