@@ -124,26 +124,7 @@ export default function MembersScreen() {
                 </View>
                 {canManage && m.role !== "owner" ? (
                   <View style={styles.actions}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        busy || (currentRole === "admin" && m.role === "admin")
-                      }
-                      onPress={() =>
-                        void run(() =>
-                          changeMemberRole(
-                            id!,
-                            m.user_id,
-                            m.role === "member" ? "viewer" : "member",
-                          ),
-                        )
-                      }
-                    >
-                      {m.role === "member"
-                        ? "Назначить наблюдателем"
-                        : "Назначить участником"}
-                    </Button>
+                    {(["admin", "member", "viewer"] as ProjectRole[]).filter((role) => role !== m.role).map((role) => <Button key={role} size="sm" variant="outline" disabled={busy || (currentRole === "admin" && m.role === "admin")} onPress={() => void run(() => changeMemberRole(id!, m.user_id, role))}>{roleLabels[role]}</Button>)}
                     <Button
                       size="sm"
                       variant="ghost"

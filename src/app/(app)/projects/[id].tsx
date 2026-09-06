@@ -24,10 +24,12 @@ import {
 import { subscribeMany, type RealtimeEvent, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
 import { colors, layout, spacing } from "@/components/ui/theme";
+import { useUser } from "@/features/auth/AuthProvider";
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
 
 export default function ProjectScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const user = useUser();
   const [project, setProject] = useState<ProjectWithRole | null>(null);
   const [tasks, setTasks] = useState<TaskWithStats[]>([]);
   const [archived, setArchived] = useState(false);
@@ -309,6 +311,7 @@ export default function ProjectScreen() {
                     <ThemedText type="h3" style={styles.flex}>
                       {t.title}
                     </ThemedText>
+                    {user && t.assignees.includes(user.id) ? <Badge tone="primary">Моя задача</Badge> : null}
                     <Badge
                       tone={
                         t.status === "completed"

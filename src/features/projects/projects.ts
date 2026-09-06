@@ -7,6 +7,7 @@ export type ProjectRole = Database['public']['Enums']['project_role'];
 export type ProjectWithRole = Project & { role: ProjectRole };
 export type ProjectMember = { user_id: string; role: ProjectRole; joined_at: string; profile: Profile | null };
 export type TaskWithStats = Task & { itemCount: number; completedCount: number; assignees: string[] };
+export type MyTask = Task & { project_name: string | null };
 export type TaskMember = { user_id: string; approved_at: string; profile: Profile | null };
 export type ItemAction = Database['public']['Tables']['item_actions']['Row'];
 export type AuditEntry = Database['public']['Tables']['audit_log']['Row'];
@@ -105,6 +106,18 @@ export async function listTasksWithStats(projectId: string, archivedOnly = false
   });
 }
 
+export async function listMyTasks(userId: string): Promise<MyTask[]> {
+  assertUuid(userId, 'user id');
+  const assigned = await fetchAll<{ task_id: string }>((from, to) => supabase.from('task_assignees').select('task_id').eq('user_id', userId).range(from, to));
+  const ids = assigned.map((row) => row.task_id);
+  if (!ids.length) return [];
+  const tasks = await fetchAll<Task>((from, to) => supabase.from('tasks').select('*').in('id', ids).neq('status', 'archived').order('updated_at', { ascending: false }).range(from, to));
+  const projectIds = [...new Set(tasks.map((task) => task.project_id))];
+  const projects = projectIds.length ? await fetchAll<Project>((from, to) => supabase.from('projects').select('*').in('id', projectIds).eq('status', 'active').range(from, to)) : [];
+  const names = new Map(projects.map((project) => [project.id, project.name]));
+  return tasks.filter((task) => names.has(task.project_id)).map((task) => ({ ...task, project_name: names.get(task.project_id) || null }));
+}
+
 export async function createTask(projectId: string, title: string, description?: string) { assertUuid(projectId, 'project id'); return requireData(await supabase.rpc('create_task', { p_project_id: projectId, p_title: title, ...(description ? { p_description: description } : {}) })); }
 export async function getTask(taskId: string, projectId?: string) { assertUuid(taskId, 'task id'); if (projectId !== undefined) assertUuid(projectId, 'project id'); let query = supabase.from('tasks').select('*').eq('id', taskId); if (projectId !== undefined) query = query.eq('project_id', projectId); const result = await query.maybeSingle(); if (result.error) throw result.error; if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к задаче.'); return result.data; }
 export async function listTaskItems(taskId: string, includeArchived = false): Promise<TaskItem[]> { assertUuid(taskId, 'task id'); return fetchAll<TaskItem>((from, to) => { let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, to); return includeArchived ? query : query.eq('is_archived', false); }); }
@@ -176,6 +189,10 @@ export async function updateProject(projectId: string, name: string, description
 export async function archiveTask(taskId: string) {
   assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('archive_task', { p_task_id: taskId }));
 }
+
+export async function hardDeleteProject(projectId: string) { assertUuid(projectId, 'project id'); return requireSuccess(await supabase.rpc('hard_delete_project', { p_project_id: projectId })); }
+export async function hardDeleteTask(taskId: string) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('hard_delete_task', { p_task_id: taskId })); }
+export async function hardDeleteTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('hard_delete_task_item', { p_task_item_id: itemId })); }
 
 export async function restoreTask(taskId: string) {
   assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('restore_task', { p_task_id: taskId }));

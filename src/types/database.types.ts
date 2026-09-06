@@ -455,6 +455,9 @@ export type Database = {
         Args: { p_task_item_id: string }
         Returns: undefined
       }
+      hard_delete_project: { Args: { p_project_id: string }; Returns: undefined }
+      hard_delete_task: { Args: { p_task_id: string }; Returns: undefined }
+      hard_delete_task_item: { Args: { p_task_item_id: string }; Returns: undefined }
       change_member_role: {
         Args: {
           p_new_role: Database["public"]["Enums"]["project_role"]
@@ -511,6 +514,10 @@ export type Database = {
         Args: { p_description: string; p_name: string; p_project_id: string }
         Returns: undefined
       }
+      update_my_profile: {
+        Args: { p_display_name: string }
+        Returns: Database["public"]["Tables"]["profiles"]["Row"]
+      }
       update_task_item: {
         Args: {
           p_description?: string
@@ -537,6 +544,7 @@ export type Database = {
         | "unchecked"
         | "reordered"
         | "restored"
+        | "removed"
       item_action_type: "checked" | "unchecked"
       notification_type:
         | "task_member_added"
@@ -716,4 +724,3 @@ export const Constants = {
     },
   },
 } as const
-

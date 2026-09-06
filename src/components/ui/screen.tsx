@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { StyleSheet, ScrollView, View, KeyboardAvoidingView, Platform, type StyleProp, type ViewStyle } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/ui/view';
 import { colors, layout, spacing } from '@/components/ui/theme';
 
@@ -30,15 +31,17 @@ export function Screen({
   maxWidth = layout.appMaxWidth,
   contentStyle,
 }: ScreenProps) {
+  const insets = useSafeAreaInsets();
+  const safePadding = { paddingBottom: insets.bottom + spacing.lg };
   const content = scrollable ? (
     <ScrollView
-      contentContainerStyle={[styles.scrollContent, { maxWidth }, centerContent && styles.centered, padded && styles.padded, contentStyle]}
+      contentContainerStyle={[styles.scrollContent, { maxWidth }, centerContent && styles.centered, padded && styles.padded, safePadding, contentStyle]}
       keyboardShouldPersistTaps="handled"
     >
       {children}
     </ScrollView>
   ) : (
-    <View style={[styles.content, { maxWidth }, centerContent && styles.centered, padded && styles.padded, contentStyle]}>
+    <View style={[styles.content, { maxWidth }, centerContent && styles.centered, padded && styles.padded, safePadding, contentStyle]}>
       {children}
     </View>
   );

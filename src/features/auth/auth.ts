@@ -155,3 +155,12 @@ export function getCurrentSession() {
 export function getCurrentUser() {
   return supabase.auth.getUser();
 }
+
+export async function updateMyProfile(displayName: string) {
+  const value = displayName.trim();
+  if (value.length < 2 || value.length > 80) throw new Error('Ник должен быть от 2 до 80 символов.');
+  if (!/^[\p{L}\p{N}_ .-]+$/u.test(value)) throw new Error('Ник содержит недопустимые символы.');
+  const { data, error } = await supabase.rpc('update_my_profile', { p_display_name: value });
+  if (error) throw error;
+  return data;
+}

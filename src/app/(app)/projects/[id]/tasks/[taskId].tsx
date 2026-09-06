@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { Modal, ScrollView, StyleSheet, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/ui/screen";
 import { PageHeader } from "@/components/ui/page-header";
@@ -50,6 +50,7 @@ export default function TaskScreen() {
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [taskMembers, setTaskMembers] = useState<TaskMember[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
+  const [manageOpen, setManageOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -242,7 +243,7 @@ export default function TaskScreen() {
             </Card>
             <View style={styles.sectionHead}>
               <ThemedText type="h2">Чек-лист</ThemedText>
-              <Button
+              <View style={styles.actions}><Button size="sm" variant="outline" onPress={() => setManageOpen(true)} disabled={!canManage}>Участники и исполнители</Button><Button
                 size="sm"
                 variant="outline"
                 onPress={() =>
@@ -252,7 +253,7 @@ export default function TaskScreen() {
                 }
               >
                 История
-              </Button>
+              </Button></View>
             </View>
             {!items.length ? (
               <EmptyState
@@ -372,8 +373,8 @@ export default function TaskScreen() {
               </View>
             ) : null}
             {canManage ? (
-              <>
-                <Card>
+              <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => setManageOpen(false)}>
+                <View style={styles.modalBackdrop}><View style={styles.modalSheet}><View style={styles.sectionHead}><ThemedText type="h2">Участники и исполнители</ThemedText><Button size="sm" variant="ghost" onPress={() => setManageOpen(false)}>Закрыть</Button></View><Card>
                   <ThemedText type="h2">Участники задачи</ThemedText>
                   <ThemedText type="small">
                     Кто имеет доступ к этой задаче
@@ -421,8 +422,7 @@ export default function TaskScreen() {
                       );
                     })
                   )}
-                </Card>
-                <Card>
+                </Card><Card>
                   <ThemedText type="h2">Исполнители</ThemedText>
                   <ThemedText type="small">
                     Кто назначен выполнять задачу
@@ -465,7 +465,11 @@ export default function TaskScreen() {
                   ) : (
                     <ThemedText type="small">Нет участников задачи.</ThemedText>
                   )}
-                </Card>
+                </Card></View></View>
+              </Modal>
+            ) : null}
+            {canManage ? (
+              <>
                 <Button
                   variant="destructive"
                   onPress={() =>
@@ -533,5 +537,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 120 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   addRow: { gap: spacing.md },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay },
+  modalSheet: { maxHeight: "90%", backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
   completed: { textDecorationLine: "line-through", color: colors.textMuted },
 });

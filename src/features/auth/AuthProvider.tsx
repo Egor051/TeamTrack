@@ -24,6 +24,7 @@ type AuthContextType = {
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
   refreshSession: () => Promise<void>;
+  updateProfile: (displayName: string) => Promise<void>;
   clearError: () => void;
 };
 
@@ -206,6 +207,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateProfile = async (displayName: string) => {
+    const { updateMyProfile } = await import('./auth');
+    const profile = await updateMyProfile(displayName);
+    setState((prev) => ({ ...prev, profile: profile as unknown as Profile }));
+  };
+
   const clearError = () => setState((prev) => ({ ...prev, error: null }));
 
   const value: AuthContextType = {
@@ -216,6 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     requestPasswordReset,
     updatePassword,
     refreshSession,
+    updateProfile,
     clearError,
   };
 
