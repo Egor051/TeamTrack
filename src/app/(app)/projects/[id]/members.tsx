@@ -21,6 +21,7 @@ import {
 } from "@/features/projects/projects";
 import { userMessage } from "@/lib/errors/user-message";
 import { layout, spacing } from "@/components/ui/theme";
+import { useTheme } from "@/components/ui/theme-provider";
 const roles: ProjectRole[] = ["admin", "member", "viewer"];
 const roleLabels: Record<ProjectRole, string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
 const roleDescriptions: Record<ProjectRole, string> = {
@@ -30,6 +31,7 @@ const roleDescriptions: Record<ProjectRole, string> = {
   viewer: "Может просматривать доступные данные, но не может изменять задачи и чек-лист.",
 };
 export default function MembersScreen() {
+  const { colors: theme } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [currentRole, setCurrentRole] = useState<ProjectRole | null>(null);
@@ -142,7 +144,7 @@ export default function MembersScreen() {
       {canManage ? (
         <Card>
           <ThemedText type="h2">Роли и права</ThemedText>
-          {(Object.keys(roleLabels) as ProjectRole[]).map((role) => <View key={role} style={{ gap: spacing.xs }}><ThemedText type="h3">{roleLabels[role]}</ThemedText><ThemedText type="small" style={styles.roleDescription}>{roleDescriptions[role]}</ThemedText></View>)}
+          {(Object.keys(roleLabels) as ProjectRole[]).map((role) => <View key={role} style={{ gap: spacing.xs }}><ThemedText type="h3">{roleLabels[role]}</ThemedText><ThemedText type="small" style={[styles.roleDescription, { color: theme.textSecondary }]}>{roleDescriptions[role]}</ThemedText></View>)}
         </Card>
       ) : null}
       {canManage ? (
@@ -169,7 +171,7 @@ export default function MembersScreen() {
                 </Button>
               ))}
             </View>
-            <ThemedText type="small" style={styles.roleDescription}>{roleDescriptions[newRole]}</ThemedText>
+            <ThemedText type="small" style={[styles.roleDescription, { color: theme.textSecondary }]}>{roleDescriptions[newRole]}</ThemedText>
             <Button
               loading={busy}
               disabled={!identifier.trim()}
@@ -218,5 +220,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   flex: { flex: 1, minWidth: 160 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  roleDescription: { color: "#64748B" },
+  roleDescription: {},
 });

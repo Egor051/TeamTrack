@@ -20,9 +20,11 @@ import {
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
-import { colors, layout, spacing } from "@/components/ui/theme";
+import { layout, spacing } from "@/components/ui/theme";
+import { useTheme } from "@/components/ui/theme-provider";
 
 export default function History() {
+  const { colors: theme } = useTheme();
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
   const [actions, setActions] = useState<ItemAction[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
@@ -171,7 +173,7 @@ export default function History() {
                       {details === a.id ? "Скрыть детали" : "Показать детали"}
                     </Button>
                     {details === a.id ? (
-                      <ThemedText type="caption" style={styles.technical}>
+                      <ThemedText type="caption" style={[styles.technical, { color: theme.textMuted }]}>
                         {[
                           a.old_data && `До: ${JSON.stringify(a.old_data)}`,
                           a.new_data && `После: ${JSON.stringify(a.new_data)}`,
@@ -200,5 +202,5 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   flex: { flex: 1 },
-  technical: { color: colors.textMuted, marginTop: spacing.sm },
+  technical: { marginTop: spacing.sm },
 });

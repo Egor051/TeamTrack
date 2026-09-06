@@ -40,10 +40,12 @@ import {
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
-import { colors, layout, spacing } from "@/components/ui/theme";
+import { layout, spacing } from "@/components/ui/theme";
+import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 
 export default function TaskScreen() {
+  const { colors: theme } = useTheme();
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
   const user = useUser();
   const [task, setTask] = useState<Task | null>(null);
@@ -292,7 +294,7 @@ export default function TaskScreen() {
                         ) : (
                           <ThemedText
                             style={
-                              item.is_completed ? styles.completed : undefined
+                              item.is_completed ? [styles.completed, { color: theme.textMuted }] : undefined
                             }
                           >
                             {index + 1}. {item.title}
@@ -382,7 +384,7 @@ export default function TaskScreen() {
             ) : null}
             {canManage ? (
               <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => setManageOpen(false)}>
-                <View style={styles.modalBackdrop}><View style={styles.modalSheet}><View style={styles.sectionHead}><ThemedText type="h2">Участники и исполнители</ThemedText><Button size="sm" variant="ghost" onPress={() => setManageOpen(false)}>Закрыть</Button></View><Card>
+                <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, { backgroundColor: theme.surface }]}><View style={styles.sectionHead}><ThemedText type="h2">Участники и исполнители</ThemedText><Button size="sm" variant="ghost" onPress={() => setManageOpen(false)}>Закрыть</Button></View><Card>
                   <ThemedText type="h2">Участники задачи</ThemedText>
                   <ThemedText type="small">
                     Кто имеет доступ к этой задаче
@@ -541,7 +543,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 120 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   addRow: { gap: spacing.md },
-  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay },
-  modalSheet: { maxHeight: "90%", backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
-  completed: { textDecorationLine: "line-through", color: colors.textMuted },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", padding: 0 },
+  modalSheet: { maxHeight: "90%", padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+  completed: { textDecorationLine: "line-through" },
 });

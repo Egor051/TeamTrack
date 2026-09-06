@@ -24,11 +24,13 @@ import {
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeEvent, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
-import { colors, layout, spacing } from "@/components/ui/theme";
+import { layout, spacing } from "@/components/ui/theme";
+import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
 
 export default function ProjectScreen() {
+  const { colors: theme } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const user = useUser();
   const [project, setProject] = useState<ProjectWithRole | null>(null);
@@ -175,7 +177,7 @@ export default function ProjectScreen() {
           <RefreshControl
             refreshing={loading}
             onRefresh={load}
-            tintColor={colors.primary}
+            tintColor={theme.primary}
           />
         }
         contentContainerStyle={styles.content}

@@ -1,7 +1,6 @@
 import { StyleSheet, ActivityIndicator, View } from 'react-native';
 import { ThemedView } from '@/components/ui/view';
 import { ThemedText } from '@/components/ui/text';
-import { colors } from '@/components/ui/theme';
 import { useTheme } from './theme-provider';
 
 export function LoadingScreen({
@@ -31,7 +30,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   indicator: {
     flexDirection: 'column',
@@ -39,7 +37,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   text: {
-    color: colors.textSecondary,
     fontSize: 14,
   },
 });

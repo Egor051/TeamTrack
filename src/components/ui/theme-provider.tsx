@@ -27,7 +27,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const background = resolved === 'dark' ? darkColors.background : lightColors.background;
     if (Platform.OS === 'web') {
       document.documentElement.style.backgroundColor = background;
+      document.documentElement.style.minHeight = '100%';
       document.body.style.backgroundColor = background;
+      document.body.style.minHeight = '100%';
+      // Expo web mounts the React tree in #root. Its inline/native-web styles
+      // can otherwise leave a light surface behind a dark Screen.
+      const roots = Array.from(document.querySelectorAll<HTMLElement>('#root, body > div'));
+      roots.forEach((root) => {
+        root.style.backgroundColor = background;
+        root.style.minHeight = '100%';
+      });
       document.body.style.setProperty('color-scheme', resolved);
       return;
     }

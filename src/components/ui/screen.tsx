@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 import { StyleSheet, ScrollView, View, KeyboardAvoidingView, Platform, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/ui/view';
-import { colors, layout, spacing } from '@/components/ui/theme';
+import { layout, spacing } from '@/components/ui/theme';
 import { useTheme } from './theme-provider';
 
 /**
@@ -61,10 +61,7 @@ export function Screen({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
+  container: { flex: 1 },
   content: {
     flex: 1,
     width: '100%',

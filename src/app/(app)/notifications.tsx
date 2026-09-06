@@ -11,11 +11,13 @@ import { ThemedText } from '@/components/ui/text';
 import { useUser } from '@/features/auth/AuthProvider';
 import { fetchNotifications, markAllAsRead, markAsRead, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
 import { userMessage } from '@/lib/errors/user-message';
-import { colors, layout, spacing } from '@/components/ui/theme';
+import { layout, spacing } from '@/components/ui/theme';
+import { useTheme } from '@/components/ui/theme-provider';
 
 const PAGE_SIZE = 100;
 
 export default function NotificationsScreen() {
+  const { colors: theme } = useTheme();
   const user = useUser();
   const [items, setItems] = useState<Notification[]>([]);
   const [error, setError] = useState('');
@@ -105,10 +107,10 @@ export default function NotificationsScreen() {
   }
 
   return <Screen padded={false} centerContent={false}>
-    <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <PageHeader title="Уведомления" onBack={() => router.back()} actions={items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" onPress={() => void allRead()}>Прочитать все</Button> : null} />
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к задачам и изменениях чек-листа." /> : <View style={styles.list}>
-        {items.map((item) => <Card key={item.id} style={!item.is_read ? styles.readCard : undefined}>
+        {items.map((item) => <Card key={item.id} style={!item.is_read ? [styles.readCard, { borderColor: theme.primary }] : undefined}>
           <Pressable onPress={() => void read(item)} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${item.title}`} style={styles.pressableContent}>
             <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{item.title}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
             <ThemedText>{item.body}</ThemedText>
@@ -122,4 +124,4 @@ export default function NotificationsScreen() {
   </Screen>;
 }
 
-const styles = StyleSheet.create({ content: { width: '100%', maxWidth: layout.readingMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg }, list: { gap: spacing.md }, header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, flex: { flex: 1 }, readCard: { borderColor: colors.primary, borderLeftWidth: 4 }, pressableContent: { gap: spacing.sm } });
+const styles = StyleSheet.create({ content: { width: '100%', maxWidth: layout.readingMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg }, list: { gap: spacing.md }, header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, flex: { flex: 1 }, readCard: { borderLeftWidth: 4 }, pressableContent: { gap: spacing.sm } });

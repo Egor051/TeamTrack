@@ -54,7 +54,14 @@ export async function listProjects(status: 'active' | 'archived' = 'active'): Pr
     return query;
   });
   if (!projects.length) return [];
-  const memberships = (await Promise.all(chunks(projects.map((p) => p.id)).map(async (ids) => requireData(await supabase.from('project_members').select('project_id, role').in('project_id', ids))))).flat();
+  const { data: userData, error: userError } = await getCurrentUser();
+  if (userError || !userData.user) throw new Error('Требуется авторизация.');
+  // The role must ALWAYS be the current user's own membership row — never some
+  // other member's role that happens to be returned first. Without this filter,
+  // adding a second member flips the project role in the UI to that member's role.
+  const memberships = (
+    await Promise.all(chunks(projects.map((p) => p.id)).map(async (ids) => requireData(await supabase.from('project_members').select('project_id, role').in('project_id', ids).eq('user_id', userData.user.id))))
+  ).flat();
   const roles = new Map(memberships.map((m) => [m.project_id, m.role]));
   return projects.flatMap((p) => {
     const role = roles.get(p.id);
@@ -66,10 +73,32 @@ export async function listProjects(status: 'active' | 'archived' = 'active'): Pr
  * Projects owned by the current user, active ones first (archived follow).
  * Used by the ownership transfer UI — transfer is only possible while a
  * project is active, but archived owned projects are still listed for context.
+ *
+ * Ownership is derived directly from the current user's project_members row
+ * with role='owner' — it must never depend on how many (or which) other
+ * members the project has. Adding a second/third member therefore cannot make
+ * an owned project disappear from this list.
  */
 export async function listOwnedProjects(): Promise<ProjectWithRole[]> {
-  const [active, archived] = await Promise.all([listProjects('active'), listProjects('archived')]);
-  return [...active, ...archived].filter((project) => project.role === 'owner');
+  const { data: userData, error: userError } = await getCurrentUser();
+  if (userError || !userData.user) throw new Error('Требуется авторизация.');
+  const owned = await fetchAll<{ project_id: string }>((from, to) =>
+    supabase.from('project_members').select('project_id').eq('user_id', userData.user.id).eq('role', 'owner').range(from, to),
+  );
+  const ids = [...new Set(owned.map((row) => row.project_id))];
+  if (!ids.length) return [];
+  const projects = (
+    await Promise.all(chunks(ids).map((chunk) => fetchAll<Project>((from, to) => supabase.from('projects').select('*').in('id', chunk).order('created_at', { ascending: false }).range(from, to))))
+  ).flat();
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const active: ProjectWithRole[] = [];
+  const archived: ProjectWithRole[] = [];
+  for (const projectId of ids) {
+    const project = byId.get(projectId);
+    if (!project) continue; // RLS-hidden or deleted — skip defensively
+    (project.status === 'archived' ? archived : active).push({ ...project, role: 'owner' });
+  }
+  return [...active, ...archived];
 }
 
 export async function getProject(projectId: string): Promise<ProjectWithRole> {

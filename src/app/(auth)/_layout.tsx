@@ -7,9 +7,11 @@
 import { Redirect, Stack, usePathname } from "expo-router";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { LoadingScreen } from "@/components/ui/loading-screen";
+import { useTheme } from "@/components/ui/theme-provider";
 
 export default function AuthGroupLayout() {
   const { state } = useAuth();
+  const { colors } = useTheme();
   const pathname = usePathname();
 
   if (state.isLoading) {
@@ -22,5 +24,5 @@ export default function AuthGroupLayout() {
     return <Redirect href="/projects" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />;
 }
