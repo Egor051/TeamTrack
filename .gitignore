@@ -51,3 +51,5 @@ supabase/.branches/
 # Local MCP credentials/overrides
 .vscode/
 .roo/
+
+.vercel
