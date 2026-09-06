@@ -9,7 +9,7 @@
 // client in src/lib/supabase/client.ts. Do not hand-edit the generated file.
 //
 // Environment (see `.env`):
-//   SUPABASE_DB_URL        — direct Postgres connection string (default path)
+//   SUPABASE_DB_URL        — local direct URL or hosted Supavisor session URL
 //   SUPABASE_PROJECT_ID    — hosted project ref (requires `supabase link`)
 //
 // Examples:
@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertTypeGenerationDatabaseUrl } from './db-url-policy.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outFile = resolve(root, 'src/types/database.types.ts');
@@ -80,9 +81,7 @@ function main() {
     }
     stdout = run('--schema', 'public', '--project-id', projectId);
   } else {
-    if (!dbUrl || !dbUrl.includes('postgres')) {
-      throw new Error('SUPABASE_DB_URL is not set (see .env.example).');
-    }
+    assertTypeGenerationDatabaseUrl(dbUrl);
     stdout = run('--schema', 'public', '--db-url', dbUrl);
   }
 

@@ -42,7 +42,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && npm run lint && npm run test:unit",
+    "check:db": "node scripts/check-db-connections.mjs",
+    "test": "npm run check:db && npm run typecheck && npm run lint && npm run test:unit",
     "test:unit": "vitest run",
     "test:sql": "node scripts/run-sql-tests.mjs",
     "gen:types": "node scripts/gen-types.mjs"

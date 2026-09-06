@@ -14,6 +14,9 @@ const run = (args) => {
 };
 
 function runInLocalPostgres(file) {
+  // This is a local native-Postgres test harness. Hosted application/admin
+  // traffic uses the Supabase pooler; migrations and local SQL tests are the
+  // documented direct-connection exception.
   const lookup = spawnSync('docker', ['ps', '--filter', 'name=supabase_db_', '--format', '{{.Names}}'], {
     cwd: root,
     encoding: 'utf8',

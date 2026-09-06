@@ -111,9 +111,15 @@ EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR_PUBLIC_ANON_OR_PUBLISHABLE_KEY
 
 # Только локальные/server-side инструменты. В bundle они не попадают.
-SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+SUPABASE_DB_URL=<set only in ignored .env>
 SUPABASE_PROJECT_ID=YOUR_PROJECT_REF
 ```
+
+`SUPABASE_DB_URL` для локального `gen:types` намеренно указывает на direct
+порт `54322`: это локальная native-операция Supabase CLI. Для hosted
+подключения используйте Supavisor session mode (`*.pooler.supabase.com:5432`;
+`sslmode=require`) либо `--project-id`/linked CLI. Hosted direct endpoint и
+transaction mode для этого CLI-пути блокируются проверкой репозитория.
 
 Правила безопасности:
 
@@ -370,8 +376,10 @@ npm run gen:types
 npm run gen:types -- --project-id
 ```
 
-Первый вариант использует `SUPABASE_DB_URL`, второй —
-`SUPABASE_PROJECT_ID` и авторизацию Supabase CLI. После генерации проверяйте
+Первый вариант использует локальный direct URL или проверенный hosted pooler
+URL, второй — `SUPABASE_PROJECT_ID` и авторизацию Supabase CLI. Linked CLI
+проект TaskTrace сейчас использует `aws-0-eu-central-1.pooler.supabase.com:5432`
+(Supavisor session mode). После генерации проверяйте
 `git diff src/types/database.types.ts` и не коммитьте случайные типы от другой
 схемы или окружения.
 
