@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { spacing } from '@/components/ui/theme';
-import { listProjects, listProjectMembers, transferProjectOwnership, type ProjectWithRole, type ProjectMember } from '@/features/projects/projects';
+import { listOwnedProjects, listProjectMembers, transferProjectOwnership, type ProjectWithRole, type ProjectMember } from '@/features/projects/projects';
 import { userMessage } from '@/lib/errors/user-message';
 import { useTheme, type ThemeMode } from '@/components/ui/theme-provider';
 
@@ -37,14 +37,27 @@ export default function ProfileScreen() {
     if (!userId) { setOwned([]); return; }
     const request = ++ownedRequestRef.current;
     setOwnedLoading(true); setError('');
-    try { const projects = await listProjects(true); if (request === ownedRequestRef.current) setOwned(projects.filter((project) => project.role === 'owner')); }
+    try { const projects = await listOwnedProjects(); if (request === ownedRequestRef.current) setOwned(projects); }
     catch (e) { if (request === ownedRequestRef.current) setError(userMessage(e, 'Не удалось загрузить проекты владельца.')); }
     finally { if (request === ownedRequestRef.current) setOwnedLoading(false); }
   }, [userId]);
 
   useFocusEffect(useCallback(() => { void loadOwned(); return () => { ownedRequestRef.current += 1; }; }, [loadOwned]));
 
-  async function openTransfer(project: ProjectWithRole) { setSelected(project); setTarget(null); try { const next = await listProjectMembers(project.id); setMembers(next.filter((member) => member.role !== 'owner')); } catch (e) { setError(userMessage(e, 'Не удалось загрузить участников проекта.')); } }
+  async function openTransfer(project: ProjectWithRole) {
+    setSelected(project); setTarget(null);
+    try {
+      const next = await listProjectMembers(project.id);
+      // Candidates: every approved member of this project except the current
+      // owner and yourself, deduplicated, in a stable joined_at order.
+      const seen = new Set<string>();
+      setMembers(next.filter((member) => {
+        if (member.role === 'owner' || member.user_id === userId || seen.has(member.user_id)) return false;
+        seen.add(member.user_id);
+        return true;
+      }));
+    } catch (e) { setError(userMessage(e, 'Не удалось загрузить участников проекта.')); }
+  }
   async function save() { setBusy(true); setError(''); try { await updateProfile(name); setEditing(false); } catch (e) { setError(userMessage(e, 'Не удалось сохранить ник.')); } finally { setBusy(false); } }
   async function transfer() { if (!selected || !target) return; setBusy(true); setError(''); try { await transferProjectOwnership(selected.id, target.user_id); setConfirm(false); setSelected(null); setTarget(null); await loadOwned(); } catch (e) { setError(userMessage(e, 'Не удалось передать владение.')); } finally { setBusy(false); } }
   async function logout() { setBusy(true); setError(''); try { await signOut(); setOwned([]); } catch (e) { setError(userMessage(e, 'Не удалось завершить сеанс.')); } finally { setBusy(false); } }
@@ -53,7 +66,7 @@ export default function ProfileScreen() {
     <PageHeader title="Профиль" onBack={() => router.back()} />
     <Card><View style={[styles.avatar, { backgroundColor: theme.colors.primarySoft }]}><ThemedText type="h1">{(state.profile?.display_name || state.user?.email || '?').slice(0, 1).toUpperCase()}</ThemedText></View>{editing ? <><Input label="Ник" value={name} onChangeText={setName} autoFocus /><View style={styles.actions}><Button loading={busy} disabled={busy || !name.trim()} onPress={() => void save()}>Сохранить</Button><Button variant="outline" disabled={busy} onPress={() => { setEditing(false); setName(state.profile?.display_name || ''); }}>Отмена</Button></View></> : <><ThemedText type="h2">{state.profile?.display_name || 'Пользователь'}</ThemedText><Button size="sm" variant="outline" onPress={() => setEditing(true)}>Изменить ник</Button></>}<ThemedText type="small">{state.user?.email}</ThemedText><Badge tone="success">Аккаунт активен</Badge></Card>
     <Card><ThemedText type="h2">Тема</ThemedText><View style={styles.actions}>{(['light', 'dark', 'system'] as ThemeMode[]).map((mode) => <Button key={mode} size="sm" variant={theme.mode === mode ? 'primary' : 'outline'} onPress={() => theme.setMode(mode)}>{mode === 'light' ? 'Светлая' : mode === 'dark' ? 'Тёмная' : 'Системная'}</Button>)}</View></Card>
-    <Card><ThemedText type="h2">Передача владения</ThemedText><ThemedText type="small">Выберите проект и нового владельца из его участников.</ThemedText>{ownedLoading ? <LoadingState label="Загружаем проекты владельца..." /> : owned.length === 0 ? <EmptyState title="Нет проектов для передачи" description="Вы не являетесь владельцем ни одного проекта." /> : <View style={styles.projectList}>{owned.map((project) => <Button key={project.id} size="sm" variant={selected?.id === project.id ? 'primary' : 'outline'} onPress={() => void openTransfer(project)}>{project.name}{project.status === 'archived' ? ' · архив' : ''}</Button>)}</View>}{selected ? <><ThemedText type="h3">Новый владелец</ThemedText><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actions}>{members.map((member) => <Button key={member.user_id} size="sm" variant={target?.user_id === member.user_id ? 'primary' : 'outline'} onPress={() => setTarget(member)}>{member.profile?.display_name || member.user_id.slice(0, 8)}</Button>)}</ScrollView><Button variant="destructive" disabled={!target || busy} onPress={() => setConfirm(true)}>Передать владение</Button></> : null}</Card>
+    <Card><ThemedText type="h2">Передача владения</ThemedText><ThemedText type="small">Выберите активный проект и нового владельца из его участников.</ThemedText>{ownedLoading ? <LoadingState label="Загружаем проекты владельца..." /> : owned.length === 0 ? <EmptyState title="Нет проектов для передачи" description="Вы не являетесь владельцем ни одного проекта." /> : <View style={styles.projectList}>{owned.map((project) => <Button key={project.id} size="sm" variant={selected?.id === project.id ? 'primary' : 'outline'} onPress={() => void openTransfer(project)}>{project.name}{project.status === 'archived' ? ' · архив' : ''}</Button>)}</View>}{selected ? <>{selected.status === 'archived' ? <ThemedText type="small">Проект в архиве — сначала восстановите его, чтобы передать владение.</ThemedText> : null}<ThemedText type="h3">Новый владелец</ThemedText>{members.length === 0 ? <EmptyState title="Нет других участников" description="Добавьте участников в проект, чтобы передать владение." /> : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actions}>{members.map((member) => <Button key={member.user_id} size="sm" variant={target?.user_id === member.user_id ? 'primary' : 'outline'} onPress={() => setTarget(member)}>{member.profile?.display_name || member.user_id.slice(0, 8)}</Button>)}</ScrollView>}<Button variant="destructive" disabled={!target || busy || selected.status === 'archived'} onPress={() => setConfirm(true)}>Передать владение</Button></> : null}</Card>
     {error ? <ErrorMessage message={error} type="auth" /> : null}<Button variant="destructive" loading={busy} disabled={busy} onPress={logout}>Выйти</Button>
     <ConfirmDialog visible={confirm} title="Передать владение проектом?" description={`Проект «${selected?.name || ''}» перейдёт выбранному участнику. Вы больше не будете владельцем.`} confirmLabel="Передать" busy={busy} onCancel={() => setConfirm(false)} onConfirm={() => void transfer()} />
   </Screen>;

@@ -47,10 +47,10 @@ function chunks<T>(values: T[], size = 100): T[][] {
   return result;
 }
 
-export async function listProjects(includeArchived = false): Promise<ProjectWithRole[]> {
+export async function listProjects(status: 'active' | 'archived' = 'active'): Promise<ProjectWithRole[]> {
   const projects = await fetchAll<Project>((from, to) => {
     let query = supabase.from('projects').select('*').order('created_at', { ascending: false }).range(from, to);
-    query = includeArchived ? query.eq('status', 'archived') : query.eq('status', 'active');
+    query = query.eq('status', status);
     return query;
   });
   if (!projects.length) return [];
@@ -60,6 +60,16 @@ export async function listProjects(includeArchived = false): Promise<ProjectWith
     const role = roles.get(p.id);
     return role ? [{ ...p, role }] : [];
   });
+}
+
+/**
+ * Projects owned by the current user, active ones first (archived follow).
+ * Used by the ownership transfer UI — transfer is only possible while a
+ * project is active, but archived owned projects are still listed for context.
+ */
+export async function listOwnedProjects(): Promise<ProjectWithRole[]> {
+  const [active, archived] = await Promise.all([listProjects('active'), listProjects('archived')]);
+  return [...active, ...archived].filter((project) => project.role === 'owner');
 }
 
 export async function getProject(projectId: string): Promise<ProjectWithRole> {
@@ -144,11 +154,17 @@ export async function listTaskAudit(projectId: string, taskId: string): Promise<
 
 export async function listProjectMembers(projectId: string): Promise<ProjectMember[]> {
   assertUuid(projectId, 'project id');
-  const members = await fetchAll<{ user_id: string; role: ProjectRole; joined_at: string }>((from, to) => supabase.from('project_members').select('user_id, role, joined_at').eq('project_id', projectId).order('joined_at').range(from, to));
+  const members = await fetchAll<{ user_id: string; role: ProjectRole; joined_at: string }>((from, to) => supabase.from('project_members').select('user_id, role, joined_at').eq('project_id', projectId).order('joined_at', { ascending: true }).order('user_id', { ascending: true }).range(from, to));
   if (!members.length) return [];
   const profiles = (await Promise.all(chunks(members.map((m) => m.user_id)).map((ids) => fetchAll<Profile>((from, to) => supabase.from('profiles').select('*').in('id', ids).range(from, to))))).flat();
   const byId = new Map(profiles.map((p) => [p.id, p]));
-  return members.map((m) => ({ ...m, profile: byId.get(m.user_id) ?? null }));
+  // Deduplicate by user id (defensive) and keep the stable joined_at order.
+  const seen = new Set<string>();
+  return members.flatMap((m) => {
+    if (seen.has(m.user_id)) return [];
+    seen.add(m.user_id);
+    return [{ ...m, profile: byId.get(m.user_id) ?? null }];
+  });
 }
 export async function transferProjectOwnership(projectId: string, userId: string) { assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('transfer_project_ownership', { p_project_id: projectId, p_new_owner_id: userId })); }
 
