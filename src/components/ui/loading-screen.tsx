@@ -2,6 +2,7 @@ import { StyleSheet, ActivityIndicator, View } from 'react-native';
 import { ThemedView } from '@/components/ui/view';
 import { ThemedText } from '@/components/ui/text';
 import { colors } from '@/components/ui/theme';
+import { useTheme } from './theme-provider';
 
 export function LoadingScreen({
   visible = true,
@@ -10,11 +11,12 @@ export function LoadingScreen({
   visible?: boolean;
   text?: string;
 } = {}) {
+  const { colors: theme } = useTheme();
   return (
     <ThemedView style={styles.container}>
       {visible && (
         <View style={styles.indicator}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={theme.primary} />
           <ThemedText type="small" style={styles.text}>
             {text}
           </ThemedText>

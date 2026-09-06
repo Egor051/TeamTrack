@@ -150,6 +150,7 @@ export async function listProjectMembers(projectId: string): Promise<ProjectMemb
   const byId = new Map(profiles.map((p) => [p.id, p]));
   return members.map((m) => ({ ...m, profile: byId.get(m.user_id) ?? null }));
 }
+export async function transferProjectOwnership(projectId: string, userId: string) { assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('transfer_project_ownership', { p_project_id: projectId, p_new_owner_id: userId })); }
 
 export async function createProject(name: string, description?: string) {
   return requireData(await supabase.rpc('create_project', { p_name: name, ...(description ? { p_description: description } : {}) }));

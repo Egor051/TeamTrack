@@ -41,12 +41,10 @@ export function subscribeTable(table: string, options: SubscriptionOptions) {
     const event = asRealtimeEvent(payload);
     if (active && event) options.onEvent(event);
   };
-  // Supabase cannot apply RLS to DELETE events because the deleted row is no
-  // longer queryable. Never subscribe to DELETE on client-visible channels;
-  // mutations refetch current state after the authenticated RPC completes.
   const change = { schema: 'public' as const, table, ...(filter ? { filter } : {}) };
   channel.on('postgres_changes', { ...change, event: 'INSERT' }, handlePayload);
   channel.on('postgres_changes', { ...change, event: 'UPDATE' }, handlePayload);
+  channel.on('postgres_changes', { ...change, event: 'DELETE' }, handlePayload);
   channel.subscribe((status, err) => {
     if (!active) return;
     if (status === 'SUBSCRIBED') options.onStatus?.('connected');

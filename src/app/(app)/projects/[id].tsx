@@ -16,6 +16,7 @@ import {
   getProject,
   listTasksWithStats,
   archiveProject,
+  hardDeleteProject,
   restoreProject,
   updateProject,
   type ProjectWithRole,
@@ -37,6 +38,7 @@ export default function ProjectScreen() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -148,6 +150,7 @@ export default function ProjectScreen() {
       setBusy(false);
     }
   }
+  async function hardDelete() { setBusy(true); try { await hardDeleteProject(id!); setHardDeleteConfirm(false); router.replace('/projects' as never); } catch (e) { setError(userMessage(e, 'Не удалось удалить проект навсегда.')); } finally { setBusy(false); } }
   async function save() {
     setBusy(true);
     try {
@@ -360,9 +363,7 @@ export default function ProjectScreen() {
         {project &&
         (project.role === "owner" || project.role === "admin") &&
         project.status === "archived" ? (
-          <Button onPress={() => void restore()} disabled={busy}>
-            Восстановить проект
-          </Button>
+          <View style={styles.actions}><Button onPress={() => void restore()} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
         ) : null}
       </ScrollView>
       <ConfirmDialog
@@ -374,6 +375,7 @@ export default function ProjectScreen() {
         onCancel={() => setConfirm(false)}
         onConfirm={() => void archive()}
       />
+      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить проект навсегда?" description="Проект, архивные задачи и связанные данные будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
     </Screen>
   );
 }

@@ -1,5 +1,6 @@
 import { StyleSheet, View, ViewProps } from 'react-native';
 import { colors, radii, shadows } from '@/components/ui/theme';
+import { useTheme } from './theme-provider';
 
 /**
  * ThemedView — container with theme-aware background and optional border.
@@ -15,8 +16,9 @@ export function ThemedView({
   children,
   ...rest
 }: ThemedViewProps) {
+  const { colors: theme } = useTheme();
   const viewStyle = [styles[type], style];
-  return <View style={viewStyle} {...rest}>{children}</View>;
+  return <View style={[viewStyle, type === 'default' && { backgroundColor: theme.background }, type === 'card' && { backgroundColor: theme.surface, borderColor: theme.border }, type === 'backgroundElement' && { backgroundColor: theme.surfaceMuted }, type === 'input' && { backgroundColor: theme.surface, borderColor: theme.border }]} {...rest}>{children}</View>;
 }
 
 const styles = StyleSheet.create({

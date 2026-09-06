@@ -20,6 +20,7 @@ import {
   createTaskItem,
   updateTaskItem,
   archiveTaskItem,
+  hardDeleteTaskItem,
   setTaskItemState,
   listProjectMembers,
   listTaskMembers,
@@ -29,6 +30,7 @@ import {
   approveTaskMember,
   revokeTaskMember,
   archiveTask,
+  hardDeleteTask,
   restoreTask,
   type Task,
   type TaskItem,
@@ -51,6 +53,9 @@ export default function TaskScreen() {
   const [taskMembers, setTaskMembers] = useState<TaskMember[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
+  const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
+  const [showArchivedItems, setShowArchivedItems] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<TaskItem | null>(null);
   const [title, setTitle] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -80,7 +85,7 @@ export default function TaskScreen() {
       ] = await Promise.all([
         getTask(taskId, id),
         getProject(id),
-        listTaskItems(taskId),
+        listTaskItems(taskId, showArchivedItems),
         listProjectMembers(id),
         listTaskMembers(taskId),
         listTaskAssignees(taskId),
@@ -104,7 +109,7 @@ export default function TaskScreen() {
         setError(userMessage(e, "Нет доступа к задаче."));
       }
     }
-  }, [id, taskId]);
+  }, [id, taskId, showArchivedItems]);
 
   useFocusEffect(
     useCallback(() => {
@@ -179,6 +184,7 @@ export default function TaskScreen() {
     setConfirm(null);
     await run(action);
   }
+  async function hardDelete() { await run(async () => { await hardDeleteTask(taskId); setHardDeleteConfirm(false); router.back(); }); }
 
   const canManage =
     (project?.role === "owner" || project?.role === "admin") &&
@@ -243,7 +249,7 @@ export default function TaskScreen() {
             </Card>
             <View style={styles.sectionHead}>
               <ThemedText type="h2">Чек-лист</ThemedText>
-              <View style={styles.actions}><Button size="sm" variant="outline" onPress={() => setManageOpen(true)} disabled={!canManage}>Участники и исполнители</Button><Button
+              <View style={styles.actions}>{canManage ? <Button size="sm" variant="outline" onPress={() => setShowArchivedItems((value) => !value)}>{showArchivedItems ? 'Скрыть архив' : 'Показать архив'}</Button> : null}<Button size="sm" variant="outline" onPress={() => setManageOpen(true)} disabled={!canManage}>Участники и исполнители</Button><Button
                 size="sm"
                 variant="outline"
                 onPress={() =>
@@ -316,6 +322,8 @@ export default function TaskScreen() {
                           Отмена
                         </Button>
                       </View>
+                    ) : item.is_archived && canManage ? (
+                      <View style={styles.actions}><Badge tone="neutral">В архиве</Badge><Button size="sm" variant="destructive" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить навсегда</Button></View>
                     ) : canManage ? (
                       <View style={styles.actions}>
                         <Button
@@ -486,13 +494,7 @@ export default function TaskScreen() {
               </>
             ) : null}
             {canRestore ? (
-              <Button
-                disabled={busy}
-                loading={busy}
-                onPress={() => void run(() => restoreTask(taskId))}
-              >
-                Восстановить задачу
-              </Button>
+              <View style={styles.actions}><Button disabled={busy} loading={busy} onPress={() => void run(() => restoreTask(taskId))}>Восстановить задачу</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View>
             ) : null}
           </>
         )}
@@ -506,6 +508,8 @@ export default function TaskScreen() {
         onCancel={() => setConfirm(null)}
         onConfirm={() => void confirmAction()}
       />
+      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить задачу навсегда?" description="Архивная задача и её чек-лист будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
+      <ConfirmDialog visible={Boolean(itemToDelete)} title="Удалить пункт навсегда?" description="Архивный пункт чек-листа будет удалён без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setItemToDelete(null)} onConfirm={() => void run(async () => { if (itemToDelete) await hardDeleteTaskItem(itemToDelete.id); setItemToDelete(null); })} />
     </Screen>
   );
 }

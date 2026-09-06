@@ -3,6 +3,7 @@ import { StyleSheet, ScrollView, View, KeyboardAvoidingView, Platform, type Styl
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/ui/view';
 import { colors, layout, spacing } from '@/components/ui/theme';
+import { useTheme } from './theme-provider';
 
 /**
  * Screen — base layout for auth pages.
@@ -31,6 +32,7 @@ export function Screen({
   maxWidth = layout.appMaxWidth,
   contentStyle,
 }: ScreenProps) {
+  const { colors: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const safePadding = { paddingBottom: insets.bottom + spacing.lg };
   const content = scrollable ? (
@@ -47,7 +49,7 @@ export function Screen({
   );
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={[styles.container, { backgroundColor: theme.background }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}
