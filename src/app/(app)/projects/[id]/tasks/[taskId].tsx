@@ -198,6 +198,24 @@ export default function TaskScreen() {
   }
   async function hardDelete() { await run(async () => { await hardDeleteTask(taskId); setHardDeleteConfirm(false); router.back(); }); }
 
+  function validateTaskEdit(): string | null {
+    const nextTitle = editTaskTitle.trim();
+    if (!nextTitle) return "Введите название задачи.";
+    if (nextTitle.length > 500) return "Название задачи не должно быть длиннее 500 символов.";
+    if (editTaskDescription.length > 10000) return "Описание задачи не должно быть длиннее 10000 символов.";
+    return null;
+  }
+
+  function savePercentage(item: TaskItem) {
+    const raw = editPercentage[item.id] ?? String(item.percentage);
+    const value = Number(raw);
+    if (!/^\d{1,3}$/.test(raw) || !Number.isInteger(value) || value < 0 || value > 100) {
+      setError("Процент должен быть целым числом от 0 до 100.");
+      return;
+    }
+    void run(() => setTaskItemPercentage(item.id, value));
+  }
+
   const canManage =
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
@@ -210,7 +228,8 @@ export default function TaskScreen() {
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
     task?.status === "archived";
-  const progress = items.length ? items.reduce((sum, item) => sum + item.percentage, 0) / items.length : 0;
+  const activeItems = items.filter((item) => !item.is_archived);
+  const progress = activeItems.length ? activeItems.reduce((sum, item) => sum + item.percentage, 0) / activeItems.length : 0;
 
   return (
     <Screen padded={false} centerContent={false}>
@@ -254,17 +273,17 @@ export default function TaskScreen() {
         ) : (
           <>
             {taskEditing ? <Card>
-              <Input label="Название" value={editTaskTitle} onChangeText={setEditTaskTitle} placeholder="Название задачи" />
-              <Textarea label="Описание" value={editTaskDescription} onChangeText={setEditTaskDescription} placeholder="Описание задачи" />
+              <Input label="Название" value={editTaskTitle} onChangeText={setEditTaskTitle} maxLength={500} placeholder="Название задачи" />
+              <Textarea label="Описание" value={editTaskDescription} onChangeText={setEditTaskDescription} maxLength={10000} placeholder="Описание задачи" />
               <View style={styles.actions}>
-                <Button disabled={busy || !editTaskTitle.trim()} onPress={() => void run(async () => { await updateTask(task.id, editTaskTitle.trim(), editTaskDescription); setTaskEditing(false); })}>Сохранить</Button>
+                <Button disabled={busy || !editTaskTitle.trim()} onPress={() => { const validation = validateTaskEdit(); if (validation) { setError(validation); return; } void run(async () => { await updateTask(task.id, editTaskTitle.trim(), editTaskDescription); setTaskEditing(false); }); }}>Сохранить</Button>
                 <Button variant="ghost" disabled={busy} onPress={() => setTaskEditing(false)}>Отмена</Button>
               </View>
             </Card> : null}
             <Card>
               <Progress
                 value={progress}
-                label={`Прогресс · среднее по ${items.length} пунктам`}
+                label={`Прогресс · среднее по ${activeItems.length} активным пунктам`}
               />
             </Card>
             <View style={styles.sectionHead}>
@@ -324,11 +343,11 @@ export default function TaskScreen() {
                     </View>
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
                       <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={2000} placeholder="Необязательно" />
-                      <View style={styles.actions}><Button size="sm" disabled={busy} onPress={() => void run(async () => { await setTaskItemComment(item.id, editComment); setCommentEditing(null); })}>Сохранить</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
+                      <View style={styles.actions}><Button size="sm" disabled={busy || editComment.length > 2000} onPress={() => void run(async () => { await setTaskItemComment(item.id, editComment); setCommentEditing(null); })}>Сохранить</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
                     </View> : null}
                     {canEdit && !item.is_archived ? <View style={styles.progressEditor}>
-                      <Input label="Процент" value={editPercentage[item.id] ?? String(item.percentage)} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value.replace(/[^0-9]/g, '').slice(0, 3) }))} keyboardType="numeric" />
-                      <Button size="sm" disabled={busy} onPress={() => void run(async () => { const value = Number(editPercentage[item.id] ?? item.percentage); await setTaskItemPercentage(item.id, value); })}>Обновить %</Button>
+                      <Input label="Процент" value={editPercentage[item.id] ?? String(item.percentage)} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value.replace(/[^0-9]/g, '').slice(0, 3) }))} keyboardType="numeric" maxLength={3} />
+                      <Button size="sm" disabled={busy} onPress={() => savePercentage(item)}>Обновить %</Button>
                     </View> : null}
                     {editing === item.id ? (
                       <View style={styles.actions}>
@@ -367,6 +386,9 @@ export default function TaskScreen() {
                         >
                           Изменить
                         </Button>
+                        <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setCommentEditing(item.id); setEditComment(item.comment || ""); }}>
+                          {item.comment ? "Изменить комментарий" : "Добавить комментарий"}
+                        </Button>
                         {canManage ? <Button
                           size="sm"
                           variant="ghost"
@@ -383,7 +405,7 @@ export default function TaskScreen() {
                           Архив
                         </Button> : null}
                       </View>
-                    ) : canEdit ? <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setCommentEditing(item.id); setEditComment(item.comment || ""); }}>Комментарий</Button> : null}
+                    ) : null}
                   </Card>
                 ))}
               </View>

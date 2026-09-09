@@ -18,7 +18,7 @@ export type Database = {
           id: number
           new_data: Json | null
           old_data: Json | null
-          project_id: string
+          project_id: string | null
           user_id: string | null
         }
         Insert: {
@@ -29,7 +29,7 @@ export type Database = {
           id?: never
           new_data?: Json | null
           old_data?: Json | null
-          project_id: string
+          project_id?: string | null
           user_id?: string | null
         }
         Update: {
@@ -40,18 +40,10 @@ export type Database = {
           id?: never
           new_data?: Json | null
           old_data?: Json | null
-          project_id?: string
+          project_id?: string | null
           user_id?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "audit_log_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       item_actions: {
         Row: {
@@ -81,43 +73,7 @@ export type Database = {
           task_item_id?: string
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "item_actions_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "item_actions_task_id_fkey"
-            columns: ["task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "item_actions_task_id_project_id_fkey"
-            columns: ["task_id", "project_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id", "project_id"]
-          },
-          {
-            foreignKeyName: "item_actions_task_item_id_fkey"
-            columns: ["task_item_id"]
-            isOneToOne: false
-            referencedRelation: "task_items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "item_actions_task_item_id_task_id_fkey"
-            columns: ["task_item_id", "task_id"]
-            isOneToOne: false
-            referencedRelation: "task_items"
-            referencedColumns: ["id", "task_id"]
-          },
-        ]
+        Relationships: []
       }
       notifications: {
         Row: {
@@ -347,18 +303,6 @@ export type Database = {
           },
         ]
       }
-      task_template_items: {
-        Row: { id: string; template_id: string; title: string; description: string | null; position: number; created_at: string; updated_at: string }
-        Insert: { id?: string; template_id: string; title: string; description?: string | null; position: number; created_at?: string; updated_at?: string }
-        Update: { id?: string; template_id?: string; title?: string; description?: string | null; position?: number; created_at?: string; updated_at?: string }
-        Relationships: [{ foreignKeyName: "task_template_items_template_id_fkey"; columns: ["template_id"]; isOneToOne: false; referencedRelation: "task_templates"; referencedColumns: ["id"] }]
-      }
-      task_templates: {
-        Row: { id: string; name: string; description: string | null; created_by: string; status: Database["public"]["Enums"]["project_status"]; created_at: string; updated_at: string; archived_at: string | null }
-        Insert: { id?: string; name: string; description?: string | null; created_by: string; status?: Database["public"]["Enums"]["project_status"]; created_at?: string; updated_at?: string; archived_at?: string | null }
-        Update: { id?: string; name?: string; description?: string | null; created_by?: string; status?: Database["public"]["Enums"]["project_status"]; created_at?: string; updated_at?: string; archived_at?: string | null }
-        Relationships: []
-      }
       task_members: {
         Row: {
           approved_at: string
@@ -390,6 +334,74 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      task_template_items: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          position: number
+          template_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          position: number
+          template_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          position?: number
+          template_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_template_items_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "task_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      task_templates: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       tasks: {
         Row: {
@@ -473,9 +485,10 @@ export type Database = {
         Args: { p_task_item_id: string }
         Returns: undefined
       }
-      hard_delete_project: { Args: { p_project_id: string }; Returns: undefined }
-      hard_delete_task: { Args: { p_task_id: string }; Returns: undefined }
-      hard_delete_task_item: { Args: { p_task_item_id: string }; Returns: undefined }
+      archive_task_template: {
+        Args: { p_template_id: string }
+        Returns: undefined
+      }
       change_member_role: {
         Args: {
           p_new_role: Database["public"]["Enums"]["project_role"]
@@ -492,16 +505,15 @@ export type Database = {
         Args: { p_description?: string; p_project_id: string; p_title: string }
         Returns: string
       }
-      create_task_from_template: { Args: { p_description?: string | null; p_project_id: string; p_template_id: string; p_title?: string | null }; Returns: string }
-      create_task_template: { Args: { p_description?: string; p_name: string }; Returns: string }
-      update_task: { Args: { p_description: string; p_task_id: string; p_title: string }; Returns: undefined }
-      set_task_item_comment: { Args: { p_comment: string | null; p_task_item_id: string }; Returns: undefined }
-      set_task_item_percentage: { Args: { p_percentage: number; p_task_item_id: string }; Returns: number }
-      archive_task_template: { Args: { p_template_id: string }; Returns: undefined }
-      update_task_template: { Args: { p_description?: string; p_name: string; p_template_id: string }; Returns: undefined }
-      create_task_template_item: { Args: { p_description?: string; p_position?: number; p_template_id: string; p_title: string }; Returns: string }
-      update_task_template_item: { Args: { p_description?: string; p_item_id: string; p_position?: number; p_title: string }; Returns: undefined }
-      delete_task_template_item: { Args: { p_item_id: string }; Returns: undefined }
+      create_task_from_template: {
+        Args: {
+          p_description?: string
+          p_project_id: string
+          p_template_id: string
+          p_title?: string
+        }
+        Returns: string
+      }
       create_task_item: {
         Args: {
           p_description?: string
@@ -510,6 +522,57 @@ export type Database = {
           p_title: string
         }
         Returns: string
+      }
+      create_task_template: {
+        Args: { p_description?: string; p_name: string }
+        Returns: string
+      }
+      create_task_template_item: {
+        Args: {
+          p_description?: string
+          p_position?: number
+          p_template_id: string
+          p_title: string
+        }
+        Returns: string
+      }
+      delete_task_template_item: {
+        Args: { p_item_id: string }
+        Returns: undefined
+      }
+      get_task_template: { Args: { p_template_id: string }; Returns: Json }
+      hard_delete_project: {
+        Args: { p_project_id: string }
+        Returns: undefined
+      }
+      hard_delete_task: { Args: { p_task_id: string }; Returns: undefined }
+      hard_delete_task_item: {
+        Args: { p_task_item_id: string }
+        Returns: undefined
+      }
+      list_task_template_items: {
+        Args: { p_template_id: string }
+        Returns: {
+          created_at: string
+          description: string
+          id: string
+          template_id: string
+          template_position: number
+          title: string
+          updated_at: string
+        }[]
+      }
+      list_task_templates: {
+        Args: never
+        Returns: {
+          created_at: string
+          created_by: string
+          description: string
+          id: string
+          item_count: number
+          name: string
+          updated_at: string
+        }[]
       }
       mark_all_notifications_read: { Args: never; Returns: undefined }
       mark_notification_read: {
@@ -524,11 +587,27 @@ export type Database = {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
       }
+      remove_task_template_item: {
+        Args: { p_item_id: string }
+        Returns: undefined
+      }
       restore_project: { Args: { p_project_id: string }; Returns: undefined }
       restore_task: { Args: { p_task_id: string }; Returns: undefined }
       revoke_task_member: {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
+      }
+      set_task_item_comment: {
+        Args: { p_comment: string; p_task_item_id: string }
+        Returns: undefined
+      }
+      set_task_item_percentage: {
+        Args: { p_percentage: number; p_task_item_id: string }
+        Returns: number
+      }
+      set_task_item_progress: {
+        Args: { p_completion_percent: number; p_task_item_id: string }
+        Returns: number
       }
       set_task_item_state: {
         Args: { p_completed: boolean; p_task_item_id: string }
@@ -538,19 +617,48 @@ export type Database = {
         Args: { p_new_owner_id: string; p_project_id: string }
         Returns: undefined
       }
+      update_my_profile: {
+        Args: { p_display_name: string }
+        Returns: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string
+          id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       update_project: {
         Args: { p_description: string; p_name: string; p_project_id: string }
         Returns: undefined
       }
-      update_my_profile: {
-        Args: { p_display_name: string }
-        Returns: Database["public"]["Tables"]["profiles"]["Row"]
+      update_task: {
+        Args: { p_description?: string; p_task_id: string; p_title?: string }
+        Returns: undefined
       }
       update_task_item: {
         Args: {
           p_description?: string
           p_position?: number
           p_task_item_id: string
+          p_title?: string
+        }
+        Returns: undefined
+      }
+      update_task_template: {
+        Args: { p_description?: string; p_name?: string; p_template_id: string }
+        Returns: undefined
+      }
+      update_task_template_item: {
+        Args: {
+          p_description?: string
+          p_item_id: string
+          p_position?: number
           p_title?: string
         }
         Returns: undefined
@@ -731,6 +839,7 @@ export const Constants = {
         "unchecked",
         "reordered",
         "restored",
+        "removed",
       ],
       item_action_type: ["checked", "unchecked"],
       notification_type: [

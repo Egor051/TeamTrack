@@ -226,12 +226,18 @@ create table if not exists public.task_items (
     description text,
     position numeric(30,15) not null,
     is_completed boolean not null default false,
+    percentage integer not null default 0,
+    comment text,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     archived_at timestamptz,
 
     constraint task_items_title_not_blank
         check (length(btrim(title)) > 0),
+    constraint task_items_completion_percent_chk
+        check (percentage between 0 and 100),
+    constraint task_items_comment_length_chk
+        check (comment is null or char_length(comment) <= 2000),
     constraint task_items_archive_consistency
         check (
             (archived_at is null)
@@ -370,7 +376,8 @@ execute function public.set_updated_at();
 -- Important application/database contract
 -- -----------------------------------------------------------------------------
 
--- 1. task_items.is_completed is the current state.
+-- 1. task_items.percentage is the current progress source of truth;
+--    is_completed is its 0/100 checkbox projection.
 -- 2. item_actions is append-only historical truth for every checkbox change.
 -- 3. Every checkbox state mutation must atomically:
 --      a) authorize the caller,
