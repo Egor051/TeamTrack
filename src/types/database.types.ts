@@ -297,11 +297,13 @@ export type Database = {
       task_items: {
         Row: {
           archived_at: string | null
+          comment: string | null
           created_at: string
           description: string | null
           id: string
           is_archived: boolean
           is_completed: boolean
+          percentage: number
           position: number
           task_id: string
           title: string
@@ -309,11 +311,13 @@ export type Database = {
         }
         Insert: {
           archived_at?: string | null
+          comment?: string | null
           created_at?: string
           description?: string | null
           id?: string
           is_archived?: boolean
           is_completed?: boolean
+          percentage?: number
           position: number
           task_id: string
           title: string
@@ -321,11 +325,13 @@ export type Database = {
         }
         Update: {
           archived_at?: string | null
+          comment?: string | null
           created_at?: string
           description?: string | null
           id?: string
           is_archived?: boolean
           is_completed?: boolean
+          percentage?: number
           position?: number
           task_id?: string
           title?: string
@@ -340,6 +346,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      task_template_items: {
+        Row: { id: string; template_id: string; title: string; description: string | null; position: number; created_at: string; updated_at: string }
+        Insert: { id?: string; template_id: string; title: string; description?: string | null; position: number; created_at?: string; updated_at?: string }
+        Update: { id?: string; template_id?: string; title?: string; description?: string | null; position?: number; created_at?: string; updated_at?: string }
+        Relationships: [{ foreignKeyName: "task_template_items_template_id_fkey"; columns: ["template_id"]; isOneToOne: false; referencedRelation: "task_templates"; referencedColumns: ["id"] }]
+      }
+      task_templates: {
+        Row: { id: string; name: string; description: string | null; created_by: string; status: Database["public"]["Enums"]["project_status"]; created_at: string; updated_at: string; archived_at: string | null }
+        Insert: { id?: string; name: string; description?: string | null; created_by: string; status?: Database["public"]["Enums"]["project_status"]; created_at?: string; updated_at?: string; archived_at?: string | null }
+        Update: { id?: string; name?: string; description?: string | null; created_by?: string; status?: Database["public"]["Enums"]["project_status"]; created_at?: string; updated_at?: string; archived_at?: string | null }
+        Relationships: []
       }
       task_members: {
         Row: {
@@ -474,6 +492,16 @@ export type Database = {
         Args: { p_description?: string; p_project_id: string; p_title: string }
         Returns: string
       }
+      create_task_from_template: { Args: { p_description?: string | null; p_project_id: string; p_template_id: string; p_title?: string | null }; Returns: string }
+      create_task_template: { Args: { p_description?: string; p_name: string }; Returns: string }
+      update_task: { Args: { p_description: string; p_task_id: string; p_title: string }; Returns: undefined }
+      set_task_item_comment: { Args: { p_comment: string | null; p_task_item_id: string }; Returns: undefined }
+      set_task_item_percentage: { Args: { p_percentage: number; p_task_item_id: string }; Returns: number }
+      archive_task_template: { Args: { p_template_id: string }; Returns: undefined }
+      update_task_template: { Args: { p_description?: string; p_name: string; p_template_id: string }; Returns: undefined }
+      create_task_template_item: { Args: { p_description?: string; p_position?: number; p_template_id: string; p_title: string }; Returns: string }
+      update_task_template_item: { Args: { p_description?: string; p_item_id: string; p_position?: number; p_title: string }; Returns: undefined }
+      delete_task_template_item: { Args: { p_item_id: string }; Returns: undefined }
       create_task_item: {
         Args: {
           p_description?: string

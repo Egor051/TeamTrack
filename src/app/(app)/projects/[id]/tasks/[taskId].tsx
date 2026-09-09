@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { RealtimeIndicator } from "@/components/ui/realtime-indicator";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   getTask,
   getProject,
@@ -22,6 +23,9 @@ import {
   archiveTaskItem,
   hardDeleteTaskItem,
   setTaskItemState,
+  setTaskItemPercentage,
+  setTaskItemComment,
+  updateTask,
   listProjectMembers,
   listTaskMembers,
   listTaskAssignees,
@@ -61,6 +65,12 @@ export default function TaskScreen() {
   const [title, setTitle] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [taskEditing, setTaskEditing] = useState(false);
+  const [editTaskTitle, setEditTaskTitle] = useState("");
+  const [editTaskDescription, setEditTaskDescription] = useState("");
+  const [commentEditing, setCommentEditing] = useState<string | null>(null);
+  const [editComment, setEditComment] = useState("");
+  const [editPercentage, setEditPercentage] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
@@ -200,7 +210,7 @@ export default function TaskScreen() {
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
     task?.status === "archived";
-  const done = items.filter((item) => item.is_completed).length;
+  const progress = items.length ? items.reduce((sum, item) => sum + item.percentage, 0) / items.length : 0;
 
   return (
     <Screen padded={false} centerContent={false}>
@@ -210,8 +220,8 @@ export default function TaskScreen() {
       >
         {task ? (
           <PageHeader
-            title={task.title}
-            subtitle={task.description || "Рабочая задача"}
+            title={taskEditing ? "Редактирование задачи" : task.title}
+            subtitle={taskEditing ? "" : task.description || "Рабочая задача"}
             onBack={() => router.back()}
             actions={
               <>
@@ -243,10 +253,18 @@ export default function TaskScreen() {
           <LoadingState label="Загружаем задачу..." />
         ) : (
           <>
+            {taskEditing ? <Card>
+              <Input label="Название" value={editTaskTitle} onChangeText={setEditTaskTitle} placeholder="Название задачи" />
+              <Textarea label="Описание" value={editTaskDescription} onChangeText={setEditTaskDescription} placeholder="Описание задачи" />
+              <View style={styles.actions}>
+                <Button disabled={busy || !editTaskTitle.trim()} onPress={() => void run(async () => { await updateTask(task.id, editTaskTitle.trim(), editTaskDescription); setTaskEditing(false); })}>Сохранить</Button>
+                <Button variant="ghost" disabled={busy} onPress={() => setTaskEditing(false)}>Отмена</Button>
+              </View>
+            </Card> : null}
             <Card>
               <Progress
-                value={items.length ? (done / items.length) * 100 : 0}
-                label={`Прогресс · ${done} из ${items.length}`}
+                value={progress}
+                label={`Прогресс · среднее по ${items.length} пунктам`}
               />
             </Card>
             <View style={styles.sectionHead}>
@@ -300,8 +318,18 @@ export default function TaskScreen() {
                             {index + 1}. {item.title}
                           </ThemedText>
                         )}
+                        <Progress value={item.percentage} label={`Выполнено · ${item.percentage}%`} />
+                        {item.comment ? <ThemedText type="small" style={{ color: theme.textSecondary }}>Комментарий: {item.comment}</ThemedText> : null}
                       </View>
                     </View>
+                    {commentEditing === item.id ? <View style={styles.commentEditor}>
+                      <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={2000} placeholder="Необязательно" />
+                      <View style={styles.actions}><Button size="sm" disabled={busy} onPress={() => void run(async () => { await setTaskItemComment(item.id, editComment); setCommentEditing(null); })}>Сохранить</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
+                    </View> : null}
+                    {canEdit && !item.is_archived ? <View style={styles.progressEditor}>
+                      <Input label="Процент" value={editPercentage[item.id] ?? String(item.percentage)} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value.replace(/[^0-9]/g, '').slice(0, 3) }))} keyboardType="numeric" />
+                      <Button size="sm" disabled={busy} onPress={() => void run(async () => { const value = Number(editPercentage[item.id] ?? item.percentage); await setTaskItemPercentage(item.id, value); })}>Обновить %</Button>
+                    </View> : null}
                     {editing === item.id ? (
                       <View style={styles.actions}>
                         <Button
@@ -326,7 +354,7 @@ export default function TaskScreen() {
                       </View>
                     ) : item.is_archived && canManage ? (
                       <View style={styles.actions}><Badge tone="neutral">В архиве</Badge><Button size="sm" variant="destructive" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить навсегда</Button></View>
-                    ) : canManage ? (
+                    ) : canEdit ? (
                       <View style={styles.actions}>
                         <Button
                           size="sm"
@@ -339,7 +367,7 @@ export default function TaskScreen() {
                         >
                           Изменить
                         </Button>
-                        <Button
+                        {canManage ? <Button
                           size="sm"
                           variant="ghost"
                           disabled={busy}
@@ -353,9 +381,9 @@ export default function TaskScreen() {
                           }
                         >
                           Архив
-                        </Button>
+                        </Button> : null}
                       </View>
-                    ) : null}
+                    ) : canEdit ? <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setCommentEditing(item.id); setEditComment(item.comment || ""); }}>Комментарий</Button> : null}
                   </Card>
                 ))}
               </View>
@@ -382,6 +410,7 @@ export default function TaskScreen() {
                 </Button>
               </View>
             ) : null}
+            {canEdit && !taskEditing ? <Button variant="outline" onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); }}>Редактировать задачу</Button> : null}
             {canManage ? (
               <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => setManageOpen(false)}>
                 <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, { backgroundColor: theme.surface }]}><View style={styles.sectionHead}><ThemedText type="h2">Участники и исполнители</ThemedText><Button size="sm" variant="ghost" onPress={() => setManageOpen(false)}>Закрыть</Button></View><Card>
@@ -546,4 +575,6 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, justifyContent: "flex-end", padding: 0 },
   modalSheet: { maxHeight: "90%", padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
   completed: { textDecorationLine: "line-through" },
+  commentEditor: { gap: spacing.sm, marginTop: spacing.sm },
+  progressEditor: { gap: spacing.sm, marginTop: spacing.sm },
 });

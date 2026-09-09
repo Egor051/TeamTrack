@@ -6,7 +6,10 @@ import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/
 export type ProjectRole = Database['public']['Enums']['project_role'];
 export type ProjectWithRole = Project & { role: ProjectRole };
 export type ProjectMember = { user_id: string; role: ProjectRole; joined_at: string; profile: Profile | null };
-export type TaskWithStats = Task & { itemCount: number; completedCount: number; assignees: string[] };
+export type TaskWithStats = Task & { itemCount: number; completedCount: number; progressPercent: number; assignees: string[] };
+export type TaskTemplate = Database['public']['Tables']['task_templates']['Row'];
+export type TaskTemplateItem = Database['public']['Tables']['task_template_items']['Row'];
+export function calculateAverageProgress(percentages: number[]): number { return percentages.length ? percentages.reduce((sum, value) => sum + value, 0) / percentages.length : 0; }
 export type MyTask = Task & { project_name: string | null };
 export type TaskMember = { user_id: string; approved_at: string; profile: Profile | null };
 export type ItemAction = Database['public']['Tables']['item_actions']['Row'];
@@ -124,13 +127,14 @@ export async function listTasksWithStats(projectId: string, archivedOnly = false
   const tasks = (await listProjectTasks(projectId)).filter((t) => archivedOnly ? t.status === 'archived' : t.status !== 'archived');
   if (!tasks.length) return [];
   const ids = tasks.map((t) => t.id);
-  const items = (await Promise.all(chunks(ids).map((chunk) => fetchAll<{ task_id: string; is_completed: boolean }>((from, to) => supabase.from('task_items').select('task_id,is_completed').in('task_id', chunk).eq('is_archived', false).range(from, to))))).flat();
+  const items = (await Promise.all(chunks(ids).map((chunk) => fetchAll<{ task_id: string; is_completed: boolean; percentage: number }>((from, to) => supabase.from('task_items').select('task_id,is_completed,percentage').in('task_id', chunk).eq('is_archived', false).range(from, to))))).flat();
   const assignees = (await Promise.all(chunks(ids).map((chunk) => fetchAll<{ task_id: string; user_id: string }>((from, to) => supabase.from('task_assignees').select('task_id,user_id').in('task_id', chunk).range(from, to))))).flat();
-  const itemStats = new Map<string, { itemCount: number; completedCount: number }>();
+  const itemStats = new Map<string, { itemCount: number; completedCount: number; progressPercent: number }>();
   for (const item of items) {
-    const stats = itemStats.get(item.task_id) ?? { itemCount: 0, completedCount: 0 };
+    const stats = itemStats.get(item.task_id) ?? { itemCount: 0, completedCount: 0, progressPercent: 0 };
     stats.itemCount += 1;
     if (item.is_completed) stats.completedCount += 1;
+    stats.progressPercent += item.percentage;
     itemStats.set(item.task_id, stats);
   }
   const assigneeByTask = new Map<string, string[]>();
@@ -140,8 +144,8 @@ export async function listTasksWithStats(projectId: string, archivedOnly = false
     assigneeByTask.set(assignee.task_id, list);
   }
   return tasks.map((task) => {
-    const stats = itemStats.get(task.id) ?? { itemCount: 0, completedCount: 0 };
-    return { ...task, ...stats, assignees: assigneeByTask.get(task.id) ?? [] };
+    const stats = itemStats.get(task.id) ?? { itemCount: 0, completedCount: 0, progressPercent: 0 };
+    return { ...task, ...stats, progressPercent: calculateAverageProgress(items.filter((item) => item.task_id === task.id).map((item) => item.percentage)), assignees: assigneeByTask.get(task.id) ?? [] };
   });
 }
 
@@ -158,9 +162,13 @@ export async function listMyTasks(userId: string): Promise<MyTask[]> {
 }
 
 export async function createTask(projectId: string, title: string, description?: string) { assertUuid(projectId, 'project id'); return requireData(await supabase.rpc('create_task', { p_project_id: projectId, p_title: title, ...(description ? { p_description: description } : {}) })); }
+export async function createTaskFromTemplate(projectId: string, templateId: string, title?: string, description?: string) { assertUuid(projectId, 'project id'); assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_from_template', { p_project_id: projectId, p_template_id: templateId, p_title: title ?? null, p_description: description ?? null })); }
 export async function getTask(taskId: string, projectId?: string) { assertUuid(taskId, 'task id'); if (projectId !== undefined) assertUuid(projectId, 'project id'); let query = supabase.from('tasks').select('*').eq('id', taskId); if (projectId !== undefined) query = query.eq('project_id', projectId); const result = await query.maybeSingle(); if (result.error) throw result.error; if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к задаче.'); return result.data; }
 export async function listTaskItems(taskId: string, includeArchived = false): Promise<TaskItem[]> { assertUuid(taskId, 'task id'); return fetchAll<TaskItem>((from, to) => { let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, to); return includeArchived ? query : query.eq('is_archived', false); }); }
 export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
+export async function updateTask(taskId: string, title: string, description: string) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('update_task', { p_task_id: taskId, p_title: title, p_description: description })); }
+export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 2000) throw new Error('Комментарий слишком длинный (максимум 2000 символов).'); return requireSuccess(await supabase.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment })); }
+export async function setTaskItemPercentage(itemId: string, percentage: number) { assertUuid(itemId, 'task item id'); if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) throw new Error('Процент должен быть целым числом от 0 до 100.'); return requireData(await supabase.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage })); }
 export async function archiveTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('archive_task_item', { p_task_item_id: itemId })); }
 export async function setTaskItemState(itemId: string, completed: boolean) { assertUuid(itemId, 'task item id'); return requireData(await supabase.rpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed })); }
 export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await supabase.rpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
@@ -231,6 +239,15 @@ export async function updateProject(projectId: string, name: string, description
   assertUuid(projectId, 'project id');
   return requireSuccess(await supabase.rpc('update_project', { p_project_id: projectId, p_name: name, p_description: description }));
 }
+
+export async function listTaskTemplates(): Promise<TaskTemplate[]> { return fetchAll<TaskTemplate>((from, to) => supabase.from('task_templates').select('*').eq('status', 'active').order('updated_at', { ascending: false }).range(from, to)); }
+export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> { assertUuid(templateId, 'template id'); return fetchAll<TaskTemplateItem>((from, to) => supabase.from('task_template_items').select('*').eq('template_id', templateId).order('position').range(from, to)); }
+export async function createTaskTemplate(name: string, description?: string) { return requireData(await supabase.rpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
+export async function updateTaskTemplate(templateId: string, name: string, description: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description })); }
+export async function archiveTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('archive_task_template', { p_template_id: templateId })); }
+export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
+export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
+export async function deleteTaskTemplateItem(itemId: string) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('delete_task_template_item', { p_item_id: itemId })); }
 
 export async function archiveTask(taskId: string) {
   assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('archive_task', { p_task_id: taskId }));

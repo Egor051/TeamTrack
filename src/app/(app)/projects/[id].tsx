@@ -169,7 +169,7 @@ export default function ProjectScreen() {
     !archived && project?.status === "active" && project.role !== "viewer";
   const complete = tasks.reduce((n, t) => n + t.completedCount, 0),
     total = tasks.reduce((n, t) => n + t.itemCount, 0),
-    percent = total ? (complete / total) * 100 : 0;
+    percent = total ? tasks.reduce((n, t) => n + t.progressPercent * t.itemCount, 0) / total : 0;
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
@@ -301,9 +301,7 @@ export default function ProjectScreen() {
         ) : (
           <View style={styles.list}>
             {tasks.map((t) => {
-              const p = t.itemCount
-                ? (t.completedCount / t.itemCount) * 100
-                : 0;
+              const p = t.progressPercent;
               return (
                 <Card
                   key={t.id}
@@ -342,7 +340,7 @@ export default function ProjectScreen() {
                   ) : null}
                   <Progress
                     value={p}
-                    label={`${t.completedCount}/${t.itemCount} пунктов · ${t.assignees.length} исполнителей`}
+                    label={`${Math.round(p)}% · ${t.itemCount} пунктов · ${t.assignees.length} исполнителей`}
                   />
                 </Card>
               );
