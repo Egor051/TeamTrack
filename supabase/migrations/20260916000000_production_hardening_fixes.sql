@@ -67,9 +67,9 @@ security definer
 set search_path = private, public
 as $$
     select case
-        when count(*) = 0 or count(*) filter (where not ti.is_completed) = count(*)
+        when count(*) = 0 or coalesce(avg(ti.percentage), 0) = 0
             then 'not_started'::public.task_status
-        when count(*) filter (where ti.is_completed) = count(*)
+        when avg(ti.percentage) = 100
             then 'completed'::public.task_status
         else 'in_progress'::public.task_status
     end
@@ -104,15 +104,20 @@ language plpgsql
 security definer
 set search_path = private, public
 as $$
+declare
+    v_task_id uuid := coalesce(new.task_id, old.task_id);
 begin
-    perform private.recalculate_task_status(new.task_id);
+    perform private.recalculate_task_status(v_task_id);
+    if tg_op = 'DELETE' then
+        return old;
+    end if;
     return new;
 end
 $$;
 
 drop trigger if exists trg_task_items_recalculate_status on public.task_items;
 create trigger trg_task_items_recalculate_status
-after insert or update of is_completed, is_archived on public.task_items
+after insert or delete or update of percentage, is_completed, is_archived on public.task_items
 for each row execute function private.recalculate_task_status_trigger();
 
 revoke all on function private.is_task_project_admin(uuid, uuid), private.task_status_from_items(uuid), private.recalculate_task_status(uuid), private.recalculate_task_status_trigger()

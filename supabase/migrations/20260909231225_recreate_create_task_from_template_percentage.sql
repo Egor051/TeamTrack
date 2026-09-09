@@ -7,8 +7,8 @@ alter table public.task_items add column if not exists comment text;
 
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conrelid='public.task_items'::regclass and conname='task_items_completion_percent_chk') then
-    alter table public.task_items add constraint task_items_completion_percent_chk check (percentage between 0 and 100);
+  if not exists (select 1 from pg_constraint where conrelid='public.task_items'::regclass and conname='task_items_percentage_range') then
+    alter table public.task_items add constraint task_items_percentage_range check (percentage between 0 and 100);
   end if;
   if not exists (select 1 from pg_constraint where conrelid='public.task_items'::regclass and conname='task_items_comment_length_chk') then
     alter table public.task_items add constraint task_items_comment_length_chk check (comment is null or char_length(comment) <= 2000);
@@ -168,9 +168,6 @@ begin
 end;
 $$;
 
-create or replace function public.set_task_item_progress(p_task_item_id uuid, p_completion_percent integer)
-returns integer language sql security definer set search_path = private, public as $$ select public.set_task_item_percentage(p_task_item_id, p_completion_percent); $$;
-
 create or replace function public.set_task_item_state(p_task_item_id uuid, p_completed boolean)
 returns boolean language plpgsql security definer set search_path = private, public as $$
 declare v_user uuid:=private.require_auth(); r public.task_items%rowtype; t public.tasks%rowtype; v_project_id uuid; v_percentage integer:=case when p_completed then 100 else 0 end;
@@ -282,12 +279,12 @@ begin
   if not private.is_project_member(p_project_id) or private.project_role_of(p_project_id)='viewer' then raise exception 'viewers cannot create tasks' using errcode='insufficient_privilege'; end if;
   v_task_id:=public.create_task(p_project_id,coalesce(nullif(btrim(p_title),''),t.name),case when p_description is null then t.description else nullif(btrim(p_description),'') end);
   for i in select title,description,position from public.task_template_items where template_id=t.id order by position,created_at loop
-    insert into public.task_items(task_id,title,description,position,percentage,is_completed) values(v_task_id,i.title,i.description,i.position,0,false);
+    insert into public.task_items(task_id,title,description,position,is_completed,percentage,comment) values(v_task_id,i.title,i.description,i.position,false,0,null);
   end loop;
   insert into public.audit_log(project_id,user_id,action,entity_type,entity_id,new_data) values(p_project_id,v_user,'created','task_from_template',v_task_id,jsonb_build_object('template_id',t.id));
   return v_task_id;
 end;
 $$;
 
-revoke all on function public.update_task(uuid,text,text),public.set_task_item_comment(uuid,text),public.set_task_item_percentage(uuid,integer),public.set_task_item_progress(uuid,integer),public.set_task_item_state(uuid,boolean),public.list_task_templates(),public.list_task_template_items(uuid),public.get_task_template(uuid),public.create_task_template(text,text),public.update_task_template(uuid,text,text),public.archive_task_template(uuid),public.create_task_template_item(uuid,text,text,numeric),public.update_task_template_item(uuid,text,text,numeric),public.remove_task_template_item(uuid),public.delete_task_template_item(uuid),public.create_task_from_template(uuid,uuid,text,text) from public,anon;
-grant execute on function public.update_task(uuid,text,text),public.set_task_item_comment(uuid,text),public.set_task_item_percentage(uuid,integer),public.set_task_item_progress(uuid,integer),public.set_task_item_state(uuid,boolean),public.list_task_templates(),public.list_task_template_items(uuid),public.get_task_template(uuid),public.create_task_template(text,text),public.update_task_template(uuid,text,text),public.archive_task_template(uuid),public.create_task_template_item(uuid,text,text,numeric),public.update_task_template_item(uuid,text,text,numeric),public.remove_task_template_item(uuid),public.delete_task_template_item(uuid),public.create_task_from_template(uuid,uuid,text,text) to authenticated,service_role;
+revoke all on function public.update_task(uuid,text,text),public.set_task_item_comment(uuid,text),public.set_task_item_percentage(uuid,integer),public.set_task_item_state(uuid,boolean),public.list_task_templates(),public.list_task_template_items(uuid),public.get_task_template(uuid),public.create_task_template(text,text),public.update_task_template(uuid,text,text),public.archive_task_template(uuid),public.create_task_template_item(uuid,text,text,numeric),public.update_task_template_item(uuid,text,text,numeric),public.remove_task_template_item(uuid),public.delete_task_template_item(uuid),public.create_task_from_template(uuid,uuid,text,text) from public,anon;
+grant execute on function public.update_task(uuid,text,text),public.set_task_item_comment(uuid,text),public.set_task_item_percentage(uuid,integer),public.set_task_item_state(uuid,boolean),public.list_task_templates(),public.list_task_template_items(uuid),public.get_task_template(uuid),public.create_task_template(text,text),public.update_task_template(uuid,text,text),public.archive_task_template(uuid),public.create_task_template_item(uuid,text,text,numeric),public.update_task_template_item(uuid,text,text,numeric),public.remove_task_template_item(uuid),public.delete_task_template_item(uuid),public.create_task_from_template(uuid,uuid,text,text) to authenticated,service_role;

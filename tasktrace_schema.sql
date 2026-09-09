@@ -1,4 +1,4 @@
--- TaskTrace PostgreSQL schema v1 (historical baseline; do not deploy directly)
+-- TaskTrace PostgreSQL canonical schema snapshot (do not deploy directly)
 -- Canonical deployment source: supabase/migrations/*.sql
 -- Target: Supabase PostgreSQL
 --
@@ -9,15 +9,16 @@
 --   - task access approvals
 --   - task assignees
 --   - checklist items
+--   - task item percentage progress and comments
+--   - global task templates and template items
 --   - immutable checkbox action history
 --   - detailed audit log
 --   - timestamps / basic integrity constraints
 --
--- Intentionally NOT included yet:
+-- Intentionally NOT included in this snapshot:
 --   - RLS policies
 --   - Realtime publication configuration
 --   - notifications
---   - comments
 --   - subtasks
 --   - offline sync
 --   - advanced analytics
@@ -226,6 +227,7 @@ create table if not exists public.task_items (
     description text,
     position numeric(30,15) not null,
     is_completed boolean not null default false,
+    is_archived boolean not null default false,
     percentage integer not null default 0,
     comment text,
     created_at timestamptz not null default now(),
@@ -234,15 +236,15 @@ create table if not exists public.task_items (
 
     constraint task_items_title_not_blank
         check (length(btrim(title)) > 0),
-    constraint task_items_completion_percent_chk
+    constraint task_items_percentage_range
         check (percentage between 0 and 100),
     constraint task_items_comment_length_chk
         check (comment is null or char_length(comment) <= 2000),
     constraint task_items_archive_consistency
         check (
-            (archived_at is null)
+            (not is_archived and archived_at is null)
             or
-            (archived_at is not null)
+            (is_archived and archived_at is not null)
         )
 );
 
@@ -252,15 +254,67 @@ create unique index if not exists ux_task_items_task_position
     on public.task_items(task_id, position);
 
 -- -----------------------------------------------------------------------------
+-- Global task templates
+-- -----------------------------------------------------------------------------
+
+create table if not exists public.task_templates (
+    id uuid primary key default gen_random_uuid(),
+    name text not null,
+    description text,
+    created_by uuid not null references auth.users(id) on delete restrict,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    archived_at timestamptz,
+
+    constraint task_templates_name_chk
+        check (char_length(btrim(name)) between 1 and 200),
+    constraint task_templates_description_chk
+        check (description is null or char_length(description) <= 10000)
+);
+
+create table if not exists public.task_template_items (
+    id uuid primary key default gen_random_uuid(),
+    template_id uuid not null references public.task_templates(id) on delete cascade,
+    title text not null,
+    description text,
+    position numeric not null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+
+    constraint task_template_items_title_chk
+        check (char_length(btrim(title)) between 1 and 500),
+    constraint task_template_items_description_chk
+        check (description is null or char_length(description) <= 10000),
+    constraint task_template_items_position_chk
+        check (position >= 0 and position <> 'NaN'::numeric)
+);
+
+create index if not exists idx_task_templates_created_at
+    on public.task_templates(created_at desc);
+
+create index if not exists idx_task_template_items_template_position
+    on public.task_template_items(template_id, position, created_at);
+
+drop trigger if exists trg_task_templates_updated_at on public.task_templates;
+create trigger trg_task_templates_updated_at
+before update on public.task_templates
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_task_template_items_updated_at on public.task_template_items;
+create trigger trg_task_template_items_updated_at
+before update on public.task_template_items
+for each row execute function public.set_updated_at();
+
+-- -----------------------------------------------------------------------------
 -- Immutable checkbox action history
 -- -----------------------------------------------------------------------------
 
 create table if not exists public.item_actions (
     id bigint generated always as identity primary key,
-    project_id uuid not null references public.projects(id),
-    task_id uuid not null references public.tasks(id),
-    task_item_id uuid not null references public.task_items(id),
-    user_id uuid not null references auth.users(id),
+    project_id uuid not null,
+    task_id uuid not null,
+    task_item_id uuid not null,
+    user_id uuid not null references auth.users(id) on delete restrict,
     action public.item_action_type not null,
     created_at timestamptz not null default now()
 );
@@ -271,8 +325,8 @@ create table if not exists public.item_actions (
 
 create table if not exists public.audit_log (
     id bigint generated always as identity primary key,
-    project_id uuid not null references public.projects(id),
-    user_id uuid references auth.users(id),
+    project_id uuid,
+    user_id uuid references auth.users(id) on delete restrict,
     action public.audit_action not null,
     entity_type text not null,
     entity_id uuid,

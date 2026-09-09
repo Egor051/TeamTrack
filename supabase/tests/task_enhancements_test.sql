@@ -21,10 +21,18 @@ select public.create_task_item(:'task','First item') \gset
 select public.update_task(:'task','Renamed task','Updated description');
 select public.set_task_item_comment(:'item','A useful note');
 select public.set_task_item_percentage(:'item',50);
-do $$ begin
-  if not exists (select 1 from public.tasks where id = :'task' and title='Renamed task' and description='Updated description') then raise exception 'FAIL task edit'; end if;
-  if not exists (select 1 from public.task_items where id = :'item' and comment='A useful note' and percentage=50 and not is_completed) then raise exception 'FAIL comment/percentage'; end if;
-end $$;
+select exists (select 1 from public.tasks where id = :'task' and title='Renamed task' and description='Updated description') as task_edit_ok \gset
+\if :task_edit_ok
+\else
+\echo 'FAIL task edit'
+\quit 1
+\endif
+select exists (select 1 from public.task_items where id = :'item' and comment='A useful note' and percentage=50 and not is_completed) as comment_percentage_ok \gset
+\if :comment_percentage_ok
+\else
+\echo 'FAIL comment/percentage'
+\quit 1
+\endif
 
 select public.create_task_template('Release template','Release checklist') \gset
 \set template :create_task_template
@@ -32,11 +40,19 @@ select public.create_task_template_item(:'template','Check build');
 select public.create_task_template_item(:'template','Run smoke test');
 select public.create_task_from_template(:'project', :'template', 'Release task', 'Copied description') \gset
 \set copied_task :create_task_from_template
-do $$ declare n int; begin
-  select count(*) into n from public.task_items where task_id=:'copied_task';
-  if n <> 2 then raise exception 'FAIL template item copy'; end if;
-  if exists (select 1 from public.task_items where task_id=:'copied_task' and percentage <> 0) then raise exception 'FAIL template initial percentage'; end if;
-end $$;
+select count(*) = 2 as template_item_copy_ok
+from public.task_items where task_id=:'copied_task' \gset
+\if :template_item_copy_ok
+\else
+\echo 'FAIL template item copy'
+\quit 1
+\endif
+select not exists (select 1 from public.task_items where task_id=:'copied_task' and percentage <> 0) as template_percentage_ok \gset
+\if :template_percentage_ok
+\else
+\echo 'FAIL template initial percentage'
+\quit 1
+\endif
 
 rollback;
-raise notice 'PASS task enhancements';
+\echo 'PASS task enhancements'

@@ -605,10 +605,6 @@ export type Database = {
         Args: { p_percentage: number; p_task_item_id: string }
         Returns: number
       }
-      set_task_item_progress: {
-        Args: { p_completion_percent: number; p_task_item_id: string }
-        Returns: number
-      }
       set_task_item_state: {
         Args: { p_completed: boolean; p_task_item_id: string }
         Returns: boolean
