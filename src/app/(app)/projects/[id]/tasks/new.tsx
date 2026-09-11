@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SegmentedControl } from '@/components/ui/segmented-control';
+import { Select } from '@/components/ui/select';
 import { EmptyState, LoadingState } from '@/components/ui/states';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -62,7 +63,7 @@ export default function NewTask() {
     {mode === 'template' ? <Card>
       <ThemedText type="h3">Глобальный шаблон</ThemedText>
       {loadingTemplates ? <LoadingState label="Загружаем шаблоны..." /> : !templates.length ? <EmptyState title="Шаблонов пока нет" description="Администратор проекта может создать глобальный шаблон." /> : <>
-        <SegmentedControl value={templateId} onChange={chooseTemplate} accessibilityLabel="Выбор шаблона" options={templates.map((template) => ({ value: template.id, label: template.name }))} />
+        <Select label="Шаблон" value={templateId} onChange={chooseTemplate} accessibilityLabel="Выбор шаблона" options={templates.map((template) => ({ value: template.id, label: template.name }))} />
         <ThemedText type="small">Пункты шаблона будут скопированы в новую независимую задачу.</ThemedText>
       </>}
     </Card> : null}

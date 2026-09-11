@@ -550,6 +550,15 @@ export type Database = {
         Args: { p_task_item_id: string }
         Returns: undefined
       }
+      list_task_item_last_editors: {
+        Args: { p_task_id: string }
+        Returns: {
+          changed_at: string
+          display_name: string
+          task_item_id: string
+          user_id: string
+        }[]
+      }
       list_task_template_items: {
         Args: { p_template_id: string }
         Returns: {

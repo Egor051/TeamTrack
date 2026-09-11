@@ -29,6 +29,7 @@ import {
   listProjectMembers,
   listTaskMembers,
   listTaskAssignees,
+  listTaskItemLastEditors,
   addTaskAssignee,
   removeTaskAssignee,
   approveTaskMember,
@@ -41,6 +42,7 @@ import {
   type ProjectMember,
   type TaskMember,
   type ProjectWithRole,
+  type TaskItemLastEditor,
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
@@ -55,6 +57,7 @@ export default function TaskScreen() {
   const [task, setTask] = useState<Task | null>(null);
   const [project, setProject] = useState<ProjectWithRole | null>(null);
   const [items, setItems] = useState<TaskItem[]>([]);
+  const [lastEditors, setLastEditors] = useState<Map<string, TaskItemLastEditor>>(new Map());
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [taskMembers, setTaskMembers] = useState<TaskMember[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
@@ -94,6 +97,7 @@ export default function TaskScreen() {
         nextProjectMembers,
         nextTaskMembers,
         nextAssignees,
+        nextLastEditors,
       ] = await Promise.all([
         getTask(taskId, id),
         getProject(id),
@@ -101,6 +105,7 @@ export default function TaskScreen() {
         listProjectMembers(id),
         listTaskMembers(taskId),
         listTaskAssignees(taskId),
+        listTaskItemLastEditors(taskId),
       ]);
       if (request !== requestRef.current) return;
       setTask(nextTask);
@@ -109,6 +114,7 @@ export default function TaskScreen() {
       setProjectMembers(nextProjectMembers);
       setTaskMembers(nextTaskMembers);
       setAssignees(nextAssignees);
+      setLastEditors(new Map(nextLastEditors.map((entry) => [entry.task_item_id, entry])));
       setError("");
     } catch (e) {
       if (request === requestRef.current) {
@@ -118,6 +124,7 @@ export default function TaskScreen() {
         setProjectMembers([]);
         setTaskMembers([]);
         setAssignees([]);
+        setLastEditors(new Map());
         setError(userMessage(e, "Нет доступа к задаче."));
       }
     }
@@ -280,6 +287,9 @@ export default function TaskScreen() {
                 <Button variant="ghost" disabled={busy} onPress={() => setTaskEditing(false)}>Отмена</Button>
               </View>
             </Card> : null}
+            {canEdit && !taskEditing ? <View style={styles.actions}><Button variant="outline" onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); }}>Редактировать задачу</Button></View> : null}
+            {canManage ? <View style={styles.actions}><Button variant="destructive" onPress={() => setConfirm({ title: "Архивировать задачу?", description: "Задача исчезнет из активного списка проекта.", action: () => archiveTask(taskId) })}>Архивировать задачу</Button></View> : null}
+            {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busy} onPress={() => void run(() => restoreTask(taskId))}>Восстановить задачу</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
             <Card>
               <Progress
                 value={progress}
@@ -339,6 +349,7 @@ export default function TaskScreen() {
                         )}
                         <Progress value={item.percentage} label={`Выполнено · ${item.percentage}%`} />
                         {item.comment ? <ThemedText type="small" style={{ color: theme.textSecondary }}>Комментарий: {item.comment}</ThemedText> : null}
+                        <ThemedText type="caption" style={{ color: theme.textMuted }}>Последнее изменение: {lastEditors.get(item.id)?.display_name || "Пользователь"}</ThemedText>
                       </View>
                     </View>
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
@@ -432,7 +443,6 @@ export default function TaskScreen() {
                 </Button>
               </View>
             ) : null}
-            {canEdit && !taskEditing ? <Button variant="outline" onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); }}>Редактировать задачу</Button> : null}
             {canManage ? (
               <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => setManageOpen(false)}>
                 <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, { backgroundColor: theme.surface }]}><View style={styles.sectionHead}><ThemedText type="h2">Участники и исполнители</ThemedText><Button size="sm" variant="ghost" onPress={() => setManageOpen(false)}>Закрыть</Button></View><Card>
@@ -528,26 +538,6 @@ export default function TaskScreen() {
                   )}
                 </Card></View></View>
               </Modal>
-            ) : null}
-            {canManage ? (
-              <>
-                <Button
-                  variant="destructive"
-                  onPress={() =>
-                    setConfirm({
-                      title: "Архивировать задачу?",
-                      description:
-                        "Задача исчезнет из активного списка проекта.",
-                      action: () => archiveTask(taskId),
-                    })
-                  }
-                >
-                  Архивировать задачу
-                </Button>
-              </>
-            ) : null}
-            {canRestore ? (
-              <View style={styles.actions}><Button disabled={busy} loading={busy} onPress={() => void run(() => restoreTask(taskId))}>Восстановить задачу</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View>
             ) : null}
           </>
         )}

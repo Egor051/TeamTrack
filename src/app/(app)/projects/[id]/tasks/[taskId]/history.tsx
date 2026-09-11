@@ -108,6 +108,20 @@ export default function History() {
       m.profile?.display_name || m.user_id.slice(0, 8),
     ]),
   );
+  const auditSummary = (entry: AuditEntry) => {
+    if (!entry.new_data || typeof entry.new_data !== "object" || Array.isArray(entry.new_data)) return null;
+    const labels: Record<string, string> = {
+      title: "название",
+      description: "описание",
+      position: "порядок",
+      percentage: "прогресс",
+      comment: "комментарий",
+      is_completed: "состояние",
+      is_archived: "архивный статус",
+    };
+    const fields = Object.keys(entry.new_data).map((key) => labels[key] || key);
+    return fields.length ? `Изменено: ${fields.join(", ")}` : null;
+  };
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
@@ -165,6 +179,7 @@ export default function History() {
                       {memberName.get(a.user_id || "") || "Система"} ·{" "}
                       {fmt(a.created_at)}
                     </ThemedText>
+                    {auditSummary(a) ? <ThemedText type="small">{auditSummary(a)}</ThemedText> : null}
                     <Button
                       size="sm"
                       variant="ghost"

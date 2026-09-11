@@ -24,6 +24,11 @@ insert into ntf_state select 'item_main', public.create_task_item((select id fro
 select public.approve_task_member((select id from ntf_state where key='task_main'), (select id from ntf_state where key='user_b'));
 reset role;
 
+select count(*) as changed_before
+  from public.notifications
+ where user_id=(select id from ntf_state where key='user_b')
+   and task_id=(select id from ntf_state where key='task_main')
+   and type='task_item_changed' \gset
 set local role authenticated;
 select set_config('request.jwt.claim.sub', (select id::text from ntf_state where key='user_b'), true);
 insert into ntf_state select 'task_for_a', public.create_task((select id from ntf_state where key='project'), 'Notification for A', 'Recipient A');
@@ -76,9 +81,22 @@ select public.add_task_assignee((select id from ntf_state where key='task_main')
 select public.remove_task_assignee((select id from ntf_state where key='task_main'), (select id from ntf_state where key='user_b'));
 select public.set_task_item_state((select id from ntf_state where key='item_main'), true);
 select public.set_task_item_state((select id from ntf_state where key='item_main'), false);
+select public.set_task_item_comment((select id from ntf_state where key='item_main'), 'Progress context note');
+select public.set_task_item_percentage((select id from ntf_state where key='item_main'), 25);
 select public.update_task_item((select id from ntf_state where key='item_main'), 'Changed checklist text');
 select public.revoke_task_member((select id from ntf_state where key='task_main'), (select id from ntf_state where key='user_b'));
 reset role;
+
+select count(*) = (:changed_before::bigint + 3) as item_changed_count_ok
+  from public.notifications
+ where user_id=(select id from ntf_state where key='user_b')
+   and task_id=(select id from ntf_state where key='task_main')
+   and type='task_item_changed' \gset
+\if :item_changed_count_ok
+\else
+\echo 'FAIL NTF12a: duplicate/missing item changed notifications'
+\quit 1
+\endif
 
 do $$ begin
   if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type='task_member_added') then raise exception 'FAIL NTF07'; end if; raise notice 'PASS NTF07: approve_task_member generated task_member_added';
@@ -87,6 +105,10 @@ do $$ begin
   if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type='task_unassigned') then raise exception 'FAIL NTF10'; end if; raise notice 'PASS NTF10: remove_task_assignee generated task_unassigned';
   if (select count(*) from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type in ('task_item_checked','task_item_unchecked')) <> 2 then raise exception 'FAIL NTF11'; end if; raise notice 'PASS NTF11: checked and unchecked notifications generated';
   if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type='task_item_changed') then raise exception 'FAIL NTF12'; end if; raise notice 'PASS NTF12: update_task_item generated task_item_changed';
+  if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type='task_item_changed' and body like '%комментарий%') then raise exception 'FAIL NTF12d: comment notification missing'; end if;
+  if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type='task_item_changed' and body like '%прогресс 25%') then raise exception 'FAIL NTF12e: percentage notification missing'; end if;
+  if not exists (select 1 from public.audit_log where entity_type='task_item' and entity_id=(select id from ntf_state where key='item_main') and new_data @> '{"comment":"Progress context note"}'::jsonb) then raise exception 'FAIL NTF12f: comment audit missing'; end if;
+  if not exists (select 1 from public.audit_log where entity_type='task_item' and entity_id=(select id from ntf_state where key='item_main') and new_data->>'percentage'='25') then raise exception 'FAIL NTF12g: percentage audit missing'; end if;
   if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type='task_item_checked' and title='Пункт отмечен' and body like '%Initial checklist text%Main notification task%Notifications verification%') then raise exception 'FAIL NTF12b: contextual checked notification text'; end if;
   if not exists (select 1 from public.notifications where user_id=(select id from ntf_state where key='user_b') and task_id=(select id from ntf_state where key='task_main') and type='task_item_changed' and body like '%Changed checklist text%Main notification task%Notifications verification%') then raise exception 'FAIL NTF12c: contextual changed notification text'; end if;
   raise notice 'PASS NTF12b-c: notification text includes item, task and project';

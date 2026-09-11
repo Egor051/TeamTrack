@@ -14,6 +14,7 @@ export type MyTask = Task & { project_name: string | null };
 export type TaskMember = { user_id: string; approved_at: string; profile: Profile | null };
 export type ItemAction = Database['public']['Tables']['item_actions']['Row'];
 export type AuditEntry = Database['public']['Tables']['audit_log']['Row'];
+export type TaskItemLastEditor = Database['public']['Functions']['list_task_item_last_editors']['Returns'][number];
 export type { Task, TaskItem };
 
 type SupabaseResult<T> = { data: T | null; error: { message: string } | null };
@@ -189,6 +190,16 @@ export async function listTaskAudit(projectId: string, taskId: string): Promise<
   return (await Promise.all(chunks(entityIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase.from('audit_log').select('*').eq('project_id', projectId).in('entity_id', ids).order('created_at', { ascending: false }).range(from, to))))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
+/**
+ * Returns the latest non-title-only audit event for every item in a task.
+ * The ranking and title-only exclusion happen in one SECURITY DEFINER RPC,
+ * keeping the checklist screen free of per-item audit/profile requests.
+ */
+export async function listTaskItemLastEditors(taskId: string): Promise<TaskItemLastEditor[]> {
+  assertUuid(taskId, 'task id');
+  return requireData(await supabase.rpc('list_task_item_last_editors', { p_task_id: taskId }));
+}
+
 export async function listProjectMembers(projectId: string): Promise<ProjectMember[]> {
   assertUuid(projectId, 'project id');
   const members = await fetchAll<{ user_id: string; role: ProjectRole; joined_at: string }>((from, to) => supabase.from('project_members').select('user_id, role, joined_at').eq('project_id', projectId).order('joined_at', { ascending: true }).order('user_id', { ascending: true }).range(from, to));
@@ -245,7 +256,11 @@ export async function listTaskTemplateItems(templateId: string): Promise<TaskTem
 export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('get_task_template', { p_template_id: templateId })); }
 export async function createTaskTemplate(name: string, description?: string) { return requireData(await supabase.rpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
 export async function updateTaskTemplate(templateId: string, name: string, description: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description })); }
-export async function archiveTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('archive_task_template', { p_template_id: templateId })); }
+/**
+ * User-facing deletion keeps the existing soft-delete backend contract: the
+ * template is marked archived and immediately disappears from all listings.
+ */
+export async function deleteTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('archive_task_template', { p_template_id: templateId })); }
 export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
 export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
 export async function deleteTaskTemplateItem(itemId: string) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('delete_task_template_item', { p_item_id: itemId })); }

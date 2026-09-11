@@ -234,6 +234,24 @@ export default function ProjectScreen() {
             </View>
           </Card>
         ) : null}
+        {project &&
+        (project.role === "owner" || project.role === "admin") &&
+        project.status === "active" &&
+        !editing ? (
+          <View style={styles.actions}>
+            <Button variant="outline" onPress={() => setEditing(true)}>
+              Редактировать
+            </Button>
+            <Button variant="destructive" onPress={() => setConfirm(true)}>
+              Архивировать проект
+            </Button>
+          </View>
+        ) : null}
+        {project &&
+        (project.role === "owner" || project.role === "admin") &&
+        project.status === "archived" ? (
+          <View style={styles.actions}><Button onPress={() => void restore()} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
+        ) : null}
         {project ? (
           <Card>
             <View style={styles.sectionTitle}>
@@ -347,24 +365,6 @@ export default function ProjectScreen() {
             })}
           </View>
         )}
-        {project &&
-        (project.role === "owner" || project.role === "admin") &&
-        project.status === "active" &&
-        !editing ? (
-          <View style={styles.actions}>
-            <Button variant="outline" onPress={() => setEditing(true)}>
-              Редактировать
-            </Button>
-            <Button variant="destructive" onPress={() => setConfirm(true)}>
-              Архивировать проект
-            </Button>
-          </View>
-        ) : null}
-        {project &&
-        (project.role === "owner" || project.role === "admin") &&
-        project.status === "archived" ? (
-          <View style={styles.actions}><Button onPress={() => void restore()} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
-        ) : null}
       </ScrollView>
       <ConfirmDialog
         visible={confirm}

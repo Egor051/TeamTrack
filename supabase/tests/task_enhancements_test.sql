@@ -21,6 +21,18 @@ select public.create_task_item(:'task','First item') \gset
 select public.update_task(:'task','Renamed task','Updated description');
 select public.set_task_item_comment(:'item','A useful note');
 select public.set_task_item_percentage(:'item',50);
+select exists (select 1 from public.audit_log where entity_type='task_item' and entity_id=:'item' and action='updated' and new_data @> '{"comment":"A useful note"}'::jsonb) as comment_audit_ok \gset
+\if :comment_audit_ok
+\else
+\echo 'FAIL comment audit'
+\quit 1
+\endif
+select exists (select 1 from public.audit_log where entity_type='task_item' and entity_id=:'item' and action='updated' and new_data->>'percentage'='50') as percentage_audit_ok \gset
+\if :percentage_audit_ok
+\else
+\echo 'FAIL percentage audit'
+\quit 1
+\endif
 select exists (select 1 from public.tasks where id = :'task' and title='Renamed task' and description='Updated description') as task_edit_ok \gset
 \if :task_edit_ok
 \else
@@ -33,6 +45,20 @@ select exists (select 1 from public.task_items where id = :'item' and comment='A
 \echo 'FAIL comment/percentage'
 \quit 1
 \endif
+
+-- A later title-only rename must not replace the last non-title editor.
+select public.add_project_member(:'project','30000000-0000-0000-0000-000000000002','member');
+select public.approve_task_member(:'task','30000000-0000-0000-0000-000000000002');
+select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000002',true);
+select public.update_task_item(:'item','Title-only rename');
+select user_id = '30000000-0000-0000-0000-000000000001'::uuid as title_only_editor_excluded
+  from public.list_task_item_last_editors(:'task') where task_item_id=:'item' \gset
+\if :title_only_editor_excluded
+\else
+\echo 'FAIL title-only editor exclusion'
+\quit 1
+\endif
+select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000001',true);
 
 select public.create_task_template('Release template','Release checklist') \gset
 \set template :create_task_template
