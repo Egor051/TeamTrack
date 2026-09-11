@@ -1,9 +1,5 @@
--- Checklist item audit/notification coverage and safe template cleanup.
---
--- Percentage and comment changes already flow through the existing RPCs and
--- append-only audit_log. This migration makes the notification trigger cover
--- those audit fields too, and exposes one set-based lookup for the UI's
--- "last changed by" label without per-item queries.
+-- Reconcile the hosted historical implementation with the current canonical
+-- TaskTrace functions without replaying the original migration's data cleanup.
 
 create or replace function private.audit_to_notification()
 returns trigger
@@ -212,21 +208,30 @@ as $$
      where r.row_number = 1
 $$;
 
+revoke all on function private.audit_to_notification() from public, anon, authenticated, service_role;
+
 revoke all on function public.list_task_item_last_editors(uuid) from public, anon;
 grant execute on function public.list_task_item_last_editors(uuid) to authenticated, service_role;
 
--- Templates are soft-deleted by the existing archive_task_template RPC and
--- excluded from every user-facing listing. There is no archive UI or restore
--- path, so stale archived rows from the old test model are safe to purge here;
--- task_template_items are removed by their ON DELETE CASCADE FK. Active
--- templates are deliberately untouched.
 do $$
-declare
-    v_deleted bigint;
 begin
-    delete from public.task_templates
-     where archived_at is not null;
-    get diagnostics v_deleted = row_count;
-    raise notice 'Removed % archived task template(s) from the legacy test model', v_deleted;
+    if not exists (
+        select 1
+          from pg_trigger
+         where tgrelid = 'public.audit_log'::regclass
+           and tgname = 'trg_audit_log_notifications'
+    ) then
+        create trigger trg_audit_log_notifications
+            after insert on public.audit_log
+            for each row execute function private.audit_to_notification();
+    elsif not exists (
+        select 1
+          from pg_trigger
+         where tgrelid = 'public.audit_log'::regclass
+           and tgname = 'trg_audit_log_notifications'
+           and tgfoid = 'private.audit_to_notification()'::regprocedure
+    ) then
+        raise exception 'trg_audit_log_notifications points to an unexpected function';
+    end if;
 end
 $$;
