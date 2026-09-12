@@ -298,10 +298,9 @@ export default function TaskScreen() {
                 <Button variant="ghost" disabled={busy} onPress={() => setTaskEditing(false)}>Отмена</Button>
               </View>
             </Card> : null}
-            {canEdit && !taskEditing ? <View style={styles.actions}><Button variant="outline" onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); }}>Редактировать задачу</Button></View> : null}
-            {canManage ? <View style={styles.actions}><Button variant="destructive" onPress={() => setConfirm({ title: "Архивировать задачу?", description: "Задача исчезнет из активного списка проекта.", action: () => archiveTask(taskId) })}>Архивировать задачу</Button></View> : null}
+            {canEdit && !taskEditing ? <View style={styles.actions}><Button variant="outline" onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); }}>Редактировать</Button>{canManage ? <Button variant="destructive" onPress={() => setConfirm({ title: "Архивировать задачу?", description: "Задача исчезнет из активного списка проекта.", action: () => archiveTask(taskId) })}>Архивировать задачу</Button> : null}</View> : null}
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busy} onPress={() => void run(() => restoreTask(taskId))}>Восстановить задачу</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
-            <Card>
+            <Card muted>
               <Progress
                 value={progress}
                 label={`Прогресс · среднее по ${activeItems.length} активным пунктам`}
@@ -593,7 +592,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   list: { gap: spacing.md },
-  itemRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  itemRow: { flexDirection: "row", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.sm },
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -601,7 +600,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     paddingVertical: spacing.sm,
   },
-  flex: { flex: 1, minWidth: 120 },
+  flex: { flex: 1, minWidth: 180 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   addRow: { gap: spacing.md },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", padding: 0 },

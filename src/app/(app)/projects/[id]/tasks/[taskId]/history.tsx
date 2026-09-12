@@ -9,11 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { ThemedText } from "@/components/ui/text";
 import {
-  listTaskHistory,
   listTaskAudit,
   listTaskItems,
   listProjectMembers,
-  type ItemAction,
   type AuditEntry,
   type TaskItem,
   type ProjectMember,
@@ -24,13 +22,12 @@ import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
-import { formatAuditChanges } from "@/features/projects/history-format";
+import { formatAuditChanges, selectChecklistHistory } from "@/features/projects/history-format";
 
 export default function History() {
   const { colors: theme } = useTheme();
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
   const permissionVersion = usePermissionVersion();
-  const [actions, setActions] = useState<ItemAction[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [items, setItems] = useState<TaskItem[]>([]);
   const [members, setMembers] = useState<ProjectMember[]>([]);
@@ -46,14 +43,12 @@ export default function History() {
     const request = ++requestRef.current;
     setLoading(true);
     try {
-      const [a, au, it, ms] = await Promise.all([
-        listTaskHistory(taskId),
+      const [au, it, ms] = await Promise.all([
         listTaskAudit(id, taskId),
         listTaskItems(taskId, "all"),
         listProjectMembers(id),
       ]);
       if (request !== requestRef.current) return;
-      setActions(a);
       setAudit(au);
       setItems(it);
       setMembers(ms);
@@ -118,6 +113,17 @@ export default function History() {
       m.profile?.display_name || m.user_id.slice(0, 8),
     ]),
   );
+  const checklistHistory = selectChecklistHistory(audit);
+  const checklistActionLabels: Record<string, string> = {
+    created: "Создан",
+    updated: "Изменён",
+    reordered: "Порядок изменён",
+    checked: "Выполнено",
+    unchecked: "Снято",
+    archived: "Архивирован",
+    restored: "Восстановлен",
+    removed: "Удалён",
+  };
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
@@ -138,7 +144,7 @@ export default function History() {
           <ErrorState message={error} onRetry={load} />
         ) : loading ? (
           <LoadingState label="Загружаем историю..." />
-        ) : !actions.length && !audit.length ? (
+        ) : !checklistHistory.length && !audit.length ? (
           <EmptyState
             title="История пуста"
             description="Здесь появятся действия пользователей и изменения задачи."
@@ -146,20 +152,21 @@ export default function History() {
         ) : (
           <>
             <ThemedText type="h2">Чек-лист</ThemedText>
-            {actions.map((a) => (
-              <Card key={a.id}>
+            {!checklistHistory.length ? <ThemedText type="small">Изменений пунктов пока нет.</ThemedText> : null}
+            {checklistHistory.map((entry) => (
+              <Card key={entry.id}>
                 <View style={styles.row}>
-                  <Badge tone={a.action === "checked" ? "success" : "warning"}>
-                    {a.action === "checked" ? "Выполнено" : "Снято"}
+                  <Badge tone={entry.action === "checked" ? "success" : entry.action === "unchecked" ? "warning" : entry.action === "archived" || entry.action === "removed" ? "neutral" : "primary"}>
+                    {checklistActionLabels[entry.action] || "Изменён"}
                   </Badge>
                   <View style={styles.flex}>
                     <ThemedText type="h3">
-                      {itemName.get(a.task_item_id) || "Пункт чек-листа"}
+                      {itemName.get(entry.taskItemId) || entry.itemTitle || "Пункт чек-листа"}
                     </ThemedText>
                     <ThemedText type="small">
-                      {memberName.get(a.user_id) || "Пользователь"} ·{" "}
-                      {fmt(a.created_at)}
+                      {memberName.get(entry.userId || "") || "Пользователь"} · {fmt(entry.createdAt)}
                     </ThemedText>
+                    {entry.changes.map((change) => <ThemedText key={change} type="small">{change}</ThemedText>)}
                   </View>
                 </View>
               </Card>
@@ -222,7 +229,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
-  flex: { flex: 1 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: spacing.md },
+  flex: { flex: 1, minWidth: 0 },
   technical: { marginTop: spacing.sm },
 });

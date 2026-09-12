@@ -124,4 +124,4 @@ export default function NotificationsScreen() {
   </Screen>;
 }
 
-const styles = StyleSheet.create({ content: { width: '100%', maxWidth: layout.readingMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg }, list: { gap: spacing.md }, header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, flex: { flex: 1 }, readCard: { borderLeftWidth: 4 }, pressableContent: { gap: spacing.sm } });
+const styles = StyleSheet.create({ content: { width: '100%', maxWidth: layout.readingMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg }, list: { gap: spacing.md }, header: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, readCard: { borderLeftWidth: 4 }, pressableContent: { gap: spacing.sm } });

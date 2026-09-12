@@ -261,7 +261,7 @@ export default function ProjectScreen() {
           <View style={styles.actions}><Button onPress={() => void restore()} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
         ) : null}
         {project ? (
-          <Card>
+          <Card muted>
             <View style={styles.sectionTitle}>
               <ThemedText type="h2">Обзор проекта</ThemedText>
               <ThemedText type="caption">
@@ -411,6 +411,6 @@ const styles = StyleSheet.create({
   },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   list: { gap: spacing.md },
-  taskHead: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
-  flex: { flex: 1 },
+  taskHead: { flexDirection: "row", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md },
+  flex: { flex: 1, minWidth: 0 },
 });

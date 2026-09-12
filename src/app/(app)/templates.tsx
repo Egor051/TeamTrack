@@ -188,8 +188,8 @@ const styles = StyleSheet.create({
   details: { gap: spacing.md, marginTop: spacing.md },
   summary: { gap: spacing.sm },
   item: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  flex: { flex: 1, minWidth: 140 },
+  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
+  flex: { flex: 1, minWidth: 0 },
   actions: { gap: spacing.sm },
   editItem: { flex: 1, minWidth: 220, gap: spacing.sm },
 });
