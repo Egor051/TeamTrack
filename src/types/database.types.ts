@@ -554,7 +554,7 @@ export type Database = {
         Args: { p_task_id: string }
         Returns: {
           changed_at: string
-          display_name: string
+          display_name: string | null
           task_item_id: string
           user_id: string
         }[]

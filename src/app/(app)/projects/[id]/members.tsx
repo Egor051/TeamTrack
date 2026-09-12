@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { ThemedText } from "@/components/ui/text";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePermissionVersion } from "@/features/auth/PermissionProvider";
+import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
 import {
   getProject,
   listProjectMembers,
@@ -33,6 +35,7 @@ const roleDescriptions: Record<ProjectRole, string> = {
 export default function MembersScreen() {
   const { colors: theme } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const permissionVersion = usePermissionVersion();
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [currentRole, setCurrentRole] = useState<ProjectRole | null>(null);
   const [projectStatus, setProjectStatus] = useState<
@@ -60,17 +63,21 @@ export default function MembersScreen() {
     } catch (e) {
       if (request === requestRef.current)
         setError(userMessage(e, "Не удалось загрузить участников."));
+      if (request === requestRef.current && e instanceof ResourceAccessDeniedError) {
+        router.replace("/projects" as never);
+      }
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
   }, [id]);
   useFocusEffect(
     useCallback(() => {
+      void permissionVersion;
       void load();
       return () => {
         requestRef.current += 1;
       };
-    }, [load]),
+    }, [load, permissionVersion]),
   );
   const canManage =
     (currentRole === "owner" || currentRole === "admin") &&

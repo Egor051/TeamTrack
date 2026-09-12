@@ -22,10 +22,14 @@ import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
 import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
+import { usePermissionVersion } from "@/features/auth/PermissionProvider";
+import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
+import { formatAuditChanges } from "@/features/projects/history-format";
 
 export default function History() {
   const { colors: theme } = useTheme();
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
+  const permissionVersion = usePermissionVersion();
   const [actions, setActions] = useState<ItemAction[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [items, setItems] = useState<TaskItem[]>([]);
@@ -34,6 +38,7 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [details, setDetails] = useState<number | null>(null);
+  const [actionLogExpanded, setActionLogExpanded] = useState(false);
   const requestRef = useRef(0);
   const realtimeConnectedRef = useRef(false);
   const load = useCallback(async () => {
@@ -44,7 +49,7 @@ export default function History() {
       const [a, au, it, ms] = await Promise.all([
         listTaskHistory(taskId),
         listTaskAudit(id, taskId),
-        listTaskItems(taskId, true),
+        listTaskItems(taskId, "all"),
         listProjectMembers(id),
       ]);
       if (request !== requestRef.current) return;
@@ -56,21 +61,26 @@ export default function History() {
     } catch (e) {
       if (request === requestRef.current)
         setError(userMessage(e, "Не удалось загрузить историю."));
+      if (request === requestRef.current && e instanceof ResourceAccessDeniedError) {
+        router.replace("/projects" as never);
+      }
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
   }, [id, taskId]);
   useFocusEffect(
     useCallback(() => {
+      void permissionVersion;
       void load();
       return () => {
         requestRef.current += 1;
       };
-    }, [load]),
+    }, [load, permissionVersion]),
   );
   useFocusEffect(
     useCallback(() => {
       if (!id || !taskId) return;
+      void permissionVersion;
       const onStatus = (next: RealtimeStatus) => {
         setStatus(next);
         if (next === "connected" && !realtimeConnectedRef.current) {
@@ -94,7 +104,7 @@ export default function History() {
           },
         },
       ]);
-    }, [id, taskId, load]),
+    }, [id, taskId, load, permissionVersion]),
   );
   const fmt = (v: string) =>
     new Date(v).toLocaleString("ru-RU", {
@@ -108,20 +118,6 @@ export default function History() {
       m.profile?.display_name || m.user_id.slice(0, 8),
     ]),
   );
-  const auditSummary = (entry: AuditEntry) => {
-    if (!entry.new_data || typeof entry.new_data !== "object" || Array.isArray(entry.new_data)) return null;
-    const labels: Record<string, string> = {
-      title: "название",
-      description: "описание",
-      position: "порядок",
-      percentage: "прогресс",
-      comment: "комментарий",
-      is_completed: "состояние",
-      is_archived: "архивный статус",
-    };
-    const fields = Object.keys(entry.new_data).map((key) => labels[key] || key);
-    return fields.length ? `Изменено: ${fields.join(", ")}` : null;
-  };
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
@@ -168,8 +164,18 @@ export default function History() {
                 </View>
               </Card>
             ))}
-            <ThemedText type="h2">Журнал действий</ThemedText>
-            {audit.map((a) => (
+            <View style={styles.sectionHeader}>
+              <ThemedText type="h2">Журнал действий</ThemedText>
+              <Button
+                size="sm"
+                variant="ghost"
+                accessibilityLabel={actionLogExpanded ? "Свернуть журнал действий" : "Развернуть журнал действий"}
+                onPress={() => setActionLogExpanded((expanded) => !expanded)}
+              >
+                {actionLogExpanded ? "Свернуть" : "Развернуть"}
+              </Button>
+            </View>
+            {actionLogExpanded ? audit.map((a) => (
               <Card key={a.id}>
                 <View style={styles.row}>
                   <Badge tone="neutral">{a.action}</Badge>
@@ -179,7 +185,7 @@ export default function History() {
                       {memberName.get(a.user_id || "") || "Система"} ·{" "}
                       {fmt(a.created_at)}
                     </ThemedText>
-                    {auditSummary(a) ? <ThemedText type="small">{auditSummary(a)}</ThemedText> : null}
+                    {formatAuditChanges(a.old_data, a.new_data).map((summary) => <ThemedText key={summary} type="small">{summary}</ThemedText>)}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -200,7 +206,7 @@ export default function History() {
                   </View>
                 </View>
               </Card>
-            ))}
+            )) : null}
           </>
         )}
       </ScrollView>
@@ -216,6 +222,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   flex: { flex: 1 },
   technical: { marginTop: spacing.sm },
 });

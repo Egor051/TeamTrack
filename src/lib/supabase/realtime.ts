@@ -60,6 +60,27 @@ export function subscribeMany(specs: { table: string; options: SubscriptionOptio
   return () => cleanups.forEach((cleanup) => cleanup());
 }
 
+/**
+ * Permission changes are a signal to revalidate through the normal RLS path.
+ * The payload is deliberately ignored by callers: realtime never grants
+ * access, it only tells the client that its cached authorization may be stale.
+ */
+export function subscribeToPermissionChanges(
+  userId: string,
+  onChange: () => void,
+  onStatus?: (status: RealtimeStatus, message?: string) => void,
+) {
+  return subscribeMany([
+    { table: 'project_members', options: { userId, onEvent: onChange, onStatus } },
+    { table: 'task_members', options: { userId, onEvent: onChange, onStatus } },
+    { table: 'task_assignees', options: { userId, onEvent: onChange, onStatus } },
+    // These tables are RLS-filtered by the current user's visible resources.
+    // They cover archive/restore and task state changes that affect access/UI.
+    { table: 'projects', options: { onEvent: onChange, onStatus } },
+    { table: 'tasks', options: { onEvent: onChange, onStatus } },
+  ]);
+}
+
 export function closeAllRealtimeChannels() {
   for (const entry of [...activeChannels]) entry.cleanup();
 }

@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { listProjects, listMyTasks, type ProjectWithRole, type MyTask } from '@/features/projects/projects';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { usePermissionVersion } from '@/features/auth/PermissionProvider';
 import { fetchUnreadCount, subscribeToNotifications } from '@/features/notifications/notifications';
 import { userMessage } from '@/lib/errors/user-message';
 import { useTheme } from '@/components/ui/theme-provider';
@@ -19,6 +20,7 @@ const roleLabels: Record<ProjectWithRole['role'], string> = { owner: 'Владе
 
 export default function ProjectsScreen() {
   const { state } = useAuth();
+  const permissionVersion = usePermissionVersion();
   const { colors: theme } = useTheme();
   const [projects, setProjects] = useState<ProjectWithRole[]>([]);
   const [myTasks, setMyTasks] = useState<MyTask[]>([]);
@@ -31,7 +33,7 @@ export default function ProjectsScreen() {
   const archived = view === 'archived';
   const userId = state.user?.id;
   const load = useCallback(async () => { const request = ++requestRef.current; setLoading(true); setError(''); try { const [next, mine] = await Promise.all([listProjects(archived ? 'archived' : 'active'), archived ? Promise.resolve([] as MyTask[]) : listMyTasks(userId!)]); if (request !== requestRef.current) return; setProjects(next); setMyTasks(mine); } catch (e) { if (request === requestRef.current) setError(userMessage(e, 'Не удалось загрузить проекты.')); } finally { if (request === requestRef.current) setLoading(false); } }, [archived, userId]);
-  useFocusEffect(useCallback(() => { if (!userId) return; void load(); return () => { requestRef.current += 1; }; }, [load, userId]));
+  useFocusEffect(useCallback(() => { if (!userId) return; void permissionVersion; void load(); return () => { requestRef.current += 1; }; }, [load, permissionVersion, userId]));
   useFocusEffect(useCallback(() => {
     if (!userId) return;
     let active = true;

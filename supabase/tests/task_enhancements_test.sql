@@ -46,6 +46,19 @@ select exists (select 1 from public.task_items where id = :'item' and comment='A
 \quit 1
 \endif
 
+-- Creation alone is not an edit: there is no qualifying last editor yet.
+select public.create_task_item(:'task','Untouched item') \gset
+\set untouched_item :create_task_item
+select not exists (
+    select 1 from public.list_task_item_last_editors(:'task')
+    where task_item_id = :'untouched_item'
+) as untouched_editor_empty \gset
+\if :untouched_editor_empty
+\else
+\echo 'FAIL missing editor was synthesized for untouched item'
+\quit 1
+\endif
+
 -- A later title-only rename must not replace the last non-title editor.
 select public.add_project_member(:'project','30000000-0000-0000-0000-000000000002','member');
 select public.approve_task_member(:'task','30000000-0000-0000-0000-000000000002');

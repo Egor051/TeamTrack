@@ -165,7 +165,16 @@ export async function listMyTasks(userId: string): Promise<MyTask[]> {
 export async function createTask(projectId: string, title: string, description?: string) { assertUuid(projectId, 'project id'); return requireData(await supabase.rpc('create_task', { p_project_id: projectId, p_title: title, ...(description ? { p_description: description } : {}) })); }
 export async function createTaskFromTemplate(projectId: string, templateId: string, title?: string, description?: string) { assertUuid(projectId, 'project id'); assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_from_template', { p_project_id: projectId, p_template_id: templateId, ...(title !== undefined ? { p_title: title } : {}), ...(description !== undefined ? { p_description: description } : {}) })); }
 export async function getTask(taskId: string, projectId?: string) { assertUuid(taskId, 'task id'); if (projectId !== undefined) assertUuid(projectId, 'project id'); let query = supabase.from('tasks').select('*').eq('id', taskId); if (projectId !== undefined) query = query.eq('project_id', projectId); const result = await query.maybeSingle(); if (result.error) throw result.error; if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к задаче.'); return result.data; }
-export async function listTaskItems(taskId: string, includeArchived = false): Promise<TaskItem[]> { assertUuid(taskId, 'task id'); return fetchAll<TaskItem>((from, to) => { let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, to); return includeArchived ? query : query.eq('is_archived', false); }); }
+export type TaskItemListMode = 'active' | 'archived' | 'all';
+export async function listTaskItems(taskId: string, mode: TaskItemListMode | boolean = 'active'): Promise<TaskItem[]> {
+  assertUuid(taskId, 'task id');
+  return fetchAll<TaskItem>((from, to) => {
+    let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, to);
+    if (mode === 'archived') return query.eq('is_archived', true);
+    if (mode === 'all' || mode === true) return query;
+    return query.eq('is_archived', false);
+  });
+}
 export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
 export async function updateTask(taskId: string, title: string, description: string) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('update_task', { p_task_id: taskId, p_title: title, p_description: description })); }
 export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 2000) throw new Error('Комментарий слишком длинный (максимум 2000 символов).'); return requireSuccess(await supabase.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '' })); }

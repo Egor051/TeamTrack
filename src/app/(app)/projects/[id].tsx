@@ -27,12 +27,15 @@ import { userMessage } from "@/lib/errors/user-message";
 import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
+import { usePermissionVersion } from "@/features/auth/PermissionProvider";
+import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
 
 export default function ProjectScreen() {
   const { colors: theme } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const user = useUser();
+  const permissionVersion = usePermissionVersion();
   const [project, setProject] = useState<ProjectWithRole | null>(null);
   const [tasks, setTasks] = useState<TaskWithStats[]>([]);
   const [archived, setArchived] = useState(false);
@@ -73,21 +76,26 @@ export default function ProjectScreen() {
         setTasks([]);
       if (request === requestRef.current)
         setError(userMessage(e, "Не удалось загрузить проект."));
+      if (request === requestRef.current && e instanceof ResourceAccessDeniedError) {
+        router.replace("/projects" as never);
+      }
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
   }, [id, archived]);
   useFocusEffect(
     useCallback(() => {
+      void permissionVersion;
       void load();
       return () => {
         requestRef.current += 1;
       };
-    }, [load]),
+    }, [load, permissionVersion]),
   );
   useFocusEffect(
     useCallback(() => {
       if (!id) return;
+      void permissionVersion;
       realtimeConnectedRef.current = false;
       const onStatus = (next: RealtimeStatus) => {
         setStatus(next);
@@ -127,7 +135,7 @@ export default function ProjectScreen() {
         },
       ];
       return subscribeMany(specs);
-    }, [id, load]),
+    }, [id, load, permissionVersion]),
   );
   async function archive() {
     setBusy(true);

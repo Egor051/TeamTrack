@@ -49,11 +49,16 @@ import { userMessage } from "@/lib/errors/user-message";
 import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
+import { usePermissionVersion } from "@/features/auth/PermissionProvider";
+import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
+import { filterChecklistItems } from "@/features/projects/checklist";
+import { formatLastEditorLabel } from "@/features/projects/history-format";
 
 export default function TaskScreen() {
   const { colors: theme } = useTheme();
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
   const user = useUser();
+  const permissionVersion = usePermissionVersion();
   const [task, setTask] = useState<Task | null>(null);
   const [project, setProject] = useState<ProjectWithRole | null>(null);
   const [items, setItems] = useState<TaskItem[]>([]);
@@ -101,7 +106,7 @@ export default function TaskScreen() {
       ] = await Promise.all([
         getTask(taskId, id),
         getProject(id),
-        listTaskItems(taskId, showArchivedItems),
+        listTaskItems(taskId, showArchivedItems ? "archived" : "active"),
         listProjectMembers(id),
         listTaskMembers(taskId),
         listTaskAssignees(taskId),
@@ -126,22 +131,27 @@ export default function TaskScreen() {
         setAssignees([]);
         setLastEditors(new Map());
         setError(userMessage(e, "Нет доступа к задаче."));
+        if (e instanceof ResourceAccessDeniedError) {
+          router.replace("/projects" as never);
+        }
       }
     }
   }, [id, taskId, showArchivedItems]);
 
   useFocusEffect(
     useCallback(() => {
+      void permissionVersion;
       void load();
       return () => {
         requestRef.current += 1;
       };
-    }, [load]),
+    }, [load, permissionVersion]),
   );
 
   useFocusEffect(
     useCallback(() => {
       if (!taskId || !id) return;
+      void permissionVersion;
       const onEvent = () => {
         void load();
       };
@@ -178,7 +188,7 @@ export default function TaskScreen() {
             }]
           : []),
       ]);
-    }, [id, taskId, user, load]),
+    }, [id, taskId, user, load, permissionVersion]),
   );
 
   async function run(fn: () => Promise<unknown>) {
@@ -236,6 +246,7 @@ export default function TaskScreen() {
     project?.status === "active" &&
     task?.status === "archived";
   const activeItems = items.filter((item) => !item.is_archived);
+  const visibleItems = filterChecklistItems(items, showArchivedItems);
   const progress = activeItems.length ? activeItems.reduce((sum, item) => sum + item.percentage, 0) / activeItems.length : 0;
 
   return (
@@ -310,14 +321,14 @@ export default function TaskScreen() {
                 История
               </Button></View>
             </View>
-            {!items.length ? (
+            {!visibleItems.length ? (
               <EmptyState
-                title="Чек-лист пуст"
-                description="Добавьте первый пункт, чтобы разбить задачу на последовательные шаги."
+                title={showArchivedItems ? "Архив чек-листа пуст" : "Чек-лист пуст"}
+                description={showArchivedItems ? "Здесь появятся пункты после архивации." : "Добавьте первый пункт, чтобы разбить задачу на последовательные шаги."}
               />
             ) : (
               <View style={styles.list}>
-                {items.map((item, index) => (
+                {visibleItems.map((item, index) => (
                   <Card key={item.id}>
                     <View style={styles.itemRow}>
                       <Checkbox
@@ -349,7 +360,7 @@ export default function TaskScreen() {
                         )}
                         <Progress value={item.percentage} label={`Выполнено · ${item.percentage}%`} />
                         {item.comment ? <ThemedText type="small" style={{ color: theme.textSecondary }}>Комментарий: {item.comment}</ThemedText> : null}
-                        <ThemedText type="caption" style={{ color: theme.textMuted }}>Последнее изменение: {lastEditors.get(item.id)?.display_name || "Пользователь"}</ThemedText>
+                        <ThemedText type="caption" style={{ color: theme.textMuted }}>Последнее изменение: {formatLastEditorLabel(lastEditors.get(item.id))}</ThemedText>
                       </View>
                     </View>
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
@@ -445,7 +456,7 @@ export default function TaskScreen() {
             ) : null}
             {canManage ? (
               <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => setManageOpen(false)}>
-                <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, { backgroundColor: theme.surface }]}><View style={styles.sectionHead}><ThemedText type="h2">Участники и исполнители</ThemedText><Button size="sm" variant="ghost" onPress={() => setManageOpen(false)}>Закрыть</Button></View><Card>
+                <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, { backgroundColor: theme.surface }]} pointerEvents={confirm ? "none" : "auto"} accessibilityElementsHidden={Boolean(confirm)} importantForAccessibility={confirm ? "no-hide-descendants" : "auto"}><View style={styles.sectionHead}><ThemedText type="h2">Участники и исполнители</ThemedText><Button size="sm" variant="ghost" onPress={() => setManageOpen(false)}>Закрыть</Button></View><Card>
                   <ThemedText type="h2">Участники задачи</ThemedText>
                   <ThemedText type="small">
                     Кто имеет доступ к этой задаче
@@ -536,14 +547,23 @@ export default function TaskScreen() {
                   ) : (
                     <ThemedText type="small">Нет участников задачи.</ThemedText>
                   )}
-                </Card></View></View>
+                 </Card></View><ConfirmDialog
+                   visible={Boolean(confirm)}
+                   nested
+                   title={confirm?.title || ""}
+                   description={confirm?.description || ""}
+                   confirmLabel="Подтвердить"
+                   busy={busy}
+                   onCancel={() => setConfirm(null)}
+                   onConfirm={() => void confirmAction()}
+                 /></View>
               </Modal>
             ) : null}
           </>
         )}
       </ScrollView>
       <ConfirmDialog
-        visible={Boolean(confirm)}
+        visible={Boolean(confirm) && !manageOpen}
         title={confirm?.title || ""}
         description={confirm?.description || ""}
         confirmLabel="Подтвердить"
@@ -585,7 +605,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   addRow: { gap: spacing.md },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", padding: 0 },
-  modalSheet: { maxHeight: "90%", padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+  modalSheet: { maxHeight: "90%", padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 12, borderTopRightRadius: 12, zIndex: 1, elevation: 1 },
   completed: { textDecorationLine: "line-through" },
   commentEditor: { gap: spacing.sm, marginTop: spacing.sm },
   progressEditor: { gap: spacing.sm, marginTop: spacing.sm },
