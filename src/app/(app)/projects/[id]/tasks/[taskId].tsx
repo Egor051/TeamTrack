@@ -395,9 +395,19 @@ export default function TaskScreen() {
                         {item.comment ? <ThemedText type="small" style={styles.itemComment}>{item.comment}</ThemedText> : null}
                         <View style={styles.itemMeta}>
                           <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
-                          <Button size="sm" variant="ghost" accessibilityLabel={`${expandedItem === item.id ? "Свернуть" : "Открыть"} детали пункта ${item.title}`} accessibilityState={{ expanded: expandedItem === item.id }} disabled={busy} onPress={() => { setExpandedItem(expandedItem === item.id ? null : item.id); setEditing(null); setCommentEditing(null); }}>{expandedItem === item.id ? "Свернуть" : "Детали"}</Button>
                           {busyAction === item.id ? <ThemedText type="caption" accessibilityLiveRegion="polite">Сохраняем…</ThemedText> : null}
                         </View>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          style={styles.itemDetailsButton}
+                          accessibilityLabel={`${expandedItem === item.id ? "Свернуть" : "Открыть"} детали пункта ${item.title}`}
+                          accessibilityState={{ expanded: expandedItem === item.id }}
+                          disabled={busy}
+                          onPress={() => { setExpandedItem(expandedItem === item.id ? null : item.id); setEditing(null); setCommentEditing(null); }}
+                        >
+                          {expandedItem === item.id ? "Свернуть" : "Детали"}
+                        </Button>
                       </View>
                     </View>
                     {expandedItem === item.id ? <View style={[styles.itemDetails, { borderTopColor: theme.border }]}>
@@ -664,6 +674,7 @@ const styles = StyleSheet.create({
   list: { gap: spacing.md },
   itemRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   itemMeta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
+  itemDetailsButton: { alignSelf: "flex-start", marginTop: spacing.xs },
   itemComment: { marginTop: spacing.xs },
   itemDetails: { gap: spacing.md, borderTopWidth: 1, paddingTop: spacing.lg },
   memberRow: {
