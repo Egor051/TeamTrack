@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
+import { ErrorMessage } from '@/components/ui/error-message';
 import { ThemedText } from '@/components/ui/text';
 import { useUser } from '@/features/auth/AuthProvider';
 import { fetchNotifications, markAllAsRead, markAsRead, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
@@ -20,16 +21,33 @@ export default function NotificationsScreen() {
   const { colors: theme } = useTheme();
   const user = useUser();
   const [items, setItems] = useState<Notification[]>([]);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
+  const [markingIds, setMarkingIds] = useState<Set<string>>(new Set());
   const requestRef = useRef(0);
+  const loadingMoreRequestRef = useRef<number | null>(null);
   const itemsRef = useRef<Notification[]>([]);
+  // Keep the guard in a ref as well as state so two taps in the same render
+  // cannot enqueue duplicate requests before React has re-rendered.
+  const markingIdsRef = useRef(new Set<string>());
+  const markingAllRef = useRef(false);
 
   const load = useCallback(async (reset = true) => {
     const request = ++requestRef.current;
-    if (reset) setLoading(true); else setLoadingMore(true);
+    if (reset) {
+      setLoading(true);
+      // A refresh supersedes an in-flight page request. Clear its spinner
+      // immediately; the stale request must not be able to re-enable it.
+      loadingMoreRequestRef.current = null;
+      setLoadingMore(false);
+    } else {
+      loadingMoreRequestRef.current = request;
+      setLoadingMore(true);
+    }
     try {
       const offset = reset ? 0 : itemsRef.current.length;
       const page = await fetchNotifications(PAGE_SIZE, offset);
@@ -45,12 +63,16 @@ export default function NotificationsScreen() {
         });
       }
       setHasMore(page.length === PAGE_SIZE);
-      setError('');
+      setLoadError('');
     } catch (e) {
-      if (request === requestRef.current) setError(userMessage(e, 'Не удалось загрузить уведомления.'));
+      if (request === requestRef.current) setLoadError(userMessage(e, 'Не удалось загрузить уведомления.'));
     } finally {
       if (request === requestRef.current) {
-        if (reset) setLoading(false); else setLoadingMore(false);
+        if (reset) setLoading(false);
+      }
+      if (!reset && loadingMoreRequestRef.current === request) {
+        loadingMoreRequestRef.current = null;
+        setLoadingMore(false);
       }
     }
   }, []);
@@ -68,16 +90,28 @@ export default function NotificationsScreen() {
 
   if (!user) return <LoadingState label="Завершаем сеанс..." />;
 
-  async function read(item: Notification) {
-    if (!item.is_read) {
-      try {
-        await markAsRead(item.id);
-        setItems((prev) => prev.map((n) => n.id === item.id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n));
-      } catch (e) {
-        setError(userMessage(e, 'Не удалось отметить уведомление.'));
-        return;
-      }
+  async function markItemRead(item: Notification) {
+    if (item.is_read) return true;
+    if (markingAllRef.current) return false;
+    if (markingIdsRef.current.has(item.id)) return false;
+    markingIdsRef.current.add(item.id);
+    setMarkingIds(new Set(markingIdsRef.current));
+    try {
+      await markAsRead(item.id);
+      setItems((prev) => prev.map((n) => n.id === item.id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n));
+      setActionError('');
+      return true;
+    } catch (e) {
+      setActionError(userMessage(e, 'Не удалось отметить уведомление.'));
+      return false;
+    } finally {
+      markingIdsRef.current.delete(item.id);
+      setMarkingIds(new Set(markingIdsRef.current));
     }
+  }
+
+  async function read(item: Notification) {
+    if (!await markItemRead(item)) return;
     if (item.project_id) {
       router.push(
         (item.task_id
@@ -88,35 +122,38 @@ export default function NotificationsScreen() {
   }
 
   async function markReadOnly(item: Notification) {
-    if (item.is_read) return;
-    try {
-      await markAsRead(item.id);
-      setItems((prev) => prev.map((n) => n.id === item.id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n));
-    } catch (e) {
-      setError(userMessage(e, 'Не удалось отметить уведомление.'));
-    }
+    await markItemRead(item);
   }
 
   async function allRead() {
+    if (markingAllRef.current) return;
+    markingAllRef.current = true;
+    setMarkingAll(true);
+    setActionError('');
     try {
       await markAllAsRead();
       setItems((prev) => prev.map((n) => ({ ...n, is_read: true, read_at: n.read_at ?? new Date().toISOString() })));
     } catch (e) {
-      setError(userMessage(e, 'Не удалось обновить уведомления.'));
+      setActionError(userMessage(e, 'Не удалось обновить уведомления.'));
+    } finally {
+      markingAllRef.current = false;
+      setMarkingAll(false);
     }
   }
 
   return <Screen padded={false} centerContent={false}>
-    <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <PageHeader title="Уведомления" onBack={() => router.back()} actions={items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" onPress={() => void allRead()}>Прочитать все</Button> : null} />
-      {error ? <ErrorState message={error} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к задачам и изменениях чек-листа." /> : <View style={styles.list}>
+    <ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll} onPress={() => void allRead()}>Прочитать все</Button> : null} />
+      {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к задачам и изменениях чек-листа." /> : <View style={styles.list}>
+        {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить уведомления</Button></View> : null}
+        {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
         {items.map((item) => <Card key={item.id} style={!item.is_read ? [styles.readCard, { borderColor: theme.primary }] : undefined}>
-          <Pressable onPress={() => void read(item)} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${item.title}`} style={styles.pressableContent}>
+          <Pressable onPress={() => void read(item)} disabled={markingAll} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${item.title}`} accessibilityState={{ disabled: markingAll }} style={styles.pressableContent}>
             <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{item.title}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
             <ThemedText>{item.body}</ThemedText>
             <ThemedText type="caption">{new Date(item.created_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}</ThemedText>
           </Pressable>
-          {!item.is_read ? <Button size="sm" variant="ghost" onPress={() => void markReadOnly(item)}>Отметить прочитанным</Button> : null}
+          {!item.is_read ? <Button size="sm" variant="ghost" loading={markingIds.has(item.id)} disabled={markingAll || markingIds.has(item.id)} onPress={() => void markReadOnly(item)}>{markingIds.has(item.id) ? 'Отмечаем…' : 'Отметить прочитанным'}</Button> : null}
         </Card>)}
         {hasMore ? <Button size="sm" variant="outline" loading={loadingMore} onPress={() => void load(false)}>Загрузить ещё</Button> : null}
       </View>}
@@ -124,4 +161,4 @@ export default function NotificationsScreen() {
   </Screen>;
 }
 
-const styles = StyleSheet.create({ content: { width: '100%', maxWidth: layout.readingMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg }, list: { gap: spacing.md }, header: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, readCard: { borderLeftWidth: 4 }, pressableContent: { gap: spacing.sm } });
+const styles = StyleSheet.create({ content: { width: '100%', maxWidth: layout.readingMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg }, list: { gap: spacing.md }, feedback: { gap: spacing.sm }, header: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, readCard: { borderLeftWidth: 4 }, pressableContent: { gap: spacing.sm } });

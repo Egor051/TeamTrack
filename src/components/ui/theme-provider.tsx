@@ -38,7 +38,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         root.style.minHeight = '100%';
       });
       document.body.style.setProperty('color-scheme', resolved);
-      return;
+      document.documentElement.lang = 'ru';
+      document.title = 'TaskTrace';
+      const focusStyle = document.createElement('style');
+      focusStyle.textContent = `:where(a, button, input, textarea, [role="button"], [role="tab"], [role="checkbox"], [role="menuitem"]):focus-visible { outline: 3px solid ${resolved === 'dark' ? darkColors.focus : lightColors.focus}; outline-offset: 3px; }`;
+      document.head.appendChild(focusStyle);
+      return () => focusStyle.remove();
     }
     SystemUI.setBackgroundColorAsync(background).catch(() => undefined);
   }, [resolved]);

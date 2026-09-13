@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/ui/screen";
 import { PageHeader } from "@/components/ui/page-header";
@@ -10,8 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { TaskStatus } from "@/components/ui/task-status";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { ErrorMessage } from "@/components/ui/error-message";
 import {
   getProject,
   listTasksWithStats,
@@ -40,7 +42,8 @@ export default function ProjectScreen() {
   const [tasks, setTasks] = useState<TaskWithStats[]>([]);
   const [archived, setArchived] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
@@ -49,8 +52,17 @@ export default function ProjectScreen() {
   const [editDescription, setEditDescription] = useState("");
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const requestRef = useRef(0);
+  const busyRef = useRef(false);
+  const loadedProjectIdRef = useRef<string | null>(null);
   const taskIdsRef = useRef<Set<string>>(new Set());
   const realtimeConnectedRef = useRef(false);
+  useEffect(() => {
+    if (loadedProjectIdRef.current === null || loadedProjectIdRef.current === id) return;
+    loadedProjectIdRef.current = null;
+    setProject(null);
+    setTasks([]);
+    setEditing(false);
+  }, [id]);
   useEffect(() => {
     taskIdsRef.current = new Set(tasks.map((task) => task.id));
   }, [tasks]);
@@ -58,25 +70,31 @@ export default function ProjectScreen() {
     if (!id) return;
     const request = ++requestRef.current;
     setLoading(true);
-    setError("");
+    setLoadError("");
     try {
-      const [nextProject, nextTasks] = await Promise.all([
-        getProject(id),
-        listTasksWithStats(id, archived),
-      ]);
+      const nextProject = await getProject(id);
+      const nextArchived = nextProject.status === "archived" ? true : archived;
       if (request !== requestRef.current) return;
+      loadedProjectIdRef.current = id;
       setProject(nextProject);
       setEditName(nextProject.name);
       setEditDescription(nextProject.description || "");
+      if (nextArchived !== archived) setArchived(nextArchived);
+      const nextTasks = await listTasksWithStats(id, nextArchived);
+      if (request !== requestRef.current) return;
       setTasks(nextTasks);
     } catch (e) {
-      if (request === requestRef.current)
-        setProject(null);
-      if (request === requestRef.current)
-        setTasks([]);
-      if (request === requestRef.current)
-        setError(userMessage(e, "Не удалось загрузить проект."));
+      if (request === requestRef.current) {
+        if (loadedProjectIdRef.current !== id) {
+          setProject(null);
+          setTasks([]);
+        }
+        setLoadError(userMessage(e, "Не удалось обновить проект."));
+      }
       if (request === requestRef.current && e instanceof ResourceAccessDeniedError) {
+        loadedProjectIdRef.current = null;
+        setProject(null);
+        setTasks([]);
         router.replace("/projects" as never);
       }
     } finally {
@@ -138,49 +156,67 @@ export default function ProjectScreen() {
     }, [id, load, permissionVersion]),
   );
   async function archive() {
+    if (busyRef.current) return;
+    setActionError("");
+    busyRef.current = true;
     setBusy(true);
     try {
       await archiveProject(id!);
       setConfirm(false);
       router.replace("/projects" as never);
     } catch (e) {
-      setError(userMessage(e, "Не удалось архивировать проект."));
+      setActionError(userMessage(e, "Не удалось архивировать проект."));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
   async function restore() {
+    if (busyRef.current) return;
+    setActionError("");
+    busyRef.current = true;
     setBusy(true);
     try {
       await restoreProject(id!);
       router.replace("/projects" as never);
     } catch (e) {
-      setError(userMessage(e, "Не удалось восстановить проект."));
+      setActionError(userMessage(e, "Не удалось восстановить проект."));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
-  async function hardDelete() { setBusy(true); try { await hardDeleteProject(id!); setHardDeleteConfirm(false); router.replace('/projects' as never); } catch (e) { setError(userMessage(e, 'Не удалось удалить проект навсегда.')); } finally { setBusy(false); } }
+  async function hardDelete() { if (busyRef.current) return; setActionError(''); busyRef.current = true; setBusy(true); try { await hardDeleteProject(id!); setHardDeleteConfirm(false); router.replace('/projects' as never); } catch (e) { setActionError(userMessage(e, 'Не удалось удалить проект навсегда.')); } finally { busyRef.current = false; setBusy(false); } }
   async function save() {
+    if (busyRef.current) return;
+    const nextName = editName.trim();
+    if (!nextName) { setActionError('Введите название проекта.'); return; }
+    setActionError("");
+    busyRef.current = true;
     setBusy(true);
     try {
-      await updateProject(id!, editName, editDescription);
+      await updateProject(id!, nextName, editDescription.trim());
       setEditing(false);
       await load();
     } catch (e) {
-      setError(userMessage(e, "Не удалось сохранить проект."));
+      setActionError(userMessage(e, "Не удалось сохранить проект."));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
+  const { width } = useWindowDimensions();
+  const wide = width >= layout.desktopBreakpoint;
+  const showArchivedTasks = project?.status === "archived" ? true : archived;
   const canCreateTask =
-    !archived && project?.status === "active" && project.role !== "viewer";
+    !showArchivedTasks && project?.status === "active" && project.role !== "viewer";
   const complete = tasks.reduce((n, t) => n + t.completedCount, 0),
     total = tasks.reduce((n, t) => n + t.itemCount, 0),
     percent = total ? tasks.reduce((n, t) => n + t.progressPercent * t.itemCount, 0) / total : 0;
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={loading}
@@ -191,45 +227,33 @@ export default function ProjectScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {project ? (
-          <PageHeader
-            title={editing ? "Редактирование проекта" : project.name}
-            subtitle={
-              editing
-                ? ""
-                : project.description || "Рабочее пространство проекта"
-            }
-            onBack={() => router.back()}
-            actions={
-              <>
-                <Badge
-                  tone={project.status === "archived" ? "neutral" : "primary"}
-                >
-                  {roleLabels[project.role]}
-                </Badge>
-                <Badge
-                  tone={project.status === "archived" ? "neutral" : "success"}
-                >
-                  {project.status === "archived" ? "В архиве" : "Активный"}
-                </Badge>
-              </>
-            }
-          />
-        ) : null}
+        <PageHeader
+          title={editing ? "Редактирование проекта" : project?.name || "Проект"}
+          subtitle={editing ? "" : project?.description || "Рабочее пространство проекта"}
+          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект" }]}
+          actions={project ? <>
+            <Badge tone={project.status === "archived" ? "neutral" : "primary"}>{roleLabels[project.role]}</Badge>
+            <Badge tone={project.status === "archived" ? "neutral" : "success"}>{project.status === "archived" ? "В архиве" : "Активный"}</Badge>
+          </> : undefined}
+        />
         {project && editing ? (
           <Card>
             <Input
+              label="Название проекта"
               value={editName}
               onChangeText={setEditName}
               placeholder="Название проекта"
+              disabled={busy}
             />
             <Textarea
+              label="Описание проекта"
               value={editDescription}
               onChangeText={setEditDescription}
               placeholder="Описание проекта"
+              disabled={busy}
             />
             <View style={styles.actions}>
-              <Button onPress={() => void save()} disabled={busy}>
+              <Button onPress={() => void save()} loading={busy} disabled={busy}>
                 Сохранить
               </Button>
               <Button
@@ -247,10 +271,10 @@ export default function ProjectScreen() {
         project.status === "active" &&
         !editing ? (
           <View style={styles.actions}>
-            <Button variant="outline" onPress={() => setEditing(true)}>
+            <Button variant="outline" disabled={busy} onPress={() => setEditing(true)}>
               Редактировать
             </Button>
-            <Button variant="destructive" onPress={() => setConfirm(true)}>
+            <Button variant="destructive" disabled={busy} onPress={() => setConfirm(true)}>
               Архивировать проект
             </Button>
           </View>
@@ -258,30 +282,34 @@ export default function ProjectScreen() {
         {project &&
         (project.role === "owner" || project.role === "admin") &&
         project.status === "archived" ? (
-          <View style={styles.actions}><Button onPress={() => void restore()} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
+          <View style={styles.actions}><Button onPress={() => void restore()} loading={busy} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
         ) : null}
-        {project ? (
-          <Card muted>
+         {loadError && project ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить проект</Button></View> : null}
+         {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
+         {project ? (
+           <Card muted>
             <View style={styles.sectionTitle}>
               <ThemedText type="h2">Обзор проекта</ThemedText>
               <ThemedText type="caption">
-                Синхронизация: {status === "connected" ? "готова" : status}
+                {status === "connected" ? "Данные синхронизированы" : status === "connecting" ? "Подключаемся…" : status === "reconnecting" ? "Переподключаемся…" : "Синхронизация недоступна"}
               </ThemedText>
             </View>
             <Progress
               value={percent}
               label={`${complete} из ${total} пунктов выполнено`}
             />
-          </Card>
-        ) : null}
-        <View style={styles.sectionHead}>
+           </Card>
+         ) : null}
+         {project?.status === "archived" ? <Card muted><ThemedText type="small">Проект в архиве. Его задачи доступны в архивном списке; владелец или администратор может восстановить их при необходимости.</ThemedText></Card> : null}
+         <View style={styles.sectionHead}>
           <ThemedText type="h2">
-            {archived ? "Архивные задачи" : "Задачи"} ({tasks.length})
+             {showArchivedTasks ? "Архивные задачи" : "Задачи"} ({tasks.length})
           </ThemedText>
           <View style={styles.actions}>
             {canCreateTask ? (
               <Button
                 size="sm"
+                disabled={busy}
                 onPress={() =>
                   router.push(`/projects/${id}/tasks/new` as never)
                 }
@@ -289,34 +317,38 @@ export default function ProjectScreen() {
                 Новая задача
               </Button>
             ) : null}
-            <Button
+            {project ? <Button
               size="sm"
               variant="outline"
+              disabled={busy}
               onPress={() => router.push(`/projects/${id}/members` as never)}
             >
               Участники
-            </Button>
-            <Button
+            </Button> : null}
+            {project && project.status !== "archived" ? <Button
               size="sm"
               variant="ghost"
+              disabled={busy}
               onPress={() => setArchived((v) => !v)}
             >
-              {archived ? "Активные" : "Архив"}
-            </Button>
+              {showArchivedTasks ? "Активные" : "Архив"}
+            </Button> : null}
           </View>
         </View>
-        {error ? (
-          <ErrorState message={error} onRetry={load} />
-        ) : loading && !project ? (
+        {loadError && !project ? (
+          <ErrorState message={loadError} onRetry={load} />
+        ) : loading && !tasks.length ? (
           <LoadingState />
-        ) : !tasks.length ? (
+        ) : loadError ? null : !tasks.length ? (
           <EmptyState
-            title={archived ? "Архивные задачи пусты" : "Задач пока нет"}
-            description={
-              archived
-                ? "Здесь появятся задачи после архивации."
-                : "Создайте задачу, чтобы команда могла начать работу."
-            }
+             title={showArchivedTasks ? "Архивные задачи пусты" : "Задач пока нет"}
+              description={
+                showArchivedTasks
+                  ? "Здесь появятся задачи после архивации."
+                  : canCreateTask
+                    ? "Создайте задачу, чтобы команда могла начать работу."
+                    : "Участники проекта ещё не добавили задач."
+              }
             actionLabel={canCreateTask ? "Новая задача" : undefined}
             onAction={
               canCreateTask
@@ -325,11 +357,11 @@ export default function ProjectScreen() {
             }
           />
         ) : (
-          <View style={styles.list}>
+          <View style={[styles.list, wide && styles.listWide]}>
             {tasks.map((t) => {
               const p = t.progressPercent;
               return (
-                <Card
+                <Card style={wide ? styles.taskCard : undefined}
                   key={t.id}
                   onPress={() =>
                     router.push(`/projects/${id}/tasks/${t.id}` as never)
@@ -341,23 +373,7 @@ export default function ProjectScreen() {
                       {t.title}
                     </ThemedText>
                     {user && t.assignees.includes(user.id) ? <Badge tone="primary">Моя задача</Badge> : null}
-                    <Badge
-                      tone={
-                        t.status === "completed"
-                          ? "success"
-                          : t.status === "archived"
-                            ? "neutral"
-                            : "primary"
-                      }
-                    >
-                      {t.status === "not_started"
-                        ? "Не начата"
-                        : t.status === "in_progress"
-                          ? "В работе"
-                          : t.status === "completed"
-                            ? "Завершена"
-                            : "В архиве"}
-                    </Badge>
+                    <TaskStatus status={t.status} />
                   </View>
                   {t.description ? (
                     <ThemedText type="small" numberOfLines={2}>
@@ -409,8 +425,11 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.lg,
   },
+  feedback: { gap: spacing.sm },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   list: { gap: spacing.md },
+  listWide: { flexDirection: "row", flexWrap: "wrap" },
+  taskCard: { flexBasis: "48%", flexGrow: 1 },
   taskHead: { flexDirection: "row", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md },
   flex: { flex: 1, minWidth: 0 },
 });

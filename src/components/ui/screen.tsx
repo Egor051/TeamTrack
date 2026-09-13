@@ -34,7 +34,10 @@ export function Screen({
 }: ScreenProps) {
   const { colors: theme } = useTheme();
   const insets = useSafeAreaInsets();
-  const safePadding = { paddingBottom: insets.bottom + spacing.lg };
+  const safePadding = {
+    paddingTop: insets.top,
+    paddingBottom: insets.bottom + spacing.lg,
+  };
   const content = scrollable ? (
     <ScrollView
       contentContainerStyle={[styles.scrollContent, { maxWidth }, centerContent && styles.centered, padded && styles.padded, safePadding, contentStyle]}

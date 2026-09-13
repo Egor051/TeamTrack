@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { Screen } from '@/components/ui/screen';
 import { PageHeader } from '@/components/ui/page-header';
 import { ThemedText } from '@/components/ui/text';
@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+import { ErrorMessage } from '@/components/ui/error-message';
 import {
   createTaskTemplate,
   createTaskTemplateItem,
@@ -24,6 +25,7 @@ import {
 } from '@/features/projects/projects';
 import { getCurrentUser } from '@/features/auth/auth';
 import { layout, spacing } from '@/components/ui/theme';
+import { userMessage } from '@/lib/errors/user-message';
 
 export default function TemplatesScreen() {
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
@@ -39,11 +41,13 @@ export default function TemplatesScreen() {
   const [editingItemTitle, setEditingItemTitle] = useState('');
   const [editingItemDescription, setEditingItemDescription] = useState('');
   const [templateToDelete, setTemplateToDelete] = useState<TaskTemplate | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<TaskTemplateItem | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadingItems, setLoadingItems] = useState(false);
   const [busy, setBusy] = useState(false);
   const itemRequestRef = useRef(0);
+  const actionRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +75,7 @@ export default function TemplatesScreen() {
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось загрузить шаблоны.');
+      setError(userMessage(e, 'Не удалось загрузить шаблоны.'));
     } finally {
       setLoading(false);
     }
@@ -80,19 +84,30 @@ export default function TemplatesScreen() {
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   async function run(action: () => Promise<unknown>) {
+    if (actionRef.current) return;
+    actionRef.current = true;
     setBusy(true);
     setError('');
     try {
-      await action();
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Операция не выполнена.');
+      try {
+        await action();
+      } catch (e) {
+        setError(userMessage(e, 'Операция не выполнена.'));
+        return;
+      }
+      try {
+        await load();
+      } catch (e) {
+        setError(userMessage(e, 'Не удалось обновить шаблоны.'));
+      }
     } finally {
+      actionRef.current = false;
       setBusy(false);
     }
   }
 
   function toggleTemplate(template: TaskTemplate) {
+    if (busy) return;
     if (expandedId === template.id) {
       itemRequestRef.current += 1;
       setExpandedId(null);
@@ -109,20 +124,20 @@ export default function TemplatesScreen() {
     setLoadingItems(true);
     void listTaskTemplateItems(template.id)
       .then((rows) => { if (itemRequest === itemRequestRef.current) setExpandedItems(rows); })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Не удалось загрузить пункты.'))
+      .catch((e) => setError(userMessage(e, 'Не удалось загрузить пункты шаблона.')))
       .finally(() => { if (itemRequest === itemRequestRef.current) setLoadingItems(false); });
   }
 
   return (
     <Screen padded={false} centerContent={false}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <PageHeader title="Глобальные шаблоны" subtitle="Общие заготовки задач" onBack={() => router.back()} />
-        {error ? <ErrorState message={error} onRetry={load} /> : null}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <PageHeader title="Глобальные шаблоны" subtitle="Общие заготовки задач" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Шаблоны' }]} />
+        {error ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить шаблоны</Button></View> : null}
         <Card>
           <ThemedText type="h2">Новый шаблон</ThemedText>
-          <Input label="Название" value={createName} onChangeText={setCreateName} maxLength={200} placeholder="Подготовка релиза" />
-          <Textarea label="Описание" value={createDescription} onChangeText={setCreateDescription} maxLength={10000} placeholder="Необязательно" />
-          <Button disabled={busy || !createName.trim()} onPress={() => void run(async () => { await createTaskTemplate(createName.trim(), createDescription); setCreateName(''); setCreateDescription(''); })}>Создать шаблон</Button>
+          <Input label="Название" value={createName} onChangeText={setCreateName} maxLength={200} placeholder="Подготовка релиза" disabled={busy} />
+          <Textarea label="Описание" value={createDescription} onChangeText={setCreateDescription} maxLength={10000} placeholder="Необязательно" disabled={busy} />
+          <Button loading={busy} disabled={busy || !createName.trim()} onPress={() => void run(async () => { await createTaskTemplate(createName.trim(), createDescription); setCreateName(''); setCreateDescription(''); })}>Создать шаблон</Button>
         </Card>
         {loading && !templates.length ? <LoadingState /> : !templates.length ? <EmptyState title="Шаблонов пока нет" description="Создайте первый глобальный шаблон." /> : (
           <View style={styles.list}>
@@ -131,7 +146,7 @@ export default function TemplatesScreen() {
               const canEdit = currentUserId === template.created_by;
               return (
                 <Card key={template.id}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`${expanded ? 'Свернуть' : 'Раскрыть'} шаблон ${template.name}`} onPress={() => toggleTemplate(template)} style={styles.summary}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${expanded ? 'Свернуть' : 'Раскрыть'} шаблон ${template.name}`} accessibilityState={{ expanded, disabled: busy }} disabled={busy} onPress={() => toggleTemplate(template)} style={({ pressed }) => [styles.summary, pressed && styles.pressed]}>
                     <View style={styles.row}>
                       <ThemedText type="h3" style={styles.flex}>{template.name}</ThemedText>
                       <ThemedText type="caption">{template.item_count} пунктов {expanded ? '▴' : '▾'}</ThemedText>
@@ -142,20 +157,20 @@ export default function TemplatesScreen() {
                     <View style={styles.details}>
                       <View style={styles.row}><ThemedText type="caption" style={styles.flex}>{canEdit ? 'Можно редактировать' : 'Только просмотр'}</ThemedText>{canEdit ? <Button size="sm" variant="destructive" disabled={busy} onPress={() => setTemplateToDelete(template)}>Удалить</Button> : null}</View>
                       {canEdit ? <>
-                        <Input label="Название" value={editName} onChangeText={setEditName} maxLength={200} />
-                        <Textarea label="Описание" value={editDescription} onChangeText={setEditDescription} maxLength={10000} />
-                        <Button disabled={busy || !editName.trim()} onPress={() => void run(() => updateTaskTemplate(template.id, editName.trim(), editDescription))}>Сохранить шаблон</Button>
+                        <Input label="Название" value={editName} onChangeText={setEditName} maxLength={200} disabled={busy} />
+                        <Textarea label="Описание" value={editDescription} onChangeText={setEditDescription} maxLength={10000} disabled={busy} />
+                        <Button loading={busy} disabled={busy || !editName.trim()} onPress={() => void run(() => updateTaskTemplate(template.id, editName.trim(), editDescription))}>Сохранить шаблон</Button>
                       </> : null}
                       {loadingItems ? <LoadingState label="Загружаем пункты..." /> : <View style={styles.list}>{expandedItems.map((item, index) => <View key={item.id} style={styles.item}>
-                        {editingItem === item.id ? <View style={styles.editItem}><Input value={editingItemTitle} onChangeText={setEditingItemTitle} maxLength={500} /><Textarea label="Описание пункта" value={editingItemDescription} onChangeText={setEditingItemDescription} maxLength={10000} /></View> : <View style={styles.flex}><ThemedText>{index + 1}. {item.title}</ThemedText>{item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}</View>}
+                        {editingItem === item.id ? <View style={styles.editItem}><Input label="Название пункта" value={editingItemTitle} onChangeText={setEditingItemTitle} maxLength={500} disabled={busy} /><Textarea label="Описание пункта" value={editingItemDescription} onChangeText={setEditingItemDescription} maxLength={10000} disabled={busy} /></View> : <View style={styles.flex}><ThemedText>{index + 1}. {item.title}</ThemedText>{item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}</View>}
                         {canEdit ? <>
-                          {editingItem === item.id ? <Button size="sm" disabled={busy || !editingItemTitle.trim()} onPress={() => void run(async () => { await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription, item.position); setEditingItem(null); })}>Сохранить</Button> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); setEditingItemTitle(item.title); setEditingItemDescription(item.description ?? ''); }}>Изменить</Button>}
+                          {editingItem === item.id ? <Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim()} onPress={() => void run(async () => { await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription, item.position); setEditingItem(null); })}>Сохранить</Button> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); setEditingItemTitle(item.title); setEditingItemDescription(item.description ?? ''); }}>Изменить</Button>}
                           <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, item.position - 1))}>Вверх</Button>
                           <Button size="sm" variant="ghost" disabled={busy || index === expandedItems.length - 1} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, item.position + 1))}>Вниз</Button>
-                          <Button size="sm" variant="ghost" disabled={busy} onPress={() => void run(() => deleteTaskTemplateItem(item.id))}>Удалить</Button>
+                          <Button size="sm" variant="ghost" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить</Button>
                         </> : null}
                       </View>)}</View>}
-                      {canEdit ? <View style={styles.actions}><Input label="Новый пункт" value={newItem} onChangeText={setNewItem} maxLength={500} placeholder="Проверить сборку" /><Button disabled={busy || !newItem.trim()} onPress={() => void run(async () => { await createTaskTemplateItem(template.id, newItem.trim(), undefined, expandedItems.length + 1); setNewItem(''); })}>Добавить пункт</Button></View> : null}
+                      {canEdit ? <View style={styles.actions}><Input label="Новый пункт" value={newItem} onChangeText={setNewItem} maxLength={500} placeholder="Проверить сборку" disabled={busy} /><Button loading={busy} disabled={busy || !newItem.trim()} onPress={() => void run(async () => { await createTaskTemplateItem(template.id, newItem.trim(), undefined, expandedItems.length + 1); setNewItem(''); })}>Добавить пункт</Button></View> : null}
                     </View>
                   ) : null}
                 </Card>
@@ -174,8 +189,26 @@ export default function TemplatesScreen() {
         onConfirm={() => {
           const template = templateToDelete;
           if (!template) return;
-          setTemplateToDelete(null);
-          void run(() => deleteTaskTemplate(template.id));
+          void run(async () => {
+            await deleteTaskTemplate(template.id);
+            setTemplateToDelete(null);
+          });
+        }}
+      />
+      <ConfirmDialog
+        visible={Boolean(itemToDelete)}
+        title="Удалить пункт шаблона?"
+        description={`Пункт «${itemToDelete?.title ?? ''}» будет удалён из шаблона без возможности восстановления.`}
+        confirmLabel="Удалить пункт"
+        busy={busy}
+        onCancel={() => setItemToDelete(null)}
+        onConfirm={() => {
+          const item = itemToDelete;
+          if (!item) return;
+          void run(async () => {
+            await deleteTaskTemplateItem(item.id);
+            setItemToDelete(null);
+          });
         }}
       />
     </Screen>
@@ -191,5 +224,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   flex: { flex: 1, minWidth: 0 },
   actions: { gap: spacing.sm },
-  editItem: { flex: 1, minWidth: 220, gap: spacing.sm },
+  feedback: { gap: spacing.sm },
+  pressed: { opacity: 0.72 },
+  editItem: { flex: 1, minWidth: 0, gap: spacing.sm },
 });

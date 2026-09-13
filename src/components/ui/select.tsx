@@ -13,6 +13,7 @@ export function Select({
   onChange,
   placeholder = 'Выберите значение',
   accessibilityLabel,
+  disabled = false,
 }: {
   label?: string;
   value: string;
@@ -20,6 +21,7 @@ export function Select({
   onChange: (value: string) => void;
   placeholder?: string;
   accessibilityLabel: string;
+  disabled?: boolean;
 }) {
   const { colors: theme } = useTheme();
   const [open, setOpen] = useState(false);
@@ -36,9 +38,11 @@ export function Select({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
-        accessibilityState={{ expanded: open }}
+        accessibilityValue={{ text: selected?.label || placeholder }}
+        accessibilityState={{ expanded: open, disabled }}
+        disabled={disabled}
         onPress={() => setOpen(true)}
-        style={[styles.trigger, { borderColor: theme.borderStrong, backgroundColor: theme.surface }]}
+        style={[styles.trigger, { borderColor: theme.borderStrong, backgroundColor: disabled ? theme.surfaceMuted : theme.surface }, disabled && { opacity: 0.5 }]}
       >
         <ThemedText style={styles.triggerText} numberOfLines={1}>
           {selected?.label || placeholder}
@@ -49,7 +53,7 @@ export function Select({
         <View style={[styles.backdrop, { backgroundColor: theme.overlay }]}>
           <Pressable style={styles.dismissLayer} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Закрыть список" />
           <View style={[styles.menu, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            {label ? <ThemedText type="h3">{label}</ThemedText> : null}
+            <View style={styles.menuHeader}><ThemedText type="h3" style={styles.optionText}>{label || accessibilityLabel}</ThemedText><Pressable accessibilityRole="button" accessibilityLabel="Закрыть список" onPress={() => setOpen(false)} style={styles.close}><ThemedText>✕</ThemedText></Pressable></View>
             <FlatList
               data={options}
               keyExtractor={(option) => option.value}
@@ -78,6 +82,8 @@ export function Select({
 
 const styles = StyleSheet.create({
   container: { gap: spacing.xs },
+  menuHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   trigger: { minHeight: 48, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   triggerText: { flex: 1 },
   backdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.lg },

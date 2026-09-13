@@ -19,9 +19,10 @@ export function ErrorMessage({
     return null;
   }
 
+  const tone = type === 'generic' ? 'warning' : 'error';
   return (
-    <View accessibilityRole="alert" style={[styles.container, { backgroundColor: type === 'generic' ? theme.primarySoft : theme.errorSoft }]}>
-      <Text style={[styles.message, { color: type === 'generic' ? theme.primary : theme.error }]}>{message}</Text>
+    <View accessibilityRole="alert" style={[styles.container, { backgroundColor: tone === 'warning' ? theme.warningSoft : theme.errorSoft }]}>
+      <Text style={[styles.message, { color: tone === 'warning' ? theme.warning : theme.error }]}>{message}</Text>
     </View>
   );
 }

@@ -4,7 +4,7 @@
  * This is the entry point for the app. It redirects to the appropriate
  * group based on the current auth state:
  *   - while loading  → LoadingScreen
- *   - signed in      → /(app)/profile
+ *   - signed in      → /(app)/projects
  *   - signed out     → /(auth)/login
  *
  * The group layouts (auth)/_layout.tsx and (app)/_layout.tsx also

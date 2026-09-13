@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
 import { Screen } from "@/components/ui/screen";
 import { PageHeader } from "@/components/ui/page-header";
@@ -8,10 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { ThemedText } from "@/components/ui/text";
+import { RealtimeIndicator } from "@/components/ui/realtime-indicator";
+import { ErrorMessage } from "@/components/ui/error-message";
 import {
   listTaskAudit,
   listTaskItems,
   listProjectMembers,
+  getTask,
+  getProject,
   type AuditEntry,
   type TaskItem,
   type ProjectMember,
@@ -24,13 +28,41 @@ import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
 import { formatAuditChanges, selectChecklistHistory } from "@/features/projects/history-format";
 
+const auditActionLabels: Record<string, string> = {
+  created: "Создание", updated: "Обновление", checked: "Выполнено", unchecked: "Отметка снята",
+  archived: "Архивация", restored: "Восстановление", removed: "Удаление", reordered: "Изменение порядка",
+  access_approved: "Доступ предоставлен", access_revoked: "Доступ отозван", assigned: "Назначение исполнителя",
+  unassigned: "Назначение снято", role_changed: "Роль изменена", ownership_transferred: "Владение передано",
+};
+const entityLabels: Record<string, string> = {
+  task: "Задача", task_item: "Пункт чек-листа", task_member: "Участник задачи",
+  task_assignee: "Исполнитель", project: "Проект", project_member: "Участник проекта", profile: "Профиль",
+};
+const extraFieldLabels: Record<string, string> = {
+  status: "статус", name: "название", role: "роль", user_id: "участник", approved_by: "кто предоставил доступ",
+  approved_at: "дата предоставления доступа", assigned_by: "кто назначил исполнителя", assigned_at: "дата назначения",
+  display_name: "имя пользователя", owner_id: "владелец", created_by: "автор",
+};
+function readableAuditChanges(entry: AuditEntry) {
+  return formatAuditChanges(entry.old_data, entry.new_data).flatMap((change) => {
+    const match = /^Изменено: ([a-z_]+)$/.exec(change);
+    if (!match) return [change];
+    const label = extraFieldLabels[match[1]];
+    return [label ? `Изменено: ${label}` : change];
+  });
+}
+
 export default function History() {
   const { colors: theme } = useTheme();
+  const { width } = useWindowDimensions();
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
   const permissionVersion = usePermissionVersion();
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [items, setItems] = useState<TaskItem[]>([]);
   const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
@@ -42,21 +74,31 @@ export default function History() {
     if (!id || !taskId) return;
     const request = ++requestRef.current;
     setLoading(true);
+    setError("");
     try {
-      const [au, it, ms] = await Promise.all([
+      const [au, it, ms, task, project] = await Promise.all([
         listTaskAudit(id, taskId),
         listTaskItems(taskId, "all"),
         listProjectMembers(id),
+        getTask(taskId, id),
+        getProject(id),
       ]);
       if (request !== requestRef.current) return;
       setAudit(au);
       setItems(it);
       setMembers(ms);
+      setTaskTitle(task.title);
+      setProjectName(project.name);
+      setLoaded(true);
       setError("");
     } catch (e) {
       if (request === requestRef.current)
         setError(userMessage(e, "Не удалось загрузить историю."));
       if (request === requestRef.current && e instanceof ResourceAccessDeniedError) {
+        setAudit([]);
+        setItems([]);
+        setMembers([]);
+        setLoaded(false);
         router.replace("/projects" as never);
       }
     } finally {
@@ -85,7 +127,7 @@ export default function History() {
           realtimeConnectedRef.current = false;
         }
       };
-      return subscribeMany([
+    return subscribeMany([
         {
           table: "item_actions",
           options: { taskId, onEvent: () => void load(), onStatus },
@@ -127,22 +169,23 @@ export default function History() {
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, width < 700 && styles.compactContent]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />}
       >
         <PageHeader
           title="История задачи"
-          subtitle="Изменения чек-листа и системные события"
-          onBack={() => router.back()}
-          actions={
-            <ThemedText type="caption">
-              Синхронизация: {status === "connected" ? "готова" : status}
-            </ThemedText>
-          }
+          subtitle={taskTitle || "Изменения чек-листа и действия участников"}
+          onBack={() => router.replace(`/projects/${id}/tasks/${taskId}` as never)}
+          backLabel="К задаче"
+          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Задача", href: `/projects/${id}/tasks/${taskId}` }, { label: "История" }]}
+          actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void load()}>Обновить</Button></>}
         />
-        {error ? (
+        {error && loaded ? <Card><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить историю</Button></Card> : null}
+        {error && !loaded ? (
           <ErrorState message={error} onRetry={load} />
-        ) : loading ? (
+        ) : loading && !loaded ? (
           <LoadingState label="Загружаем историю..." />
         ) : !checklistHistory.length && !audit.length ? (
           <EmptyState
@@ -151,11 +194,11 @@ export default function History() {
           />
         ) : (
           <>
-            <ThemedText type="h2">Чек-лист</ThemedText>
+            <View style={styles.sectionTitle}><ThemedText type="h2">Изменения чек-листа</ThemedText><ThemedText type="small">Новые события отображаются первыми.</ThemedText></View>
             {!checklistHistory.length ? <ThemedText type="small">Изменений пунктов пока нет.</ThemedText> : null}
             {checklistHistory.map((entry) => (
               <Card key={entry.id}>
-                <View style={styles.row}>
+                <View style={styles.entry}>
                   <Badge tone={entry.action === "checked" ? "success" : entry.action === "unchecked" ? "warning" : entry.action === "archived" || entry.action === "removed" ? "neutral" : "primary"}>
                     {checklistActionLabels[entry.action] || "Изменён"}
                   </Badge>
@@ -164,7 +207,7 @@ export default function History() {
                       {itemName.get(entry.taskItemId) || entry.itemTitle || "Пункт чек-листа"}
                     </ThemedText>
                     <ThemedText type="small">
-                      {memberName.get(entry.userId || "") || "Пользователь"} · {fmt(entry.createdAt)}
+                      {memberName.get(entry.userId || "") || (entry.userId ? entry.userId.slice(0, 8) : "Система")} · {fmt(entry.createdAt)}
                     </ThemedText>
                     {entry.changes.map((change) => <ThemedText key={change} type="small">{change}</ThemedText>)}
                   </View>
@@ -177,37 +220,41 @@ export default function History() {
                 size="sm"
                 variant="ghost"
                 accessibilityLabel={actionLogExpanded ? "Свернуть журнал действий" : "Развернуть журнал действий"}
+                accessibilityState={{ expanded: actionLogExpanded }}
                 onPress={() => setActionLogExpanded((expanded) => !expanded)}
               >
                 {actionLogExpanded ? "Свернуть" : "Развернуть"}
               </Button>
             </View>
+            {actionLogExpanded && !audit.length ? <ThemedText type="small">В журнале пока нет событий.</ThemedText> : null}
             {actionLogExpanded ? audit.map((a) => (
               <Card key={a.id}>
-                <View style={styles.row}>
-                  <Badge tone="neutral">{a.action}</Badge>
+                <View style={styles.entry}>
+                  <Badge tone="neutral">{auditActionLabels[a.action] || "Изменение"}</Badge>
                   <View style={styles.flex}>
                     <ThemedText type="small">
-                      {a.entity_type} ·{" "}
-                      {memberName.get(a.user_id || "") || "Система"} ·{" "}
+                      {entityLabels[a.entity_type] || "Объект"} ·{" "}
+                      {memberName.get(a.user_id || "") || (a.user_id ? a.user_id.slice(0, 8) : "Система")} ·{" "}
                       {fmt(a.created_at)}
                     </ThemedText>
-                    {formatAuditChanges(a.old_data, a.new_data).map((summary) => <ThemedText key={summary} type="small">{summary}</ThemedText>)}
+                    {readableAuditChanges(a).map((summary) => <ThemedText key={summary} type="small">{summary}</ThemedText>)}
                     <Button
                       size="sm"
                       variant="ghost"
+                      accessibilityState={{ expanded: details === a.id }}
                       onPress={() => setDetails(details === a.id ? null : a.id)}
                     >
-                      {details === a.id ? "Скрыть детали" : "Показать детали"}
+                      {details === a.id ? "Скрыть технические детали" : "Технические детали"}
                     </Button>
                     {details === a.id ? (
-                      <ThemedText type="caption" style={[styles.technical, { color: theme.textMuted }]}>
+                      <ThemedText selectable type="caption" style={[styles.technical, { color: theme.textMuted, backgroundColor: theme.surfaceMuted }]}>
                         {[
+                          `Событие: ${a.action} · ${a.entity_type}`,
                           a.old_data && `До: ${JSON.stringify(a.old_data)}`,
                           a.new_data && `После: ${JSON.stringify(a.new_data)}`,
                         ]
                           .filter(Boolean)
-                          .join(" · ")}
+                          .join("\n\n")}
                       </ThemedText>
                     ) : null}
                   </View>
@@ -228,8 +275,10 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.lg,
   },
-  row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  compactContent: { padding: spacing.lg },
+  sectionTitle: { gap: spacing.xs },
+  entry: { alignItems: "flex-start", gap: spacing.md },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: spacing.md },
-  flex: { flex: 1, minWidth: 0 },
-  technical: { marginTop: spacing.sm },
+  flex: { width: "100%", minWidth: 0, gap: spacing.xs },
+  technical: { marginTop: spacing.sm, padding: spacing.md, borderRadius: 8 },
 });

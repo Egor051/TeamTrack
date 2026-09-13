@@ -5,7 +5,7 @@ import { useTheme } from './theme-provider';
 
 export function LoadingScreen({
   visible = true,
-  text = 'Loading...',
+  text = 'Загрузка...',
 }: {
   visible?: boolean;
   text?: string;
