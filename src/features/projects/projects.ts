@@ -164,7 +164,7 @@ export async function listMyTasks(userId: string): Promise<MyTask[]> {
 
 export async function createTask(projectId: string, title: string, description?: string) { assertUuid(projectId, 'project id'); return requireData(await supabase.rpc('create_task', { p_project_id: projectId, p_title: title, ...(description ? { p_description: description } : {}) })); }
 export async function createTaskFromTemplate(projectId: string, templateId: string, title?: string, description?: string) { assertUuid(projectId, 'project id'); assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_from_template', { p_project_id: projectId, p_template_id: templateId, ...(title !== undefined ? { p_title: title } : {}), ...(description !== undefined ? { p_description: description } : {}) })); }
-export async function getTask(taskId: string, projectId?: string) { assertUuid(taskId, 'task id'); if (projectId !== undefined) assertUuid(projectId, 'project id'); let query = supabase.from('tasks').select('*').eq('id', taskId); if (projectId !== undefined) query = query.eq('project_id', projectId); const result = await query.maybeSingle(); if (result.error) throw result.error; if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к задаче.'); return result.data; }
+export async function getTask(taskId: string, projectId?: string) { assertUuid(taskId, 'task id'); if (projectId !== undefined) assertUuid(projectId, 'project id'); let query = supabase.from('tasks').select('*').eq('id', taskId); if (projectId !== undefined) query = query.eq('project_id', projectId); const result = await query.maybeSingle(); if (result.error) throw result.error; if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.'); return result.data; }
 export type TaskItemListMode = 'active' | 'archived' | 'all';
 export async function listTaskItems(taskId: string, mode: TaskItemListMode | boolean = 'active'): Promise<TaskItem[]> {
   assertUuid(taskId, 'task id');
@@ -195,7 +195,7 @@ export async function listTaskAudit(projectId: string, taskId: string): Promise<
   const entityIds = [taskId, ...items.map((item) => item.id)];
   const taskResult = await supabase.from('tasks').select('id').eq('id', taskId).eq('project_id', projectId).maybeSingle();
   if (taskResult.error) throw taskResult.error;
-  if (!taskResult.data) throw new ResourceAccessDeniedError('Нет доступа к задаче.');
+  if (!taskResult.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
   return (await Promise.all(chunks(entityIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase.from('audit_log').select('*').eq('project_id', projectId).in('entity_id', ids).order('created_at', { ascending: false }).range(from, to))))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 

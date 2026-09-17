@@ -143,7 +143,7 @@ export default function TaskScreen() {
       setLoadError("");
     } catch (e) {
       if (request === requestRef.current) {
-        setLoadError(userMessage(e, "Не удалось обновить задачу."));
+        setLoadError(userMessage(e, "Не удалось обновить этап."));
         if (e instanceof ResourceAccessDeniedError) {
           setTask(null);
           setProject(null);
@@ -225,7 +225,7 @@ export default function TaskScreen() {
       try {
         await load();
       } catch (e) {
-        setLoadError(userMessage(e, "Не удалось обновить задачу."));
+        setLoadError(userMessage(e, "Не удалось обновить этап."));
       }
     } catch (e) {
       setActionError({ message: userMessage(e, "Операция не выполнена."), target });
@@ -247,9 +247,9 @@ export default function TaskScreen() {
 
   function validateTaskEdit(): string | null {
     const nextTitle = editTaskTitle.trim();
-    if (!nextTitle) return "Введите название задачи.";
-    if (nextTitle.length > 500) return "Название задачи не должно быть длиннее 500 символов.";
-    if (editTaskDescription.length > 10000) return "Описание задачи не должно быть длиннее 10000 символов.";
+    if (!nextTitle) return "Введите название этапа.";
+    if (nextTitle.length > 500) return "Название этапа не должно быть длиннее 500 символов.";
+    if (editTaskDescription.length > 10000) return "Описание этапа не должно быть длиннее 10000 символов.";
     return null;
   }
 
@@ -300,11 +300,11 @@ export default function TaskScreen() {
         showsVerticalScrollIndicator={false}
       >
         <PageHeader
-            title={task ? (taskEditing ? "Редактирование задачи" : task.title) : "Задача"}
-            subtitle={taskEditing ? "" : task?.description || "Рабочая задача"}
+            title={task ? (taskEditing ? "Редактирование этапа" : task.title) : "Этап"}
+            subtitle={taskEditing ? "" : task?.description || "Рабочий этап"}
             onBack={() => router.replace(`/projects/${id}` as never)}
             backLabel="К проекту"
-            breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект", href: `/projects/${id}` }, { label: task?.title || "Задача" }]}
+            breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект", href: `/projects/${id}` }, { label: task?.title || "Этап" }]}
             actions={
               task ? <>
                 <RealtimeIndicator status={status} />
@@ -315,14 +315,14 @@ export default function TaskScreen() {
         {loadError && !task ? (
           <ErrorState message={loadError} onRetry={load} />
         ) : !task ? (
-          <LoadingState label="Загружаем задачу..." />
+          <LoadingState label="Загружаем этап..." />
         ) : (
           <>
             {loadError ? <Card><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить данные</Button></Card> : null}
             {actionError?.target === "task" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
             {taskEditing ? <Card>
-              <Input label="Название" value={editTaskTitle} onChangeText={setEditTaskTitle} maxLength={500} placeholder="Название задачи" disabled={busy} />
-              <Textarea label="Описание" value={editTaskDescription} onChangeText={setEditTaskDescription} maxLength={10000} placeholder="Описание задачи" disabled={busy} />
+              <Input label="Название" value={editTaskTitle} onChangeText={setEditTaskTitle} maxLength={500} placeholder="Название этапа" disabled={busy} />
+              <Textarea label="Описание" value={editTaskDescription} onChangeText={setEditTaskDescription} maxLength={10000} placeholder="Описание этапа" disabled={busy} />
               <View style={styles.actions}>
                 <Button loading={busyAction === "task"} disabled={busy || !editTaskTitle.trim()} onPress={() => { const validation = validateTaskEdit(); if (validation) { setActionError({ message: validation, target: "task" }); return; } void run(async () => { await updateTask(task.id, editTaskTitle.trim(), editTaskDescription); setTaskEditing(false); }); }}>Сохранить</Button>
                 <Button variant="ghost" disabled={busy} onPress={() => setTaskEditing(false)}>Отмена</Button>
@@ -333,8 +333,8 @@ export default function TaskScreen() {
               {canManage ? <Button variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
               <Button variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
             </View>
-            {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить задачу</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
-            {!canEdit ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Задача доступна для просмотра." : task.status === "archived" ? "Задача в архиве. Для продолжения работы восстановите её." : "У вас доступ для просмотра. Изменять задачу и чек-лист могут участники проекта."}</ThemedText></View> : null}
+            {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
+            {!canEdit ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : "У вас доступ для просмотра. Изменять этап и чек-лист могут участники проекта."}</ThemedText></View> : null}
             <Card muted>
               <Progress
                 value={progress}
@@ -349,7 +349,7 @@ export default function TaskScreen() {
             {loadedView !== currentView ? (loadError ? <View style={styles.feedback}><ThemedText type="small">Выбранный список пунктов не загрузился.</ThemedText><Button size="sm" variant="outline" onPress={() => void load()}>Повторить</Button></View> : <LoadingState label={showArchivedItems ? "Загружаем архив…" : "Загружаем чек-лист…"} />) : !visibleItems.length ? (
               <EmptyState
                 title={showArchivedItems ? "Архив чек-листа пуст" : "Чек-лист пуст"}
-                description={showArchivedItems ? "Здесь появятся пункты после архивации." : canEdit ? "Добавьте первый пункт, чтобы разбить задачу на последовательные шаги." : "Участники проекта ещё не добавили пункты в эту задачу."}
+                description={showArchivedItems ? "Здесь появятся пункты после архивации." : canEdit ? "Добавьте первый пункт, чтобы разбить этап на последовательные шаги." : "Участники проекта ещё не добавили пункты в этот этап."}
               />
             ) : (
               <View style={styles.list}>
@@ -471,7 +471,7 @@ export default function TaskScreen() {
                             setConfirm({
                               title: "Архивировать пункт?",
                               description:
-                                "Пункт переместится в архив и больше не будет учитываться в прогрессе задачи.",
+                                "Пункт переместится в архив и больше не будет учитываться в прогрессе этапа.",
                               action: () => archiveTaskItem(item.id),
                               confirmLabel: "Архивировать",
                               destructive: false,
@@ -514,7 +514,7 @@ export default function TaskScreen() {
                 {actionError?.target === "new-item" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
               </Card>
             ) : null}
-            {canManage ? <View style={[styles.taskFooter, { borderTopColor: theme.border }]}><ThemedText type="small" style={styles.footerCopy}>Задача больше не нужна в текущей работе?</ThemedText><Button size="sm" variant="outline" disabled={busy} onPress={() => setConfirm({ title: "Архивировать задачу?", description: "Задача переместится в архив проекта. Её можно будет восстановить вместе с чек-листом.", action: () => archiveTask(taskId), confirmLabel: "Архивировать", destructive: false })}>Архивировать задачу</Button></View> : null}
+            {canManage ? <View style={[styles.taskFooter, { borderTopColor: theme.border }]}><ThemedText type="small" style={styles.footerCopy}>Этап больше не нужен в текущей работе?</ThemedText><Button size="sm" variant="outline" disabled={busy} onPress={() => setConfirm({ title: "Архивировать этап?", description: "Этап переместится в архив проекта. Его можно будет восстановить вместе с чек-листом.", action: () => archiveTask(taskId), confirmLabel: "Архивировать", destructive: false })}>Архивировать этап</Button></View> : null}
             {task && canManage ? (
               <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => { if (!busy) setManageOpen(false); }}>
                 <View style={[styles.modalBackdrop, !compact && styles.modalBackdropDesktop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, !compact && styles.modalSheetDesktop, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]} accessibilityViewIsModal pointerEvents={confirm ? "none" : "auto"} accessibilityElementsHidden={Boolean(confirm)} importantForAccessibility={confirm ? "no-hide-descendants" : "auto"}>
@@ -524,9 +524,9 @@ export default function TaskScreen() {
                   {actionError?.target === "members" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
                   {busyAction === "members" ? <ThemedText type="small" accessibilityLiveRegion="polite">Сохраняем изменения…</ThemedText> : null}
                   <Card>
-                  <ThemedText type="h2">Участники задачи</ThemedText>
+                  <ThemedText type="h2">Участники этапа</ThemedText>
                   <ThemedText type="small">
-                    Кто имеет доступ к этой задаче
+                    Кто имеет доступ к этому этапу
                   </ThemedText>
                   {!projectMembers.length ? (
                     <EmptyState
@@ -556,8 +556,8 @@ export default function TaskScreen() {
                                   ? "Отозвать доступ?"
                                   : "Одобрить доступ?",
                                 description: access
-                                  ? "Пользователь больше не сможет открыть задачу."
-                                  : "Пользователь получит доступ к задаче.",
+                                  ? "Пользователь больше не сможет открыть этап."
+                                  : "Пользователь получит доступ к этапу.",
                                 confirmLabel: access ? "Отозвать доступ" : "Предоставить доступ",
                                 destructive: access,
                                 target: "members",
@@ -577,7 +577,7 @@ export default function TaskScreen() {
                 </Card><Card>
                   <ThemedText type="h2">Исполнители</ThemedText>
                   <ThemedText type="small">
-                    Кто назначен выполнять задачу
+                    Кто назначен выполнять этап
                   </ThemedText>
                   {taskMembers.length ? (
                     taskMembers.map((member) => {
@@ -618,7 +618,7 @@ export default function TaskScreen() {
                       );
                     })
                   ) : (
-                    <ThemedText type="small">Сначала предоставьте участнику доступ к задаче, затем назначьте его исполнителем.</ThemedText>
+                    <ThemedText type="small">Сначала предоставьте участнику доступ к этапу, затем назначьте его исполнителем.</ThemedText>
                   )}
                  </Card></ScrollView></View><ConfirmDialog
                    visible={Boolean(confirm)}
@@ -646,7 +646,7 @@ export default function TaskScreen() {
         onCancel={() => setConfirm(null)}
         onConfirm={() => void confirmAction()}
       />
-      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить задачу навсегда?" description="Архивная задача и её чек-лист будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
+      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить этап навсегда?" description="Архивный этап и его чек-лист будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
       <ConfirmDialog visible={Boolean(itemToDelete)} title="Удалить пункт навсегда?" description="Архивный пункт чек-листа будет удалён без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setItemToDelete(null)} onConfirm={() => { const item = itemToDelete; if (item) void run(async () => { await hardDeleteTaskItem(item.id); setItemToDelete(null); }, item.id); }} />
     </Screen>
   );

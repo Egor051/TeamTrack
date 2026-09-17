@@ -10,12 +10,16 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { ThemedText } from '@/components/ui/text';
 import { useUser } from '@/features/auth/AuthProvider';
-import { fetchNotifications, markAllAsRead, markAsRead, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
+import { fetchNotifications, markAllAsRead, markAsRead, stageNotificationText, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
 import { userMessage } from '@/lib/errors/user-message';
 import { layout, spacing } from '@/components/ui/theme';
 import { useTheme } from '@/components/ui/theme-provider';
 
 const PAGE_SIZE = 100;
+
+function notificationText(item: Notification, value: string): string {
+  return item.task_id ? stageNotificationText(value) : value;
+}
 
 export default function NotificationsScreen() {
   const { colors: theme } = useTheme();
@@ -144,13 +148,13 @@ export default function NotificationsScreen() {
   return <Screen padded={false} centerContent={false}>
     <ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll} onPress={() => void allRead()}>Прочитать все</Button> : null} />
-      {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к задачам и изменениях чек-листа." /> : <View style={styles.list}>
+      {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к этапам и изменениях чек-листа." /> : <View style={styles.list}>
         {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить уведомления</Button></View> : null}
         {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
         {items.map((item) => <Card key={item.id} style={!item.is_read ? [styles.readCard, { borderColor: theme.primary }] : undefined}>
-          <Pressable onPress={() => void read(item)} disabled={markingAll} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${item.title}`} accessibilityState={{ disabled: markingAll }} style={styles.pressableContent}>
-            <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{item.title}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
-            <ThemedText>{item.body}</ThemedText>
+          <Pressable onPress={() => void read(item)} disabled={markingAll} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${notificationText(item, item.title)}`} accessibilityState={{ disabled: markingAll }} style={styles.pressableContent}>
+            <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{notificationText(item, item.title)}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
+            <ThemedText>{notificationText(item, item.body)}</ThemedText>
             <ThemedText type="caption">{new Date(item.created_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}</ThemedText>
           </Pressable>
           {!item.is_read ? <Button size="sm" variant="ghost" loading={markingIds.has(item.id)} disabled={markingAll || markingIds.has(item.id)} onPress={() => void markReadOnly(item)}>{markingIds.has(item.id) ? 'Отмечаем…' : 'Отметить прочитанным'}</Button> : null}

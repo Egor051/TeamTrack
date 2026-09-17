@@ -27,7 +27,7 @@ describe('getTask authorization outcome', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     expect(error).toBeInstanceOf(ResourceAccessDeniedError);
-    expect(userMessage(error, 'Не удалось загрузить данные')).toBe('Нет доступа к задаче.');
+    expect(userMessage(error, 'Не удалось загрузить данные')).toBe('Нет доступа к этапу.');
     expect(consoleError).not.toHaveBeenCalled();
     expect(supabase.from).toHaveBeenCalledWith('tasks');
     consoleError.mockRestore();

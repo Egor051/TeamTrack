@@ -52,7 +52,7 @@ export default function RegisterScreen() {
     finally { submittingRef.current = false; setBusy(false); }
   }
 
-  return <AuthForm title={done ? 'Подтвердите email' : 'Создать аккаунт'} description={done ? 'Остался один шаг перед началом работы.' : 'Создавайте проекты и работайте над задачами вместе.'} footer={<><ThemedText type="small">Уже есть аккаунт?</ThemedText><AuthLink href="/(auth)/login">Войти</AuthLink></>}>
+  return <AuthForm title={done ? 'Подтвердите email' : 'Создать аккаунт'} description={done ? 'Остался один шаг перед началом работы.' : 'Создавайте проекты и работайте над этапами вместе.'} footer={<><ThemedText type="small">Уже есть аккаунт?</ThemedText><AuthLink href="/(auth)/login">Войти</AuthLink></>}>
     {done ? <AuthNotice title="Проверьте почту">Откройте письмо на {email.trim()} и перейдите по ссылке для подтверждения аккаунта. Если письма нет, проверьте папку «Спам».</AuthNotice> : <>
       <Input label="Имя" placeholder="Как к вам обращаться" value={name} onChangeText={(value) => { setName(value); clearField('name'); clearError(); }} error={fields.name} disabled={busy} autoCapitalize="words" autoComplete="name" onSubmitEditing={() => emailRef.current?.focus()} returnKeyType="next" enterKeyHint="next" />
       <Input ref={emailRef} label="Email" placeholder="you@example.com" type="email" value={email} onChangeText={(value) => { setEmail(value); clearField('email'); clearError(); }} error={fields.email} disabled={busy} autoComplete="email" autoCorrect={false} onSubmitEditing={() => passwordRef.current?.focus()} returnKeyType="next" enterKeyHint="next" />

@@ -4,6 +4,22 @@ import type { Database } from '@/types/database.types';
 
 export type Notification = Database['public']['Tables']['notifications']['Row'];
 
+export function stageNotificationText(value: string): string {
+  return value
+    .replaceAll('Доступ к задаче', 'Доступ к этапу')
+    .replaceAll('доступ к задаче', 'доступ к этапу')
+    .replaceAll('Вас добавили в задачу', 'Вас добавили в этап')
+    .replaceAll('Ваш доступ к задаче был отозван', 'Ваш доступ к этапу был отозван')
+    .replaceAll('назначили ответственным за задачу', 'назначили ответственным за этап')
+    .replaceAll('назначены исполнителем задачи', 'назначены исполнителем этапа')
+    .replaceAll('назначение в задаче', 'назначение на этапе')
+    .replaceAll('→ задача «', '→ этап «')
+    .replaceAll('в задаче «', 'на этапе «')
+    .replaceAll('Задача архивирована', 'Этап архивирован')
+    .replaceAll('Задача восстановлена', 'Этап восстановлен')
+    .replaceAll('Задача «', 'Этап «');
+}
+
 export async function fetchNotifications(limit = 100, offset = 0) {
   const { data, error } = await supabase.from('notifications').select('*').order('created_at', { ascending: false }).range(offset, offset + limit - 1);
   if (error) throw error;

@@ -300,10 +300,10 @@ export default function ProjectScreen() {
             />
            </Card>
          ) : null}
-         {project?.status === "archived" ? <Card muted><ThemedText type="small">Проект в архиве. Его задачи доступны в архивном списке; владелец или администратор может восстановить их при необходимости.</ThemedText></Card> : null}
+         {project?.status === "archived" ? <Card muted><ThemedText type="small">Проект в архиве. Его этапы доступны в архивном списке; владелец или администратор может восстановить их при необходимости.</ThemedText></Card> : null}
          <View style={styles.sectionHead}>
           <ThemedText type="h2">
-             {showArchivedTasks ? "Архивные задачи" : "Задачи"} ({tasks.length})
+             {showArchivedTasks ? "Архивные этапы" : "Этапы"} ({tasks.length})
           </ThemedText>
           <View style={styles.actions}>
             {canCreateTask ? (
@@ -314,7 +314,7 @@ export default function ProjectScreen() {
                   router.push(`/projects/${id}/tasks/new` as never)
                 }
               >
-                Новая задача
+                Новый этап
               </Button>
             ) : null}
             {project ? <Button
@@ -341,15 +341,15 @@ export default function ProjectScreen() {
           <LoadingState />
         ) : loadError ? null : !tasks.length ? (
           <EmptyState
-             title={showArchivedTasks ? "Архивные задачи пусты" : "Задач пока нет"}
+             title={showArchivedTasks ? "Архивные этапы пусты" : "Этапов пока нет"}
               description={
                 showArchivedTasks
-                  ? "Здесь появятся задачи после архивации."
+                  ? "Здесь появятся этапы после архивации."
                   : canCreateTask
-                    ? "Создайте задачу, чтобы команда могла начать работу."
-                    : "Участники проекта ещё не добавили задач."
+                    ? "Создайте этап, чтобы команда могла начать работу."
+                    : "Участники проекта ещё не добавили этапов."
               }
-            actionLabel={canCreateTask ? "Новая задача" : undefined}
+            actionLabel={canCreateTask ? "Новый этап" : undefined}
             onAction={
               canCreateTask
                 ? () => router.push(`/projects/${id}/tasks/new` as never)
@@ -366,13 +366,13 @@ export default function ProjectScreen() {
                   onPress={() =>
                     router.push(`/projects/${id}/tasks/${t.id}` as never)
                   }
-                  accessibilityLabel={`Открыть задачу ${t.title}`}
+                  accessibilityLabel={`Открыть этап ${t.title}`}
                 >
                   <View style={styles.taskHead}>
                     <ThemedText type="h3" style={styles.flex}>
                       {t.title}
                     </ThemedText>
-                    {user && t.assignees.includes(user.id) ? <Badge tone="primary">Моя задача</Badge> : null}
+                    {user && t.assignees.includes(user.id) ? <Badge tone="primary">Мой этап</Badge> : null}
                     <TaskStatus status={t.status} />
                   </View>
                   {t.description ? (
@@ -399,7 +399,7 @@ export default function ProjectScreen() {
         onCancel={() => setConfirm(false)}
         onConfirm={() => void archive()}
       />
-      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить проект навсегда?" description="Проект, архивные задачи и связанные данные будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
+      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить проект навсегда?" description="Проект, архивные этапы и связанные данные будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
     </Screen>
   );
 }

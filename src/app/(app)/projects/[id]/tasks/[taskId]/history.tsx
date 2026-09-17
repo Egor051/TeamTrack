@@ -35,7 +35,7 @@ const auditActionLabels: Record<string, string> = {
   unassigned: "Назначение снято", role_changed: "Роль изменена", ownership_transferred: "Владение передано",
 };
 const entityLabels: Record<string, string> = {
-  task: "Задача", task_item: "Пункт чек-листа", task_member: "Участник задачи",
+  task: "Этап", task_item: "Пункт чек-листа", task_member: "Участник этапа",
   task_assignee: "Исполнитель", project: "Проект", project_member: "Участник проекта", profile: "Профиль",
 };
 const extraFieldLabels: Record<string, string> = {
@@ -175,11 +175,11 @@ export default function History() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />}
       >
         <PageHeader
-          title="История задачи"
+          title="История этапа"
           subtitle={taskTitle || "Изменения чек-листа и действия участников"}
           onBack={() => router.replace(`/projects/${id}/tasks/${taskId}` as never)}
-          backLabel="К задаче"
-          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Задача", href: `/projects/${id}/tasks/${taskId}` }, { label: "История" }]}
+          backLabel="К этапу"
+          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "История" }]}
           actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void load()}>Обновить</Button></>}
         />
         {error && loaded ? <Card><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить историю</Button></Card> : null}
@@ -190,7 +190,7 @@ export default function History() {
         ) : !checklistHistory.length && !audit.length ? (
           <EmptyState
             title="История пуста"
-            description="Здесь появятся действия пользователей и изменения задачи."
+            description="Здесь появятся действия пользователей и изменения этапа."
           />
         ) : (
           <>

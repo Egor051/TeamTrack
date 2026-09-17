@@ -35,7 +35,7 @@ export default function LoginScreen() {
     finally { submittingRef.current = false; setBusy(false); }
   }
 
-  return <AuthForm title="Вход в аккаунт" description="Продолжите работу над проектами и задачами." footer={<><ThemedText type="small">Ещё нет аккаунта?</ThemedText><AuthLink href="/(auth)/register">Создать аккаунт</AuthLink></>}>
+  return <AuthForm title="Вход в аккаунт" description="Продолжите работу над проектами и этапами." footer={<><ThemedText type="small">Ещё нет аккаунта?</ThemedText><AuthLink href="/(auth)/register">Создать аккаунт</AuthLink></>}>
     <Input label="Email" placeholder="you@example.com" type="email" value={email} onChangeText={(value) => { setEmail(value); setFields((prev) => ({ ...prev, email: undefined })); setError(''); clearError(); }} error={fields.email} disabled={busy} autoCapitalize="none" autoComplete="email" autoCorrect={false} onSubmitEditing={() => passwordRef.current?.focus()} returnKeyType="next" enterKeyHint="next" />
     <Input ref={passwordRef} label="Пароль" placeholder="Введите пароль" type="password" value={password} onChangeText={(value) => { setPassword(value); setFields((prev) => ({ ...prev, password: undefined })); setError(''); clearError(); }} error={fields.password} disabled={busy} autoComplete="current-password" onSubmitEditing={() => void submit()} returnKeyType="go" enterKeyHint="go" />
     <ErrorMessage message={error || state.error || undefined} type="auth" />

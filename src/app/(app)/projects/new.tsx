@@ -41,7 +41,7 @@ export default function NewProjectScreen() {
     <Screen scrollable centerContent={false} maxWidth={layout.readingMaxWidth} contentStyle={styles.content}>
       <PageHeader
         title="Новый проект"
-        subtitle="Объедините задачи и участников вокруг общей цели."
+        subtitle="Объедините этапы и участников вокруг общей цели."
         onBack={() => router.replace('/projects')}
         backLabel="К проектам"
         breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Новый проект' }]}
@@ -65,7 +65,7 @@ export default function NewProjectScreen() {
           autoCapitalize="sentences"
           disabled={busy}
         />
-        <ThemedText type="small">Задачи и участников можно добавить после создания проекта.</ThemedText>
+        <ThemedText type="small">Этапы и участников можно добавить после создания проекта.</ThemedText>
         <ErrorMessage message={error} type="validation" />
         <View style={styles.actions}>
           <Button loading={busy} disabled={busy || !name.trim()} onPress={() => void submit()}>Создать проект</Button>

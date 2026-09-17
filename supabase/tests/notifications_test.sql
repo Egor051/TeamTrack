@@ -185,6 +185,28 @@ do $$ begin
   raise notice 'PASS NTF19: project removal preserves task audit and notification';
 end $$;
 
+do $$ begin
+  if exists (
+    select 1
+      from public.notifications
+     where task_id is not null
+       and (
+         title in ('Доступ к задаче предоставлен', 'Доступ к задаче отозван', 'Задача архивирована', 'Задача восстановлена')
+         or body like '%доступ к задаче%'
+         or body like '%добавили в задачу%'
+         or body like '%ответственным за задачу%'
+         or body like '%исполнителем задачи%'
+         or body like '%назначение в задаче%'
+         or body like '%→ задача «%'
+         or body like '%в задаче «%'
+         or body like 'Задача «%'
+       )
+  ) then
+    raise exception 'FAIL NTF20: task-linked notification exposes legacy task terminology';
+  end if;
+  raise notice 'PASS NTF20: task-linked notifications use stage terminology';
+end $$;
+
 do $$ begin raise notice 'ALL NOTIFICATION TESTS PASSED'; end $$;
 
 rollback;

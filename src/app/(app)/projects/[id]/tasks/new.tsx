@@ -76,7 +76,7 @@ export default function NewTask() {
 
   async function submit() {
     if (submitRef.current || !id) return;
-    if (!draft.title.trim()) return setError('Введите название задачи.');
+    if (!draft.title.trim()) return setError('Введите название этапа.');
     if (mode === 'template' && !selectedTemplate) return setError('Выберите шаблон.');
     submitRef.current = true;
     setBusy(true);
@@ -87,7 +87,7 @@ export default function NewTask() {
         : await createTask(id, draft.title.trim(), draft.description.trim());
       router.replace(`/projects/${id}/tasks/${taskId}` as never);
     } catch (e) {
-      setError(userMessage(e, 'Не удалось создать задачу. Попробуйте ещё раз.'));
+      setError(userMessage(e, 'Не удалось создать этап. Попробуйте ещё раз.'));
     } finally {
       submitRef.current = false;
       setBusy(false);
@@ -97,11 +97,11 @@ export default function NewTask() {
   return (
     <Screen scrollable centerContent={false} maxWidth={layout.readingMaxWidth} contentStyle={styles.content}>
       <PageHeader
-        title="Новая задача"
+        title="Новый этап"
         subtitle="Опишите результат, затем добавьте пункты чек-листа."
         onBack={() => router.replace(`/projects/${id}` as never)}
         backLabel="К проекту"
-        breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: projectName, href: `/projects/${id}` }, { label: 'Новая задача' }]}
+        breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: projectName, href: `/projects/${id}` }, { label: 'Новый этап' }]}
       />
       <Card style={styles.form}>
         <ThemedText type="h2">Способ создания</ThemedText>
@@ -109,7 +109,7 @@ export default function NewTask() {
           value={mode}
           disabled={busy}
           onChange={(next) => { if (!busy) { setMode(next); setError(''); } }}
-          accessibilityLabel="Способ создания задачи"
+          accessibilityLabel="Способ создания этапа"
           options={[{ value: 'blank', label: 'С нуля' }, { value: 'template', label: 'Из шаблона' }]}
         />
         {mode === 'template' ? (
@@ -127,27 +127,27 @@ export default function NewTask() {
               <>
                 {templateError ? <View style={styles.feedback}><ErrorMessage message={templateError} type="generic" /><Button size="sm" variant="outline" onPress={() => void loadTemplates()}>Обновить шаблоны</Button></View> : null}
                 <Select
-                  label="Шаблон задачи"
+                  label="Шаблон этапа"
                   value={templateId}
                   disabled={busy}
                   onChange={chooseTemplate}
                   placeholder="Выберите шаблон"
-                  accessibilityLabel="Выбор шаблона задачи"
+                  accessibilityLabel="Выбор шаблона этапа"
                   options={templates.map((template) => ({ value: template.id, label: template.name }))}
                 />
                 <ThemedText type="small">
                   {selectedTemplate
-                    ? `Пунктов в чек-листе: ${selectedTemplate.item_count}. Они будут скопированы в новую задачу. Название и описание можно изменить ниже.`
-                    : 'Выберите готовый чек-лист. Новая задача будет независима от исходного шаблона.'}
+                    ? `Пунктов в чек-листе: ${selectedTemplate.item_count}. Они будут скопированы в новый этап. Название и описание можно изменить ниже.`
+                    : 'Выберите готовый чек-лист. Новый этап будет независим от исходного шаблона.'}
                 </ThemedText>
               </>
             )}
           </View>
-        ) : <ThemedText type="small">Создайте пустую задачу и добавьте нужные пункты чек-листа.</ThemedText>}
+        ) : <ThemedText type="small">Создайте пустой этап и добавьте нужные пункты чек-листа.</ThemedText>}
         {mode === 'blank' || selectedTemplate ? (
           <View style={styles.section}>
             <Input
-              label="Название задачи"
+          label="Название этапа"
               placeholder="Например, подготовить макеты к передаче"
               value={draft.title}
               onChangeText={(title) => updateDraft({ title })}
@@ -170,7 +170,7 @@ export default function NewTask() {
             loading={busy}
             disabled={busy || !draft.title.trim() || (mode === 'template' && (!selectedTemplate || loadingTemplates))}
             onPress={() => void submit()}
-          >Создать задачу</Button>
+          >Создать этап</Button>
           <Button variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}` as never)}>Отмена</Button>
         </View>
       </Card>

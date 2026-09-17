@@ -13,7 +13,7 @@ export function AuthForm({ title, description, children, footer }: { title: stri
   return <Screen scrollable maxWidth={layout.authMaxWidth} contentStyle={styles.screen}>
     <View style={styles.brand}>
       <ThemedText type="h2" style={{ color: colors.primary }}>TaskTrace</ThemedText>
-      <ThemedText type="small">Задачи, команда и история действий</ThemedText>
+      <ThemedText type="small">Этапы, команда и история действий</ThemedText>
     </View>
     <Card style={styles.card}>
       <View style={styles.heading}>

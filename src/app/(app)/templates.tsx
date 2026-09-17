@@ -131,7 +131,7 @@ export default function TemplatesScreen() {
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <PageHeader title="Глобальные шаблоны" subtitle="Общие заготовки задач" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Шаблоны' }]} />
+        <PageHeader title="Глобальные шаблоны" subtitle="Общие заготовки этапов" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Шаблоны' }]} />
         {error ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить шаблоны</Button></View> : null}
         <Card>
           <ThemedText type="h2">Новый шаблон</ThemedText>
