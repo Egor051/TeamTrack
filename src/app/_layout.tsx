@@ -12,6 +12,8 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '@/features/auth/AuthProvider';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/components/ui/theme-provider';
+import { Platform } from 'react-native';
+import { Analytics } from '@vercel/analytics/react';
 
 /**
  * RootStack lives inside ThemeProvider so the navigation container always
@@ -37,6 +39,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider><ThemeProvider><AuthProvider>
       <RootStack />
+      {Platform.OS === 'web' && <Analytics />}
     </AuthProvider></ThemeProvider></SafeAreaProvider>
   );
 }
