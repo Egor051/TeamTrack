@@ -274,7 +274,9 @@ export default function TaskScreen() {
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
     task?.status !== "archived";
+  const hasTaskAccess = Boolean(user && taskMembers.some((member) => member.user_id === user.id));
   const canEdit =
+    hasTaskAccess &&
     project?.status === "active" &&
     project.role !== "viewer" &&
     task?.status !== "archived";

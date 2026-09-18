@@ -30,6 +30,9 @@ describe('permission realtime invalidation', () => {
     expect(channel.mock.calls.map(([name]) => String(name).split(':')[1])).toEqual([
       'project_members', 'task_members', 'task_assignees', 'projects', 'tasks',
     ]);
+    expect(subscriptions[0].on.mock.calls.every(([, config]) =>
+      config.filter === 'user_id=eq.00000000-0000-4000-8000-000000000001'
+    )).toBe(true);
     expect(subscriptions.every((entry) => entry.on.mock.calls.length === 3)).toBe(true);
     cleanup();
     expect(removeChannel).toHaveBeenCalledTimes(5);

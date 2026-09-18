@@ -6,7 +6,7 @@
 --   - profiles
 --   - projects + project membership / roles
 --   - tasks
---   - task access approvals
+--   - task-scoped access approvals for checklist/history operations
 --   - task assignees
 --   - checklist items
 --   - task item percentage progress and comments
@@ -25,7 +25,9 @@
 --
 -- Notes:
 --   1. Authentication users live in auth.users. profiles extends auth.users.
---   2. task_members represents approved access to a task.
+--   2. project_members controls visibility of every task in the project.
+--      task_members represents approved task-scoped access for checklist,
+--      history and assignment operations.
 --   3. task_assignees represents assignment, distinct from access.
 --   4. item_actions is append-only history of checkbox state changes.
 --   5. audit_log is the broader detailed system audit trail.
