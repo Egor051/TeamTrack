@@ -13,7 +13,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { layout, spacing } from '@/components/ui/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { createTask, createTaskFromTemplate, getProject, listTaskTemplates, type TaskTemplate } from '@/features/projects/projects';
+import { createTask, createTaskFromTemplate, getProject, listTaskTemplates, type ProjectRole, type TaskTemplate } from '@/features/projects/projects';
 import { userMessage } from '@/lib/errors/user-message';
 
 type Draft = { title: string; description: string };
@@ -21,6 +21,7 @@ type Draft = { title: string; description: string };
 export default function NewTask() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [projectName, setProjectName] = useState('Проект');
+  const [projectRole, setProjectRole] = useState<ProjectRole | null>(null);
   const [mode, setMode] = useState<'blank' | 'template'>('blank');
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
@@ -37,9 +38,11 @@ export default function NewTask() {
 
   useEffect(() => {
     let current = true;
-    if (id) void getProject(id).then((project) => { if (current) setProjectName(project.name); }).catch(() => undefined);
+    if (id) void getProject(id).then((project) => { if (current) { setProjectName(project.name); setProjectRole(project.role); } }).catch(() => undefined);
     return () => { current = false; };
   }, [id]);
+
+  const canUseTemplates = projectRole === 'owner' || projectRole === 'admin';
 
   const loadTemplates = useCallback(async () => {
     const request = ++templateRequestRef.current;
@@ -108,9 +111,9 @@ export default function NewTask() {
         <SegmentedControl
           value={mode}
           disabled={busy}
-          onChange={(next) => { if (!busy) { setMode(next); setError(''); } }}
+          onChange={(next) => { if (!busy && (next === 'blank' || canUseTemplates)) { setMode(next); setError(''); } }}
           accessibilityLabel="Способ создания этапа"
-          options={[{ value: 'blank', label: 'С нуля' }, { value: 'template', label: 'Из шаблона' }]}
+          options={canUseTemplates ? [{ value: 'blank', label: 'С нуля' }, { value: 'template', label: 'Из шаблона' }] : [{ value: 'blank', label: 'С нуля' }]}
         />
         {mode === 'template' ? (
           <View style={styles.section}>

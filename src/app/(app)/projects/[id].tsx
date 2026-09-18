@@ -21,6 +21,7 @@ import {
   hardDeleteProject,
   restoreProject,
   updateProject,
+  moveTask,
   type ProjectWithRole,
   type TaskWithStats,
 } from "@/features/projects/projects";
@@ -205,11 +206,30 @@ export default function ProjectScreen() {
       setBusy(false);
     }
   }
+  async function moveStage(taskId: string, direction: -1 | 1) {
+    if (busyRef.current) return;
+    setActionError("");
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await moveTask(taskId, direction);
+      await load();
+    } catch (e) {
+      setActionError(userMessage(e, "Не удалось изменить порядок этапов."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
   const { width } = useWindowDimensions();
   const wide = width >= layout.desktopBreakpoint;
   const showArchivedTasks = project?.status === "archived" ? true : archived;
   const canCreateTask =
     !showArchivedTasks && project?.status === "active" && project.role !== "viewer";
+  const canReorderTasks =
+    !showArchivedTasks &&
+    project?.status === "active" &&
+    (project.role === "owner" || project.role === "admin");
   const complete = tasks.reduce((n, t) => n + t.completedCount, 0),
     total = tasks.reduce((n, t) => n + t.itemCount, 0),
     percent = total ? tasks.reduce((n, t) => n + t.progressPercent * t.itemCount, 0) / total : 0;
@@ -358,7 +378,7 @@ export default function ProjectScreen() {
           />
         ) : (
           <View style={[styles.list, wide && styles.listWide]}>
-            {tasks.map((t) => {
+            {tasks.map((t, index) => {
               const p = t.progressPercent;
               return (
                 <Card style={wide ? styles.taskCard : undefined}
@@ -384,6 +404,10 @@ export default function ProjectScreen() {
                     value={p}
                     label={`${Math.round(p)}% · ${t.itemCount} пунктов · ${t.assignees.length} исполнителей`}
                   />
+                  {canReorderTasks ? <View style={styles.stageActions}>
+                    <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void moveStage(t.id, -1)}>Вверх</Button>
+                    <Button size="sm" variant="ghost" disabled={busy || index === tasks.length - 1} onPress={() => void moveStage(t.id, 1)}>Вниз</Button>
+                  </View> : null}
                 </Card>
               );
             })}
@@ -427,6 +451,7 @@ const styles = StyleSheet.create({
   },
   feedback: { gap: spacing.sm },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  stageActions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
   list: { gap: spacing.md },
   listWide: { flexDirection: "row", flexWrap: "wrap" },
   taskCard: { flexBasis: "48%", flexGrow: 1 },

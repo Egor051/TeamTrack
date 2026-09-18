@@ -36,6 +36,7 @@ export default function TemplatesScreen() {
   const [createDescription, setCreateDescription] = useState('');
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editSnapshot, setEditSnapshot] = useState<{ name: string; description: string } | null>(null);
   const [newItem, setNewItem] = useState('');
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [editingItemTitle, setEditingItemTitle] = useState('');
@@ -63,8 +64,9 @@ export default function TemplatesScreen() {
           setExpandedItems([]);
           return;
         }
-        setEditName(fresh.name);
-        setEditDescription(fresh.description ?? '');
+         setEditName(fresh.name);
+         setEditDescription(fresh.description ?? '');
+         setEditSnapshot({ name: fresh.name.trim(), description: (fresh.description ?? '').trim() });
         const itemRequest = ++itemRequestRef.current;
         setLoadingItems(true);
         try {
@@ -117,8 +119,9 @@ export default function TemplatesScreen() {
     }
     setExpandedId(template.id);
     setExpandedItems([]);
-    setEditName(template.name);
-    setEditDescription(template.description ?? '');
+      setEditName(template.name);
+      setEditDescription(template.description ?? '');
+      setEditSnapshot({ name: template.name.trim(), description: (template.description ?? '').trim() });
     setEditingItem(null);
     const itemRequest = ++itemRequestRef.current;
     setLoadingItems(true);
@@ -159,17 +162,19 @@ export default function TemplatesScreen() {
                       {canEdit ? <>
                         <Input label="Название" value={editName} onChangeText={setEditName} maxLength={200} disabled={busy} />
                         <Textarea label="Описание" value={editDescription} onChangeText={setEditDescription} maxLength={10000} disabled={busy} />
-                        <Button loading={busy} disabled={busy || !editName.trim()} onPress={() => void run(() => updateTaskTemplate(template.id, editName.trim(), editDescription))}>Сохранить шаблон</Button>
-                      </> : null}
-                      {loadingItems ? <LoadingState label="Загружаем пункты..." /> : <View style={styles.list}>{expandedItems.map((item, index) => <View key={item.id} style={styles.item}>
-                        {editingItem === item.id ? <View style={styles.editItem}><Input label="Название пункта" value={editingItemTitle} onChangeText={setEditingItemTitle} maxLength={500} disabled={busy} /><Textarea label="Описание пункта" value={editingItemDescription} onChangeText={setEditingItemDescription} maxLength={10000} disabled={busy} /></View> : <View style={styles.flex}><ThemedText>{index + 1}. {item.title}</ThemedText>{item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}</View>}
-                        {canEdit ? <>
-                          {editingItem === item.id ? <Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim()} onPress={() => void run(async () => { await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription, item.position); setEditingItem(null); })}>Сохранить</Button> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); setEditingItemTitle(item.title); setEditingItemDescription(item.description ?? ''); }}>Изменить</Button>}
-                          <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, item.position - 1))}>Вверх</Button>
-                          <Button size="sm" variant="ghost" disabled={busy || index === expandedItems.length - 1} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, item.position + 1))}>Вниз</Button>
-                          <Button size="sm" variant="ghost" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить</Button>
-                        </> : null}
-                      </View>)}</View>}
+                         <Button loading={busy} disabled={busy || !editName.trim() || !editSnapshot || (editName.trim() === editSnapshot.name && editDescription.trim() === editSnapshot.description)} onPress={() => void run(() => updateTaskTemplate(template.id, editName.trim(), editDescription.trim()))}>Сохранить шаблон</Button>
+                       </> : null}
+                       {loadingItems ? <LoadingState label="Загружаем пункты..." /> : <View style={styles.list}>{expandedItems.map((item, index) => <View key={item.id} style={styles.item}>
+                         <View style={styles.itemContent}>
+                           {editingItem === item.id ? <View style={styles.editItem}><Input label="Название пункта" value={editingItemTitle} onChangeText={setEditingItemTitle} maxLength={500} disabled={busy} /><Textarea label="Описание пункта" value={editingItemDescription} onChangeText={setEditingItemDescription} maxLength={10000} disabled={busy} /></View> : <View style={styles.flex}><ThemedText>{index + 1}. {item.title}</ThemedText>{item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}</View>}
+                         </View>
+                         {canEdit ? <View style={styles.itemActions}>
+                           {editingItem === item.id ? <Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim()} onPress={() => void run(async () => { await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription.trim(), item.position); setEditingItem(null); })}>Сохранить</Button> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); setEditingItemTitle(item.title); setEditingItemDescription(item.description ?? ''); }}>Изменить</Button>}
+                           <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, index === 1 ? Math.max(0, expandedItems[index - 1].position - 1) : (expandedItems[index - 2].position + expandedItems[index - 1].position) / 2))}>Вверх</Button>
+                           <Button size="sm" variant="ghost" disabled={busy || index === expandedItems.length - 1} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, index === expandedItems.length - 2 ? expandedItems[index + 1].position + 1 : (expandedItems[index + 1].position + expandedItems[index + 2].position) / 2))}>Вниз</Button>
+                           <Button size="sm" variant="ghost" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить</Button>
+                         </View> : null}
+                       </View>)}</View>}
                       {canEdit ? <View style={styles.actions}><Input label="Новый пункт" value={newItem} onChangeText={setNewItem} maxLength={500} placeholder="Проверить сборку" disabled={busy} /><Button loading={busy} disabled={busy || !newItem.trim()} onPress={() => void run(async () => { await createTaskTemplateItem(template.id, newItem.trim(), undefined, expandedItems.length + 1); setNewItem(''); })}>Добавить пункт</Button></View> : null}
                     </View>
                   ) : null}
@@ -220,7 +225,9 @@ const styles = StyleSheet.create({
   list: { gap: spacing.md },
   details: { gap: spacing.md, marginTop: spacing.md },
   summary: { gap: spacing.sm },
-  item: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
+  item: { gap: spacing.sm, minWidth: 0 },
+  itemContent: { minWidth: 0 },
+  itemActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   flex: { flex: 1, minWidth: 0 },
   actions: { gap: spacing.sm },

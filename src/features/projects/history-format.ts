@@ -185,3 +185,18 @@ export function formatLastEditorLabel(editor: { display_name: string | null; use
   if (!editor) return '';
   return editor.display_name?.trim() || editor.user_id.slice(0, 8);
 }
+
+export function formatLastEditorSummary(editor: { display_name: string | null; user_id: string; changed_at: string } | null | undefined): string {
+  const label = formatLastEditorLabel(editor);
+  if (!editor || !label) return '';
+  const date = new Date(editor.changed_at);
+  if (Number.isNaN(date.getTime())) return label;
+  const formatted = new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date).replace(',', '');
+  return `${label} · ${formatted}`;
+}

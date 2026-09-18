@@ -187,12 +187,11 @@ create unique index ux_tasks_id_project
     on public.tasks(id, project_id);
 
 -- -----------------------------------------------------------------------------
--- Approved access to tasks (task_members)
+-- Task-scoped approved access (task_members)
 --
--- task_members = APPROVED ACCESS to a concrete task. Presence of a row means
--- the user may see/work with that specific task. A project member (even admin)
--- does NOT automatically gain access to every task; access must be approved by
--- owner/admin. There is intentionally no pending-invitation state in v1.
+-- project_members controls visibility of every task in the project. task_members
+-- is the separate approved access used by checklist/history/assignment operations.
+-- There is intentionally no pending-invitation state in v1.
 -- -----------------------------------------------------------------------------
 
 create table public.task_members (
@@ -206,7 +205,7 @@ create table public.task_members (
 );
 
 comment on table public.task_members is
-    'APPROVED per-task access. Distinct from task_assignees: membership grants access, assignment names responsibility. Owner/admin approve access; approval is recorded in approved_by/approved_at.';
+    'APPROVED task-scoped access for checklist/history/assignment operations. Stage visibility comes from project_members. Distinct from task_assignees: membership grants task-scoped access, assignment names responsibility.';
 
 -- -----------------------------------------------------------------------------
 -- Task assignees (task_assignees)

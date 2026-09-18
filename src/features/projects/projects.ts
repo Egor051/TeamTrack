@@ -123,7 +123,7 @@ export async function getProject(projectId: string): Promise<ProjectWithRole> {
 
 export async function listProjectTasks(projectId: string): Promise<Task[]> {
   assertUuid(projectId, 'project id');
-  return fetchAll<Task>((from, to) => supabase.from('tasks').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).range(from, to));
+  return fetchAll<Task>((from, to) => supabase.from('tasks').select('*').eq('project_id', projectId).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to));
 }
 
 export async function listTasksWithStats(projectId: string, archivedOnly = false): Promise<TaskWithStats[]> {
@@ -166,6 +166,7 @@ export async function listMyTasks(userId: string): Promise<MyTask[]> {
 
 export async function createTask(projectId: string, title: string, description?: string) { assertUuid(projectId, 'project id'); return requireData(await supabase.rpc('create_task', { p_project_id: projectId, p_title: title, ...(description ? { p_description: description } : {}) })); }
 export async function createTaskFromTemplate(projectId: string, templateId: string, title?: string, description?: string) { assertUuid(projectId, 'project id'); assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_from_template', { p_project_id: projectId, p_template_id: templateId, ...(title !== undefined ? { p_title: title } : {}), ...(description !== undefined ? { p_description: description } : {}) })); }
+export async function moveTask(taskId: string, direction: -1 | 1) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('move_task', { p_task_id: taskId, p_direction: direction })); }
 export async function getTask(taskId: string, projectId?: string) { assertUuid(taskId, 'task id'); if (projectId !== undefined) assertUuid(projectId, 'project id'); let query = supabase.from('tasks').select('*').eq('id', taskId); if (projectId !== undefined) query = query.eq('project_id', projectId); const result = await query.maybeSingle(); if (result.error) throw result.error; if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.'); return result.data; }
 export type TaskItemListMode = 'active' | 'archived' | 'all';
 export async function listTaskItems(taskId: string, mode: TaskItemListMode | boolean = 'active'): Promise<TaskItem[]> {

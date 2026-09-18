@@ -136,17 +136,36 @@ begin
     insert into tt_state values ('i1', v_i1::text), ('i2', v_i2::text);
 end $$;
 
--- N6/N7/N8: user without a task_members row sees no task / items / item_actions
+-- N6/N7/N8: project membership exposes the task row, while task-scoped
+-- checklist/history rows remain protected by task_members access.
 do $$
 declare
     v_t1 uuid := (select v::uuid from tt_state where k = 't1');
+    v_user uuid;
     v_cnt int;
 begin
     perform set_config('role', 'authenticated', true);
+
+    -- owner, admin, member and viewer all see the stage without approval.
+    foreach v_user in array array[
+        (select v::uuid from tt_state where k = 'u_alice'),
+        (select v::uuid from tt_state where k = 'u_bob'),
+        (select v::uuid from tt_state where k = 'u_carol'),
+        (select v::uuid from tt_state where k = 'u_dave'),
+        (select v::uuid from tt_state where k = 'u_frank')
+    ] loop
+        perform set_config('request.jwt.claim.sub', v_user::text, true);
+        select count(*) into v_cnt from public.tasks where id = v_t1;
+        if v_cnt <> 1 then raise exception 'FAIL N6: project member cannot see task without task_members'; end if;
+    end loop;
+
+    -- A non-member still cannot see the stage.
+    perform set_config('request.jwt.claim.sub', (select v from tt_state where k = 'u_eve'), true);
+    select count(*) into v_cnt from public.tasks where id = v_t1;
+    if v_cnt <> 0 then raise exception 'FAIL N6: outsider sees task'; end if;
+
     perform set_config('request.jwt.claim.sub', (select v from tt_state where k = 'u_frank'), true);
 
-    select count(*) into v_cnt from public.tasks where id = v_t1;
-    if v_cnt <> 0 then raise exception 'FAIL N6: frank sees task without task_members'; end if;
     select count(*) into v_cnt from public.task_items where task_id = v_t1;
     if v_cnt <> 0 then raise exception 'FAIL N7: frank sees task items without access'; end if;
     select count(*) into v_cnt from public.item_actions where task_id = v_t1;
@@ -349,6 +368,31 @@ begin
     perform set_config('request.jwt.claim.sub', v_alice::text, true);
     v_t2 := public.create_task(v_proj, 'Deploy');
     insert into tt_state values ('t2', v_t2::text);
+end $$;
+
+-- N6b: a stage created after project membership is also immediately visible
+-- without a task_members row for the other project members.
+do $$
+declare
+    v_t2 uuid := (select v::uuid from tt_state where k = 't2');
+    v_user uuid;
+    v_cnt int;
+begin
+    perform set_config('role', 'authenticated', true);
+    foreach v_user in array array[
+        (select v::uuid from tt_state where k = 'u_bob'),
+        (select v::uuid from tt_state where k = 'u_carol'),
+        (select v::uuid from tt_state where k = 'u_dave'),
+        (select v::uuid from tt_state where k = 'u_frank')
+    ] loop
+        perform set_config('request.jwt.claim.sub', v_user::text, true);
+        select count(*) into v_cnt from public.tasks where id = v_t2;
+        if v_cnt <> 1 then raise exception 'FAIL N6b: new stage is not visible to project member'; end if;
+    end loop;
+
+    perform set_config('request.jwt.claim.sub', (select v from tt_state where k = 'u_eve'), true);
+    select count(*) into v_cnt from public.tasks where id = v_t2;
+    if v_cnt <> 0 then raise exception 'FAIL N6b: outsider sees new stage'; end if;
 end $$;
 
 -- =============================================================== negative tests

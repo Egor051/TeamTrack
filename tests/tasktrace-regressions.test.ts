@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { filterChecklistItems } from '@/features/projects/checklist';
-import { formatAuditChanges, formatLastEditorLabel, selectChecklistHistory } from '@/features/projects/history-format';
+import { filterChecklistItems, parsePercentageInput } from '@/features/projects/checklist';
+import { formatAuditChanges, formatLastEditorLabel, formatLastEditorSummary, selectChecklistHistory } from '@/features/projects/history-format';
 
 const root = resolve(import.meta.dirname, '..');
 
@@ -15,6 +15,25 @@ describe('checklist active/archive regression', () => {
   it('changes the visible list when the archive filter toggles', () => {
     expect(filterChecklistItems(items, false).map((item) => item.id)).toEqual(['active']);
     expect(filterChecklistItems(items, true).map((item) => item.id)).toEqual(['archived']);
+  });
+});
+
+describe('percentage input validation', () => {
+  it.each([
+    ['0', null],
+    ['', null],
+    [' ', null],
+    ['12a', null],
+    ['a12', null],
+    ['1 2', null],
+    ['12.5', null],
+    ['-1', null],
+    ['101', null],
+    [' 12 ', 12],
+    ['1', 1],
+    ['100', 100],
+  ])('validates raw value %j before numeric coercion', (raw, expected) => {
+    expect(parsePercentageInput(raw)).toBe(expected);
   });
 });
 
@@ -34,6 +53,8 @@ describe('history value formatting regression', () => {
   it('keeps the empty editor line empty and uses a stable id only for a real editor', () => {
     expect(formatLastEditorLabel(undefined)).toBe('');
     expect(formatLastEditorLabel({ display_name: null, user_id: '12345678-abcd-4000-8000-000000000001' })).toBe('12345678');
+    expect(formatLastEditorSummary({ display_name: 'Иван Иванов', user_id: '12345678-abcd-4000-8000-000000000001', changed_at: '2026-09-18T02:31:00.000Z' })).toContain('Иван Иванов');
+    expect(formatLastEditorSummary({ display_name: 'Иван Иванов', user_id: '12345678-abcd-4000-8000-000000000001', changed_at: '2026-09-18T02:31:00.000Z' })).toContain('18.09.2026');
   });
 });
 
@@ -147,4 +168,5 @@ describe('UI architecture regressions', () => {
     expect(provider).not.toContain('event.new');
     expect(realtime).toContain('only tells the client');
   });
+
 });

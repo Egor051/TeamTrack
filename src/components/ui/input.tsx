@@ -15,7 +15,7 @@ export const Input = forwardRef<TextInput, InputProps>(function Input({ type = '
     <TextInput
       ref={ref}
       {...rest}
-      value={rest.value ?? ''}
+      value={rest.value}
       autoCapitalize={rest.autoCapitalize ?? 'none'}
       keyboardType={rest.keyboardType ?? (type === 'email' ? 'email-address' : 'default')}
       secureTextEntry={type === 'password' || rest.secureTextEntry}

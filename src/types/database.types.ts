@@ -411,6 +411,7 @@ export type Database = {
           created_by: string
           description: string | null
           id: string
+          position: number
           project_id: string
           status: Database["public"]["Enums"]["task_status"]
           title: string
@@ -423,6 +424,7 @@ export type Database = {
           created_by: string
           description?: string | null
           id?: string
+          position?: number
           project_id: string
           status?: Database["public"]["Enums"]["task_status"]
           title: string
@@ -435,6 +437,7 @@ export type Database = {
           created_by?: string
           description?: string | null
           id?: string
+          position?: number
           project_id?: string
           status?: Database["public"]["Enums"]["task_status"]
           title?: string
@@ -558,6 +561,10 @@ export type Database = {
           task_item_id: string
           user_id: string
         }[]
+      }
+      move_task: {
+        Args: { p_direction: number; p_task_id: string }
+        Returns: undefined
       }
       list_task_template_items: {
         Args: { p_template_id: string }

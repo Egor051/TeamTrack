@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link, type Href } from 'expo-router';
+import type { TextInput } from 'react-native';
 import { StyleSheet, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -36,6 +37,16 @@ export function AuthNotice({ title, children }: { title: string; children: React
     <ThemedText type="h3" style={{ color: colors.success }}>{title}</ThemedText>
     <ThemedText type="small">{children}</ThemedText>
   </View>;
+}
+
+/**
+ * Browser autofill can update the native input value without dispatching the
+ * React Native Web text callback. Read the host value at submit time while
+ * keeping state as the normal event-driven fallback on native platforms.
+ */
+export function readAuthInputValue(ref: { current: TextInput | null }, fallback: string): string {
+  const value = (ref.current as unknown as { value?: unknown } | null)?.value;
+  return typeof value === 'string' ? value : fallback;
 }
 
 const styles = StyleSheet.create({

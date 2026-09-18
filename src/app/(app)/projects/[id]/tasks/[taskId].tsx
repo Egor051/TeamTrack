@@ -55,8 +55,8 @@ import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
-import { filterChecklistItems } from "@/features/projects/checklist";
-import { formatLastEditorLabel } from "@/features/projects/history-format";
+import { filterChecklistItems, parsePercentageInput } from "@/features/projects/checklist";
+import { formatLastEditorSummary } from "@/features/projects/history-format";
 
 export default function TaskScreen() {
   const { colors: theme } = useTheme();
@@ -255,9 +255,9 @@ export default function TaskScreen() {
 
   function savePercentage(item: TaskItem) {
     const raw = editPercentage[item.id] ?? String(item.percentage);
-    const value = Number(raw);
-    if (!/^\d{1,3}$/.test(raw) || !Number.isInteger(value) || value < 0 || value > 100) {
-      setActionError({ message: "Введите целое число от 0 до 100.", target: item.id });
+    const value = parsePercentageInput(raw);
+    if (value === null) {
+      setActionError({ message: "Введите целое число от 1 до 100.", target: item.id });
       return;
     }
     void run(async () => {
@@ -275,11 +275,14 @@ export default function TaskScreen() {
     project?.status === "active" &&
     task?.status !== "archived";
   const hasTaskAccess = Boolean(user && taskMembers.some((member) => member.user_id === user.id));
-  const canEdit =
+  const canUpdateChecklistProgress =
     hasTaskAccess &&
     project?.status === "active" &&
     project.role !== "viewer" &&
     task?.status !== "archived";
+  const canEditChecklist =
+    canManage;
+  const canEditTask = canUpdateChecklistProgress;
   const canRestore =
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
@@ -331,13 +334,13 @@ export default function TaskScreen() {
               </View>
             </Card> : null}
             <View style={styles.actions}>
-              {canEdit && !taskEditing ? <Button variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
+              {canEditTask && !taskEditing ? <Button variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
               {canManage ? <Button variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
               <Button variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
               <Button variant="outline" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/progress` as never)}>Прогресс дня</Button>
             </View>
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
-            {!canEdit ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : "У вас доступ для просмотра. Изменять этап и чек-лист могут участники проекта."}</ThemedText></View> : null}
+            {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : project?.role === "viewer" ? "У вас доступ только для просмотра." : hasTaskAccess ? "У вас доступ только для просмотра." : "Этап виден участникам проекта. Для изменения этапа и чек-листа нужен отдельный доступ к этапу."}</ThemedText></View> : null}
             <Card muted>
               <Progress
                 value={progress}
@@ -352,23 +355,27 @@ export default function TaskScreen() {
             {loadedView !== currentView ? (loadError ? <View style={styles.feedback}><ThemedText type="small">Выбранный список пунктов не загрузился.</ThemedText><Button size="sm" variant="outline" onPress={() => void load()}>Повторить</Button></View> : <LoadingState label={showArchivedItems ? "Загружаем архив…" : "Загружаем чек-лист…"} />) : !visibleItems.length ? (
               <EmptyState
                 title={showArchivedItems ? "Архив чек-листа пуст" : "Чек-лист пуст"}
-                description={showArchivedItems ? "Здесь появятся пункты после архивации." : canEdit ? "Добавьте первый пункт, чтобы разбить этап на последовательные шаги." : "Участники проекта ещё не добавили пункты в этот этап."}
+                description={showArchivedItems ? "Здесь появятся пункты после архивации." : canEditChecklist ? "Добавьте первый пункт, чтобы разбить этап на последовательные шаги." : "Участники проекта ещё не добавили пункты в этот этап."}
               />
             ) : (
               <View style={styles.list}>
-                {visibleItems.map((item, index) => (
+                {visibleItems.map((item, index) => {
+                  const percentageRaw = editPercentage[item.id] ?? String(item.percentage);
+                  const parsedPercentage = parsePercentageInput(percentageRaw);
+                  const percentageSaveValid = parsedPercentage !== null && parsedPercentage !== item.percentage;
+                  return (
                   <Card key={item.id} muted={item.is_archived}>
                     <View style={styles.itemRow}>
                       <Checkbox
                         checked={item.is_completed}
-                        disabled={busy || !canEdit || item.is_archived}
+                        disabled={busy || !canUpdateChecklistProgress || item.is_archived}
                         label={`${item.title}, ${item.is_completed ? "выполнено" : "не выполнено"}`}
                         onPress={() =>
                           void run(() => setTaskItemState(item.id, !item.is_completed), item.id)
                         }
                       />
                       <View style={styles.flex}>
-                        {editing === item.id ? (
+                        {editing === item.id && canEditChecklist ? (
                           <Input
                             label="Текст пункта"
                             placeholder="Текст пункта"
@@ -385,8 +392,8 @@ export default function TaskScreen() {
                             importantForAccessibility="no"
                             accessibilityRole="button"
                             accessibilityLabel={`${item.is_completed ? "Снять отметку" : "Отметить выполненным"}: ${item.title}`}
-                            accessibilityState={{ disabled: busy || !canEdit || item.is_archived }}
-                            disabled={busy || !canEdit || item.is_archived}
+                            accessibilityState={{ disabled: busy || !canUpdateChecklistProgress || item.is_archived }}
+                            disabled={busy || !canUpdateChecklistProgress || item.is_archived}
                             onPress={() => void run(() => setTaskItemState(item.id, !item.is_completed), item.id)}
                             style={({ pressed }) => [styles.titleToggle, pressed && styles.pressed]}
                           >
@@ -400,6 +407,7 @@ export default function TaskScreen() {
                           <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
                           {busyAction === item.id ? <ThemedText type="caption" accessibilityLiveRegion="polite">Сохраняем…</ThemedText> : null}
                         </View>
+                        {formatLastEditorSummary(lastEditors.get(item.id)) ? <ThemedText type="caption">Последнее изменение: {formatLastEditorSummary(lastEditors.get(item.id))}</ThemedText> : null}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -415,16 +423,15 @@ export default function TaskScreen() {
                     </View>
                     {expandedItem === item.id ? <View style={[styles.itemDetails, { borderTopColor: theme.border }]}>
                     <Progress value={item.percentage} label="Выполнение пункта" />
-                    {formatLastEditorLabel(lastEditors.get(item.id)) ? <ThemedText type="caption">Последнее изменение: {formatLastEditorLabel(lastEditors.get(item.id))}</ThemedText> : null}
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
                       <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={2000} placeholder="Необязательно" disabled={busy} />
                       <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 2000} onPress={() => void run(async () => { await setTaskItemComment(item.id, editComment); setCommentEditing(null); }, item.id)}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
                     </View> : null}
-                    {canEdit && !item.is_archived && editing !== item.id && commentEditing !== item.id ? <View style={styles.progressEditor}>
-                      <View style={styles.percentageField}><Input label="Прогресс, от 0 до 100%" value={editPercentage[item.id] ?? String(item.percentage)} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value.replace(/[^0-9]/g, '').slice(0, 3) }))} keyboardType="numeric" maxLength={3} onSubmitEditing={() => savePercentage(item)} disabled={busy} /></View>
-                      <Button size="sm" variant="outline" loading={busyAction === item.id} disabled={busy || (editPercentage[item.id] ?? String(item.percentage)) === String(item.percentage)} onPress={() => savePercentage(item)}>Сохранить прогресс</Button>
+                    {canUpdateChecklistProgress && !item.is_archived && editing !== item.id && commentEditing !== item.id ? <View style={styles.progressEditor}>
+                      <View style={styles.percentageField}><Input label="Прогресс, от 1 до 100%" value={percentageRaw} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value }))} keyboardType="numeric" maxLength={7} onSubmitEditing={() => savePercentage(item)} disabled={busy} /></View>
+                      <Button size="sm" variant={percentageSaveValid ? "primary" : "secondary"} loading={busyAction === item.id} disabled={busy || !percentageSaveValid} onPress={() => savePercentage(item)}>Сохранить прогресс</Button>
                     </View> : null}
-                    {editing === item.id ? (
+                    {editing === item.id && canEditChecklist ? (
                       <View style={styles.actions}>
                         <Button
                           size="sm"
@@ -450,9 +457,9 @@ export default function TaskScreen() {
                       </View>
                     ) : item.is_archived && canManage ? (
                       <View style={styles.actions}><Button size="sm" variant="destructive" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить навсегда</Button></View>
-                    ) : canEdit && !item.is_archived && commentEditing !== item.id ? (
+                    ) : canUpdateChecklistProgress && !item.is_archived && commentEditing !== item.id ? (
                       <View style={styles.actions}>
-                        <Button
+                        {canEditChecklist ? <Button
                           size="sm"
                           variant="ghost"
                           disabled={busy}
@@ -462,7 +469,7 @@ export default function TaskScreen() {
                           }}
                         >
                           Изменить текст
-                        </Button>
+                        </Button> : null}
                         <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setCommentEditing(item.id); setEditComment(item.comment || ""); }}>
                           {item.comment ? "Изменить комментарий" : "Добавить комментарий"}
                         </Button>
@@ -489,10 +496,11 @@ export default function TaskScreen() {
                     </View> : null}
                     {actionError?.target === item.id ? <ErrorMessage message={actionError.message} type="validation" /> : null}
                   </Card>
-                ))}
+                  );
+                })}
               </View>
             )}
-            {canEdit && !showArchivedItems ? (
+            {canEditChecklist && !showArchivedItems ? (
               <Card>
                 <Input
                   label="Новый пункт"
