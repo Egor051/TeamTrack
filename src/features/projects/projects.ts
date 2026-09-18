@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/features/auth/auth';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/client';
+import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
 export type ProjectWithRole = Project & { role: ProjectRole };
@@ -15,6 +16,7 @@ export type TaskMember = { user_id: string; approved_at: string; profile: Profil
 export type ItemAction = Database['public']['Tables']['item_actions']['Row'];
 export type AuditEntry = Database['public']['Tables']['audit_log']['Row'];
 export type TaskItemLastEditor = Database['public']['Functions']['list_task_item_last_editors']['Returns'][number];
+export type DailyProgressEntry = DailyProgressSummary & { title: string; position: number };
 export type { Task, TaskItem };
 
 type SupabaseResult<T> = { data: T | null; error: { message: string } | null };
@@ -197,6 +199,56 @@ export async function listTaskAudit(projectId: string, taskId: string): Promise<
   if (taskResult.error) throw taskResult.error;
   if (!taskResult.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
   return (await Promise.all(chunks(entityIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase.from('audit_log').select('*').eq('project_id', projectId).in('entity_id', ids).order('created_at', { ascending: false }).range(from, to))))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+/** Returns the UTC instant corresponding to 00:00 of the current UTC+3 day. */
+export function getUtcPlus3DayStart(now = new Date()): string {
+  const utcPlus3Date = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  const dayStartUtc = Date.UTC(
+    utcPlus3Date.getUTCFullYear(),
+    utcPlus3Date.getUTCMonth(),
+    utcPlus3Date.getUTCDate(),
+  ) - 3 * 60 * 60 * 1000;
+  return new Date(dayStartUtc).toISOString();
+}
+
+/**
+ * Lists this user's percentage increases since the UTC+3 day boundary.
+ * Aggregation is delegated to the pure selector so the UI receives one row
+ * per item while the database query remains scoped to the current user/day.
+ */
+export async function listTaskDailyProgress(
+  projectId: string,
+  taskId: string,
+  taskItems?: readonly TaskItem[],
+): Promise<DailyProgressEntry[]> {
+  assertUuid(projectId, 'project id');
+  assertUuid(taskId, 'task id');
+  const { data: userData, error: userError } = await getCurrentUser();
+  if (userError || !userData.user) throw new Error('Требуется авторизация.');
+
+  const items = taskItems ? [...taskItems] : await listTaskItems(taskId, 'all');
+  if (!items.length) return [];
+
+  const now = new Date();
+  const rows = await fetchAll<AuditEntry>((from, to) => supabase
+    .from('audit_log')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('entity_type', 'task_item')
+    .eq('user_id', userData.user.id)
+    .in('entity_id', items.map((item) => item.id))
+    .gte('created_at', getUtcPlus3DayStart(now))
+    .lte('created_at', now.toISOString())
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .range(from, to));
+  const summaries = selectDailyProgress(rows, items);
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  return summaries.flatMap((summary) => {
+    const item = itemById.get(summary.taskItemId);
+    return item ? [{ ...summary, title: item.title, position: item.position }] : [];
+  });
 }
 
 /**

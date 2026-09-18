@@ -21,6 +21,12 @@ export type ChecklistHistoryEntry = {
   changes: string[];
 };
 
+export type DailyProgressSummary = {
+  taskItemId: string;
+  oldPercentage: number;
+  newPercentage: number;
+};
+
 const fieldLabels: Record<string, string> = {
   title: 'название',
   description: 'описание',
@@ -33,6 +39,11 @@ const fieldLabels: Record<string, string> = {
 
 function asObject(value: unknown): JsonObject {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
+}
+
+function percentageNumber(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 ? parsed : null;
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -132,6 +143,41 @@ export function selectChecklistHistory<T extends AuditHistoryRecord>(audit: read
       itemTitle: titleFromSnapshot(oldObject, newObject),
       changes,
     }];
+  });
+}
+
+/**
+ * Selects and aggregates actual percentage increases from today's audit rows.
+ * The caller is responsible for the date/user scope; this helper only applies
+ * the percentage transition rules and preserves the supplied checklist order.
+ */
+export function selectDailyProgress<T extends AuditHistoryRecord>(
+  audit: readonly T[],
+  items: readonly { id: string }[],
+): DailyProgressSummary[] {
+  const byItem = new Map<string, DailyProgressSummary>();
+  const orderedAudit = [...audit].sort((left, right) => {
+    const timeOrder = left.created_at.localeCompare(right.created_at);
+    return timeOrder || left.id - right.id;
+  });
+
+  for (const entry of orderedAudit) {
+    if (entry.entity_type !== 'task_item' || !entry.entity_id) continue;
+    const oldObject = asObject(entry.old_data);
+    const newObject = asObject(entry.new_data);
+    const oldPercentage = percentageNumber(oldObject.percentage);
+    const newPercentage = percentageNumber(newObject.percentage);
+    if (oldPercentage === null || newPercentage === null || newPercentage <= oldPercentage) continue;
+
+    const previous = byItem.get(entry.entity_id);
+    byItem.set(entry.entity_id, previous
+      ? { ...previous, newPercentage }
+      : { taskItemId: entry.entity_id, oldPercentage, newPercentage });
+  }
+
+  return items.flatMap((item) => {
+    const summary = byItem.get(item.id);
+    return summary ? [summary] : [];
   });
 }
 

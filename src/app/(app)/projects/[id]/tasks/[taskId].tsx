@@ -332,6 +332,7 @@ export default function TaskScreen() {
               {canEdit && !taskEditing ? <Button variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
               {canManage ? <Button variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
               <Button variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
+              <Button variant="outline" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/progress` as never)}>Прогресс дня</Button>
             </View>
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
             {!canEdit ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : "У вас доступ для просмотра. Изменять этап и чек-лист могут участники проекта."}</ThemedText></View> : null}

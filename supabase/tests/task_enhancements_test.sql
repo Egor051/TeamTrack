@@ -46,6 +46,22 @@ select exists (select 1 from public.task_items where id = :'item' and comment='A
 \quit 1
 \endif
 
+select public.set_task_item_state(:'item', true);
+select exists (
+    select 1
+    from public.audit_log
+    where entity_type = 'task_item'
+      and entity_id = :'item'
+      and action = 'checked'
+      and old_data->>'percentage' = '50'
+      and new_data->>'percentage' = '100'
+) as checkbox_percentage_audit_ok \gset
+\if :checkbox_percentage_audit_ok
+\else
+\echo 'FAIL checkbox percentage audit'
+\quit 1
+\endif
+
 -- Creation alone is not an edit: there is no qualifying last editor yet.
 select public.create_task_item(:'task','Untouched item') \gset
 \set untouched_item :create_task_item
