@@ -55,7 +55,7 @@ import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
-import { filterChecklistItems, parsePercentageInput } from "@/features/projects/checklist";
+import { filterChecklistItems, formatChecklistComment, parsePercentageInput } from "@/features/projects/checklist";
 import { formatLastEditorSummary } from "@/features/projects/history-format";
 
 export default function TaskScreen() {
@@ -282,7 +282,7 @@ export default function TaskScreen() {
     task?.status !== "archived";
   const canEditChecklist =
     canManage;
-  const canEditTask = canUpdateChecklistProgress;
+  const canEditTask = canManage;
   const canRestore =
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
@@ -363,6 +363,7 @@ export default function TaskScreen() {
                   const percentageRaw = editPercentage[item.id] ?? String(item.percentage);
                   const parsedPercentage = parsePercentageInput(percentageRaw);
                   const percentageSaveValid = parsedPercentage !== null && parsedPercentage !== item.percentage;
+                  const formattedComment = formatChecklistComment(item.comment);
                   return (
                   <Card key={item.id} muted={item.is_archived}>
                     <View style={styles.itemRow}>
@@ -402,7 +403,7 @@ export default function TaskScreen() {
                             </ThemedText>
                           </Pressable>
                         )}
-                        {item.comment ? <ThemedText type="small" style={styles.itemComment}>{item.comment}</ThemedText> : null}
+                        {formattedComment ? <ThemedText type="small" style={styles.itemComment}>{formattedComment}</ThemedText> : null}
                         <View style={styles.itemMeta}>
                           <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
                           {busyAction === item.id ? <ThemedText type="caption" accessibilityLiveRegion="polite">Сохраняем…</ThemedText> : null}

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { filterChecklistItems, parsePercentageInput } from '@/features/projects/checklist';
+import { filterChecklistItems, formatChecklistComment, parsePercentageInput } from '@/features/projects/checklist';
 import { formatAuditChanges, formatLastEditorLabel, formatLastEditorSummary, selectChecklistHistory } from '@/features/projects/history-format';
 
 const root = resolve(import.meta.dirname, '..');
@@ -37,6 +37,20 @@ describe('percentage input validation', () => {
   });
 });
 
+describe('checklist comment formatting', () => {
+  it.each([
+    [null, ''],
+    ['', ''],
+    ['   ', ''],
+    ['Нужно проверить документы', 'Комментарий: Нужно проверить документы'],
+    ['Комментарий: Нужно проверить документы', 'Комментарий: Нужно проверить документы'],
+    ['Комментарий: Комментарий: Нужно проверить документы', 'Комментарий: Нужно проверить документы'],
+    ['Комментарий:', ''],
+  ])('formats %j as %j', (raw, expected) => {
+    expect(formatChecklistComment(raw)).toBe(expected);
+  });
+});
+
 describe('history value formatting regression', () => {
   it('renders percentage transitions explicitly', () => {
     expect(formatAuditChanges({ percentage: 20 }, { percentage: 50 })).toContain('Прогресс: 20% → 50%');
@@ -48,6 +62,8 @@ describe('history value formatting regression', () => {
   it('renders comment transitions including null/empty states', () => {
     expect(formatAuditChanges({ comment: null }, { comment: 'новый комментарий' })).toContain('Комментарий: нет комментария → «новый комментарий»');
     expect(formatAuditChanges({ comment: 'старый' }, { comment: '' })).toContain('Комментарий: «старый» → нет комментария');
+    expect(formatAuditChanges({ comment: null }, { comment: 'Комментарий: новый комментарий' })).toContain('Комментарий: нет комментария → «новый комментарий»');
+    expect(formatAuditChanges({ comment: 'Комментарий: старый' }, { comment: 'Комментарий: новый' })).toContain('Комментарий: «старый» → «новый»');
   });
 
   it('keeps the empty editor line empty and uses a stable id only for a real editor', () => {
@@ -150,6 +166,15 @@ describe('UI architecture regressions', () => {
     expect(project).toContain('taskHead: { flexDirection: "row"');
     expect(project).toContain('flexWrap: "wrap"');
     expect(progress).toContain('label: { flex: 1, minWidth: 0 }');
+  });
+
+  it('limits stage text editing to project admins and formats visible comments', () => {
+    const task = readFileSync(resolve(root, 'src/app/(app)/projects/[id]/tasks/[taskId].tsx'), 'utf8');
+    const migration = readFileSync(resolve(root, 'supabase/migrations/20260923000000_restrict_member_stage_text_edit.sql'), 'utf8');
+    expect(task).toContain('const canEditTask = canManage;');
+    expect(task).toContain('formatChecklistComment(item.comment)');
+    expect(migration).toContain('private.is_project_admin(project_id)');
+    expect(migration).toContain("only owner/admin can edit stage details");
   });
 
   it('does not use a fake last-editor label and keeps SQL empty state nullable', () => {

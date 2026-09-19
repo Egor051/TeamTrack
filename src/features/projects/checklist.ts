@@ -10,3 +10,20 @@ export function parsePercentageInput(raw: string): number | null {
   const value = Number(trimmed);
   return Number.isInteger(value) && value >= 1 && value <= 100 ? value : null;
 }
+
+const CHECKLIST_COMMENT_PREFIX = "Комментарий:";
+
+/** Returns the comment body without any user-entered display prefix. */
+export function normalizeChecklistComment(value: string | null | undefined): string {
+  let text = typeof value === "string" ? value.trim() : "";
+  while (text.startsWith(CHECKLIST_COMMENT_PREFIX)) {
+    text = text.slice(CHECKLIST_COMMENT_PREFIX.length).trimStart();
+  }
+  return text;
+}
+
+/** Formats a checklist comment consistently everywhere it is shown. */
+export function formatChecklistComment(value: string | null | undefined): string {
+  const text = normalizeChecklistComment(value);
+  return text ? `${CHECKLIST_COMMENT_PREFIX} ${text}` : "";
+}

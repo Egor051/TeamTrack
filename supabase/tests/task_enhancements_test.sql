@@ -6,7 +6,8 @@ insert into auth.users (id, email, aud, role, raw_app_meta_data, raw_user_meta_d
                         email_confirmed_at, created_at, updated_at, is_anonymous, is_sso_user)
 values
  ('30000000-0000-0000-0000-000000000001','enh-owner@test.local','authenticated','authenticated','{}','{"display_name":"Enh Owner"}',now(),now(),now(),false,false),
- ('30000000-0000-0000-0000-000000000002','enh-viewer@test.local','authenticated','authenticated','{}','{"display_name":"Enh Viewer"}',now(),now(),now(),false,false)
+ ('30000000-0000-0000-0000-000000000002','enh-member@test.local','authenticated','authenticated','{}','{"display_name":"Enh Member"}',now(),now(),now(),false,false),
+ ('30000000-0000-0000-0000-000000000003','enh-admin@test.local','authenticated','authenticated','{}','{"display_name":"Enh Admin"}',now(),now(),now(),false,false)
 on conflict (id) do nothing;
 
 set local role authenticated;
@@ -17,6 +18,9 @@ select public.create_task(:'project','Original task','Original description') \gs
 \set task :create_task
 select public.create_task_item(:'task','First item') \gset
 \set item :create_task_item
+
+select public.add_project_member(:'project','30000000-0000-0000-0000-000000000003','admin');
+select public.approve_task_member(:'task','30000000-0000-0000-0000-000000000003');
 
 select public.update_task(:'task','Renamed task','Updated description');
 select public.set_task_item_comment(:'item','A useful note');
@@ -80,9 +84,11 @@ select public.add_project_member(:'project','30000000-0000-0000-0000-00000000000
 select public.approve_task_member(:'task','30000000-0000-0000-0000-000000000002');
 select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000002',true);
 select set_config('task_enhancements.item_id', :'item', true);
+select set_config('task_enhancements.task_id', :'task', true);
 do $$
 declare
     v_denied boolean := false;
+    v_count integer;
 begin
     begin
         perform public.update_task_item(current_setting('task_enhancements.item_id')::uuid,'Title-only rename',null,null,null);
@@ -92,12 +98,52 @@ begin
     if not v_denied then
         raise exception 'FAIL member changed task item text';
     end if;
+
+    v_denied := false;
+    begin
+        perform public.update_task(current_setting('task_enhancements.task_id')::uuid,'Member stage rename',null);
+    exception when insufficient_privilege then
+        v_denied := true;
+    end;
+    if not v_denied then
+        raise exception 'FAIL member changed stage text through RPC';
+    end if;
+
+    begin
+        update public.tasks set description = 'Member direct update' where id = current_setting('task_enhancements.task_id')::uuid;
+        get diagnostics v_count = row_count;
+    exception when insufficient_privilege then
+        v_count := 0;
+    end;
+    if v_count <> 0 then
+        raise exception 'FAIL member changed stage text directly';
+    end if;
 end $$;
 select title = 'First item' as member_text_edit_denied
   from public.task_items where id=:'item' \gset
 \if :member_text_edit_denied
 \else
 \echo 'FAIL member task item text edit'
+\quit 1
+\endif
+
+select public.set_task_item_comment(:'item','Комментарий: Member note');
+select public.set_task_item_percentage(:'item',75);
+select comment = 'Комментарий: Member note' and percentage = 75 as member_progress_comment_ok
+  from public.task_items where id=:'item' \gset
+\if :member_progress_comment_ok
+\else
+\echo 'FAIL member checklist progress/comment permission'
+\quit 1
+\endif
+
+select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000003',true);
+select public.update_task(:'task','Admin stage rename','Admin stage description');
+select title = 'Admin stage rename' and description = 'Admin stage description' as admin_stage_edit_ok
+  from public.tasks where id=:'task' \gset
+\if :admin_stage_edit_ok
+\else
+\echo 'FAIL owner/admin stage edit'
 \quit 1
 \endif
 select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000001',true);

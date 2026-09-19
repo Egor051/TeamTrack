@@ -1,3 +1,5 @@
+import { normalizeChecklistComment } from "@/features/projects/checklist";
+
 type JsonObject = Record<string, unknown>;
 
 export type AuditHistoryRecord = {
@@ -51,7 +53,7 @@ function sameValue(left: unknown, right: unknown): boolean {
 }
 
 function commentValue(value: unknown): string {
-  const text = typeof value === 'string' ? value.trim() : '';
+  const text = normalizeChecklistComment(typeof value === 'string' ? value : null);
   return text ? `«${text}»` : 'нет комментария';
 }
 
