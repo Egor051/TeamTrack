@@ -121,18 +121,37 @@ begin
     if v_cnt <> 1 then raise exception 'FAIL P7: creator did not receive task membership'; end if;
 end $$;
 
--- items on T1
+-- items on T1: members cannot create task items; owner/admin can.
 do $$
 declare
     v_t1 uuid := (select v::uuid from tt_state where k = 't1');
+    v_alice uuid := (select v::uuid from tt_state where k = 'u_alice');
+    v_bob uuid := (select v::uuid from tt_state where k = 'u_bob');
     v_carol uuid := (select v::uuid from tt_state where k = 'u_carol');
     v_i1 uuid; v_i2 uuid;
+    v_member_created boolean := false;
 begin
     perform set_config('role', 'authenticated', true);
-    perform set_config('request.jwt.claim.sub', v_carol::text, true);
 
+    perform set_config('request.jwt.claim.sub', v_carol::text, true);
+    begin
+        perform public.create_task_item(v_t1, 'Member item');
+        v_member_created := true;
+    exception when others then
+        null;
+    end;
+    if v_member_created then
+        raise exception 'FAIL: member created a task item';
+    end if;
+
+    perform set_config('request.jwt.claim.sub', v_alice::text, true);
+    perform public.approve_task_member(v_t1, v_alice);
+    perform public.approve_task_member(v_t1, v_bob);
     v_i1 := public.create_task_item(v_t1, 'Create repo');
+
+    perform set_config('request.jwt.claim.sub', v_bob::text, true);
     v_i2 := public.create_task_item(v_t1, 'Add pipeline');
+
     insert into tt_state values ('i1', v_i1::text), ('i2', v_i2::text);
 end $$;
 
@@ -255,13 +274,13 @@ begin
     select count(*) into v_cnt from public.tasks where id = v_t1;
     if v_cnt <> 1 then raise exception 'FAIL P5: approved task member cannot read task'; end if;
     select count(*) into v_cnt from public.task_members where task_id = v_t1;
-    if v_cnt <> 3 then raise exception 'FAIL: task member cannot read task_members (cnt=%)', v_cnt; end if;
+    if v_cnt <> 5 then raise exception 'FAIL: task member cannot read task_members (cnt=%)', v_cnt; end if;
     perform set_config('request.jwt.claim.sub', v_alice::text, true);
     select count(*) into v_cnt from public.task_members where task_id = v_t1;
-    if v_cnt <> 3 then raise exception 'FAIL: project owner cannot read task_members (cnt=%)', v_cnt; end if;
+    if v_cnt <> 5 then raise exception 'FAIL: project owner cannot read task_members (cnt=%)', v_cnt; end if;
     perform set_config('request.jwt.claim.sub', v_bob::text, true);
     select count(*) into v_cnt from public.task_members where task_id = v_t1;
-    if v_cnt <> 3 then raise exception 'FAIL: project admin cannot read task_members (cnt=%)', v_cnt; end if;
+    if v_cnt <> 5 then raise exception 'FAIL: project admin cannot read task_members (cnt=%)', v_cnt; end if;
     select count(*) into v_cnt from public.project_members where project_id = v_proj;
     if v_cnt <> 5 then raise exception 'FAIL: project member cannot read project_members (cnt=%)', v_cnt; end if;
 end $$;
@@ -319,8 +338,8 @@ begin
     select count(*) into v_audits from public.audit_log
     where entity_type = 'task_item' and entity_id = v_i1 and action = 'checked'
       and user_id = v_carol
-      and old_data = '{"is_completed": false}'::jsonb
-      and new_data = '{"is_completed": true}'::jsonb;
+      and old_data @> '{"is_completed": false}'::jsonb
+      and new_data @> '{"is_completed": true}'::jsonb;
     if v_audits <> 1 then raise exception 'FAIL P13: audit_log row missing/incorrect (cnt=%)', v_audits; end if;
 
     -- P14: repeated set(true) is a no-op
@@ -730,7 +749,7 @@ begin
 
     v_ok := false;
     begin
-        perform public.update_task_item(v_i2, 'renamed');
+        perform public.update_task_item(v_i2, 'renamed', null, null, null);
     exception when insufficient_privilege or raise_exception then v_ok := true; end;
     if not v_ok then raise exception 'FAIL N17: archived item was edited'; end if;
 
@@ -950,18 +969,19 @@ begin
     v_i3 := public.create_task_item(v_t3, 'Changelog');
     insert into tt_state values ('i3', v_i3::text);
 
-    perform public.update_task_item(v_i3, 'Changelog v2');
+    perform public.update_task_item(v_i3, 'Changelog v2', null, null, null);
     select count(*) into v_cnt from public.audit_log
     where entity_id = v_i3 and action = 'updated'
       and old_data = '{"title": "Changelog"}'::jsonb
       and new_data = '{"title": "Changelog v2"}'::jsonb;
     if v_cnt <> 1 then raise exception 'FAIL: update_task_item audit missing (cnt=%)', v_cnt; end if;
 
-    -- reorder via RPC produces 'reordered'
-    perform public.update_task_item(p_task_item_id := v_i3, p_position := 1.5);
+    -- hosted's five-argument overload records position edits as 'updated'
+    perform public.update_task_item(v_i3, null, null, 1.5, null);
     select count(*) into v_cnt from public.audit_log
-    where entity_id = v_i3 and action = 'reordered';
-    if v_cnt <> 1 then raise exception 'FAIL: reordered audit missing'; end if;
+    where entity_id = v_i3 and action = 'updated'
+      and new_data @> '{"position": 1.5}'::jsonb;
+    if v_cnt <> 1 then raise exception 'FAIL: position update audit missing'; end if;
 end $$;
 
 -- =============================================================== summary

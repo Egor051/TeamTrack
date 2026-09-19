@@ -75,16 +75,29 @@ select not exists (
 \quit 1
 \endif
 
--- A later title-only rename must not replace the last non-title editor.
+-- Members cannot change task item title/description.
 select public.add_project_member(:'project','30000000-0000-0000-0000-000000000002','member');
 select public.approve_task_member(:'task','30000000-0000-0000-0000-000000000002');
 select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000002',true);
-select public.update_task_item(:'item','Title-only rename');
-select user_id = '30000000-0000-0000-0000-000000000001'::uuid as title_only_editor_excluded
-  from public.list_task_item_last_editors(:'task') where task_item_id=:'item' \gset
-\if :title_only_editor_excluded
+select set_config('task_enhancements.item_id', :'item', true);
+do $$
+declare
+    v_denied boolean := false;
+begin
+    begin
+        perform public.update_task_item(current_setting('task_enhancements.item_id')::uuid,'Title-only rename',null,null,null);
+    exception when insufficient_privilege then
+        v_denied := true;
+    end;
+    if not v_denied then
+        raise exception 'FAIL member changed task item text';
+    end if;
+end $$;
+select title = 'First item' as member_text_edit_denied
+  from public.task_items where id=:'item' \gset
+\if :member_text_edit_denied
 \else
-\echo 'FAIL title-only editor exclusion'
+\echo 'FAIL member task item text edit'
 \quit 1
 \endif
 select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000001',true);

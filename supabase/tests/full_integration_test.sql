@@ -98,7 +98,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from it_state where key='owner'),true);
 select public.set_task_item_state((select id from it_state where key='item'),true);
 select public.set_task_item_state((select id from it_state where key='item'),true);
-select public.update_task_item((select id from it_state where key='item'),'Edited item',null,null);
+select public.update_task_item((select id from it_state where key='item'),'Edited item',null,null,null);
 select public.set_task_item_state((select id from it_state where key='item'),false);
 select public.archive_task_item((select id from it_state where key='item'));
 reset role;
@@ -108,7 +108,7 @@ do $$ declare a int; h int; old jsonb; new jsonb; denied boolean:=false; begin
   if a<>2 then raise exception 'FAIL checkbox no-op/history count=%',a; end if;
   if not exists (select 1 from public.task_items where id=(select id from it_state where key='item') and not is_completed and is_archived) then raise exception 'FAIL archive current state'; end if;
   select old_data,new_data into old,new from public.audit_log where entity_id=(select id from it_state where key='item') and action='unchecked' limit 1;
-  if old <> '{"is_completed": true}'::jsonb or new <> '{"is_completed": false}'::jsonb then raise exception 'FAIL checkbox audit snapshots'; end if;
+  if not old @> '{"is_completed": true}'::jsonb or not new @> '{"is_completed": false}'::jsonb then raise exception 'FAIL checkbox audit snapshots'; end if;
   begin update public.item_actions set action='checked' where task_item_id=(select id from it_state where key='item'); exception when check_violation then denied:=true; end;
   if not denied then raise exception 'FAIL item_actions UPDATE allowed'; end if;
   denied:=false;

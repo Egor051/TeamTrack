@@ -83,7 +83,7 @@ select public.set_task_item_state((select id from ntf_state where key='item_main
 select public.set_task_item_state((select id from ntf_state where key='item_main'), false);
 select public.set_task_item_comment((select id from ntf_state where key='item_main'), 'Progress context note');
 select public.set_task_item_percentage((select id from ntf_state where key='item_main'), 25);
-select public.update_task_item((select id from ntf_state where key='item_main'), 'Changed checklist text');
+select public.update_task_item((select id from ntf_state where key='item_main'), 'Changed checklist text', null, null, null);
 select public.revoke_task_member((select id from ntf_state where key='task_main'), (select id from ntf_state where key='user_b'));
 reset role;
 
@@ -171,8 +171,9 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub', (select id::text from ntf_state where key='user_b'), true);
 do $$ begin
   if not exists (select 1 from public.notifications where task_id=(select id from ntf_state where key='task_main') and type='task_member_removed') then raise exception 'FAIL NTF18: revoke notification not retained'; end if;
-  if exists (select 1 from public.tasks where id=(select id from ntf_state where key='task_main')) then raise exception 'FAIL NTF18: revoked task still visible'; end if;
-  raise notice 'PASS NTF18: revoke notification retained and task access remains denied';
+  if not exists (select 1 from public.tasks where id=(select id from ntf_state where key='task_main')) then raise exception 'FAIL NTF18: project member cannot see task stage'; end if;
+  if exists (select 1 from public.task_items where task_id=(select id from ntf_state where key='task_main')) then raise exception 'FAIL NTF18: revoked task item access still visible'; end if;
+  raise notice 'PASS NTF18: revoke notification retained and task-scoped access remains denied';
 end $$;
 reset role;
 set local role authenticated;
