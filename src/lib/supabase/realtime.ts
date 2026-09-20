@@ -72,7 +72,6 @@ export function subscribeToPermissionChanges(
 ) {
   return subscribeMany([
     { table: 'project_members', options: { userId, onEvent: onChange, onStatus } },
-    { table: 'task_members', options: { userId, onEvent: onChange, onStatus } },
     { table: 'task_assignees', options: { userId, onEvent: onChange, onStatus } },
     // These tables are RLS-filtered by the current user's visible resources.
     // They cover archive/restore and task state changes that affect access/UI.

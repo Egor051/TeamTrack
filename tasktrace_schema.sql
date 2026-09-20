@@ -6,7 +6,7 @@
 --   - profiles
 --   - projects + project membership / roles
 --   - tasks
---   - task-scoped access approvals for checklist/history operations
+--   - optional task-scoped metadata for checklist/history operations
 --   - task assignees
 --   - checklist items
 --   - task item percentage progress and comments
@@ -26,8 +26,8 @@
 -- Notes:
 --   1. Authentication users live in auth.users. profiles extends auth.users.
 --   2. project_members controls visibility of every task in the project.
---      task_members represents approved task-scoped access for checklist,
---      history and assignment operations.
+--      task_members stores optional explicit task metadata for compatibility;
+--      effective checklist/history access is inherited from project_members.
 --   3. task_assignees represents assignment, distinct from access.
 --   4. item_actions is append-only history of checkbox state changes.
 --   5. audit_log is the broader detailed system audit trail.
@@ -186,9 +186,10 @@ create table if not exists public.tasks (
 );
 
 -- -----------------------------------------------------------------------------
--- Approved access to tasks
+-- Optional explicit task metadata
 --
--- Presence of a row means the user is approved for the task.
+-- Presence of a row records an explicit task-level approval for audit and
+-- compatibility; effective access is inherited from project membership.
 -- There is intentionally no pending-invitation state in v1.
 -- -----------------------------------------------------------------------------
 
@@ -205,7 +206,7 @@ create table if not exists public.task_members (
 -- -----------------------------------------------------------------------------
 -- Task assignees
 --
--- An assignee must also be a task member. This cross-table rule should be
+-- An assignee must also be a project member. This cross-table rule should be
 -- enforced by application/RPC logic and, where appropriate, database logic.
 -- -----------------------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 -- Stage rows are visible to every project member, independently of role or
--- task_members approval. Task-scoped mutations remain protected.
+-- Project membership inherits checklist access. Role-specific mutations remain protected.
 \set ON_ERROR_STOP on
 begin;
 
@@ -90,10 +90,17 @@ select 'new_task', public.create_task(
     'New stage',
     'Created after project membership already existed'
 );
+select set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'owner'), true);
+insert into stage_visibility_state
+select 'new_item', public.create_task_item(
+    (select id from stage_visibility_state where key = 'new_task'),
+    'Created after project membership already existed'
+);
 
 do $$
 declare
     v_task uuid := (select id from stage_visibility_state where key = 'new_task');
+    v_item uuid := (select id from stage_visibility_state where key = 'new_item');
     v_user uuid;
     v_count integer;
 begin
@@ -113,11 +120,16 @@ begin
         if v_count <> 0 then
             raise exception 'stage visibility created unexpected task_members access';
         end if;
+        select count(*) into v_count from public.task_items where id = v_item;
+        if v_count <> 1 then
+            raise exception 'project member cannot see checklist item created after membership';
+        end if;
     end loop;
 end
 $$;
 
--- Visibility does not grant task-scoped edit, archive, checklist or assignment rights.
+-- Project membership grants checklist visibility and ordinary member progress/comment
+-- operations, while stage text, archive and assignment administration remain protected.
 select set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'member'), true);
 do $$
 declare
@@ -138,9 +150,17 @@ begin
     if not v_denied then raise exception 'visible stage became directly editable without task access'; end if;
 
     select count(*) into v_count from public.task_items where id = v_item;
-    if v_count <> 0 then
-        raise exception 'task-scoped checklist became visible without task access';
+    if v_count <> 1 then
+        raise exception 'project member cannot see inherited checklist item';
     end if;
+
+    v_denied := false;
+    begin
+        perform public.set_task_item_state(v_item, true);
+    exception when insufficient_privilege then
+        v_denied := true;
+    end;
+    if v_denied then raise exception 'project member cannot update checklist progress'; end if;
 
     v_denied := false;
     begin
@@ -172,8 +192,11 @@ select set_config('request.jwt.claim.sub', (select id::text from stage_visibilit
 do $$
 declare
     v_item uuid := (select id from stage_visibility_state where key = 'existing_item');
+    v_count integer;
     v_denied boolean := false;
 begin
+    select count(*) into v_count from public.task_items where id = v_item;
+    if v_count <> 1 then raise exception 'viewer cannot read inherited checklist item'; end if;
     begin
         perform public.set_task_item_state(v_item, true);
     exception when insufficient_privilege then

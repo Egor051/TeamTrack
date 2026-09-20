@@ -20,12 +20,11 @@ export function PermissionProvider({ userId, children }: { userId: string | null
 
   const revalidate = useCallback(async () => {
     if (!userId) return;
-    const [projects, tasks, assignees] = await Promise.all([
+    const [projects, assignees] = await Promise.all([
       supabase.from('project_members').select('project_id,role').eq('user_id', userId),
-      supabase.from('task_members').select('task_id').eq('user_id', userId),
       supabase.from('task_assignees').select('task_id').eq('user_id', userId),
     ]);
-    if (projects.error || tasks.error || assignees.error) return;
+    if (projects.error || assignees.error) return;
     setVersion((current) => current + 1);
   }, [userId]);
 

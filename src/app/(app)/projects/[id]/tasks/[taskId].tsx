@@ -31,20 +31,16 @@ import {
   setTaskItemComment,
   updateTask,
   listProjectMembers,
-  listTaskMembers,
   listTaskAssignees,
   listTaskItemLastEditors,
   addTaskAssignee,
   removeTaskAssignee,
-  approveTaskMember,
-  revokeTaskMember,
   archiveTask,
   hardDeleteTask,
   restoreTask,
   type Task,
   type TaskItem,
   type ProjectMember,
-  type TaskMember,
   type ProjectWithRole,
   type TaskItemLastEditor,
 } from "@/features/projects/projects";
@@ -73,7 +69,6 @@ export default function TaskScreen() {
   const [loadedView, setLoadedView] = useState<"active" | "archived" | null>(null);
   const [lastEditors, setLastEditors] = useState<Map<string, TaskItemLastEditor>>(new Map());
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [taskMembers, setTaskMembers] = useState<TaskMember[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
@@ -116,7 +111,6 @@ export default function TaskScreen() {
         nextProject,
         nextItems,
         nextProjectMembers,
-        nextTaskMembers,
         nextAssignees,
         nextLastEditors,
         nextActiveItems,
@@ -125,7 +119,6 @@ export default function TaskScreen() {
         getProject(id),
         listTaskItems(taskId, showArchivedItems ? "archived" : "active"),
         listProjectMembers(id),
-        listTaskMembers(taskId),
         listTaskAssignees(taskId),
         listTaskItemLastEditors(taskId),
         showArchivedItems ? listTaskItems(taskId, "active") : Promise.resolve(null),
@@ -137,7 +130,6 @@ export default function TaskScreen() {
       setSummaryItems(nextActiveItems ?? nextItems);
       setLoadedView(showArchivedItems ? "archived" : "active");
       setProjectMembers(nextProjectMembers);
-      setTaskMembers(nextTaskMembers);
       setAssignees(nextAssignees);
       setLastEditors(new Map(nextLastEditors.map((entry) => [entry.task_item_id, entry])));
       setLoadError("");
@@ -150,7 +142,6 @@ export default function TaskScreen() {
           setItems([]);
           setSummaryItems([]);
           setProjectMembers([]);
-          setTaskMembers([]);
           setAssignees([]);
           setLastEditors(new Map());
           router.replace("/projects" as never);
@@ -192,10 +183,6 @@ export default function TaskScreen() {
         },
         {
           table: "task_items",
-          options: { taskId, onEvent, onStatus },
-        },
-        {
-          table: "task_members",
           options: { taskId, onEvent, onStatus },
         },
         {
@@ -274,7 +261,9 @@ export default function TaskScreen() {
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
     task?.status !== "archived";
-  const hasTaskAccess = Boolean(user && taskMembers.some((member) => member.user_id === user.id));
+  // A successfully loaded task and project prove effective access through
+  // project membership. task_members is only optional legacy metadata.
+  const hasTaskAccess = Boolean(user && project && task);
   const canUpdateChecklistProgress =
     hasTaskAccess &&
     project?.status === "active" &&
@@ -293,7 +282,7 @@ export default function TaskScreen() {
   const completedItems = activeItems.filter((item) => item.is_completed).length;
   const currentView = showArchivedItems ? "archived" : "active";
   const assigneeNames = assignees.map((assigneeId) => {
-    const member = taskMembers.find((entry) => entry.user_id === assigneeId);
+    const member = projectMembers.find((entry) => entry.user_id === assigneeId);
     return member?.profile?.display_name || assigneeId.slice(0, 8);
   });
 
@@ -345,7 +334,7 @@ export default function TaskScreen() {
               </View>
             </View>
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
-            {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : project?.role === "viewer" ? "У вас доступ только для просмотра." : hasTaskAccess ? "У вас доступ только для просмотра." : "Этап виден участникам проекта. Для изменения этапа и чек-листа нужен отдельный доступ к этапу."}</ThemedText></View> : null}
+            {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : project?.role === "viewer" ? "У вас доступ только для просмотра." : hasTaskAccess ? "Прогресс чек-листа сейчас недоступен." : "Нет доступа к этапу."}</ThemedText></View> : null}
             <Card muted>
               <Progress
                 value={progress}
@@ -543,7 +532,7 @@ export default function TaskScreen() {
                   <Card>
                   <ThemedText type="h2">Участники этапа</ThemedText>
                   <ThemedText type="small">
-                    Кто имеет доступ к этому этапу
+                    Доступ наследуется от участников проекта
                   </ThemedText>
                   {!projectMembers.length ? (
                     <EmptyState
@@ -552,41 +541,14 @@ export default function TaskScreen() {
                     />
                   ) : (
                     projectMembers.map((member) => {
-                      const access = taskMembers.some(
-                        (entry) => entry.user_id === member.user_id,
-                      );
                       return (
                         <View key={member.user_id} style={styles.memberRow}>
                           <ThemedText style={styles.flex}>
                             {member.profile?.display_name || member.user_id.slice(0, 8)}
                           </ThemedText>
-                          <Badge tone={access ? "success" : "neutral"}>
-                            {access ? "Есть доступ" : "Нет доступа"}
+                          <Badge tone="success">
+                            {member.role === "viewer" ? "Доступ для просмотра" : "Доступ участника проекта"}
                           </Badge>
-                          {canManage ? <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onPress={() =>
-                              setConfirm({
-                                title: access
-                                  ? "Отозвать доступ?"
-                                  : "Одобрить доступ?",
-                                description: access
-                                  ? "Пользователь больше не сможет открыть этап."
-                                  : "Пользователь получит доступ к этапу.",
-                                confirmLabel: access ? "Отозвать доступ" : "Предоставить доступ",
-                                destructive: access,
-                                target: "members",
-                                action: () =>
-                                  access
-                                    ? revokeTaskMember(taskId, member.user_id)
-                                    : approveTaskMember(taskId, member.user_id),
-                              })
-                            }
-                          >
-                            {access ? "Отозвать" : "Дать доступ"}
-                          </Button> : null}
                         </View>
                       );
                     })
@@ -596,8 +558,8 @@ export default function TaskScreen() {
                   <ThemedText type="small">
                     Кто назначен выполнять этап
                   </ThemedText>
-                  {taskMembers.length ? (
-                    taskMembers.map((member) => {
+                  {projectMembers.length ? (
+                    projectMembers.map((member) => {
                       const assigned = assignees.includes(member.user_id);
                       return (
                         <View key={member.user_id} style={styles.memberRow}>
@@ -635,7 +597,7 @@ export default function TaskScreen() {
                       );
                     })
                   ) : (
-                    <ThemedText type="small">Сначала предоставьте участнику доступ к этапу, затем назначьте его исполнителем.</ThemedText>
+                    <ThemedText type="small">В проекте пока нет участников.</ThemedText>
                   )}
                  </Card></ScrollView></View><ConfirmDialog
                    visible={Boolean(confirm)}

@@ -155,8 +155,8 @@ begin
     insert into tt_state values ('i1', v_i1::text), ('i2', v_i2::text);
 end $$;
 
--- N6/N7/N8: project membership exposes the task row, while task-scoped
--- checklist/history rows remain protected by task_members access.
+-- N6/N7/N8: project membership exposes the task row and its checklist/history
+-- rows without requiring task_members access.
 do $$
 declare
     v_t1 uuid := (select v::uuid from tt_state where k = 't1');
@@ -175,7 +175,7 @@ begin
     ] loop
         perform set_config('request.jwt.claim.sub', v_user::text, true);
         select count(*) into v_cnt from public.tasks where id = v_t1;
-        if v_cnt <> 1 then raise exception 'FAIL N6: project member cannot see task without task_members'; end if;
+        if v_cnt <> 1 then raise exception 'FAIL N6: project member cannot see inherited task'; end if;
     end loop;
 
     -- A non-member still cannot see the stage.
@@ -186,12 +186,10 @@ begin
     perform set_config('request.jwt.claim.sub', (select v from tt_state where k = 'u_frank'), true);
 
     select count(*) into v_cnt from public.task_items where task_id = v_t1;
-    if v_cnt <> 0 then raise exception 'FAIL N7: frank sees task items without access'; end if;
-    select count(*) into v_cnt from public.item_actions where task_id = v_t1;
-    if v_cnt <> 0 then raise exception 'FAIL N8: frank sees item_actions without access'; end if;
+    if v_cnt = 0 then raise exception 'FAIL N7: project member cannot see inherited task items'; end if;
 end $$;
 
--- N8b: project member without task access cannot read task-scoped audit rows.
+-- N8b: inherited task access includes task-scoped audit visibility.
 do $$
 declare
     v_proj uuid := (select v::uuid from tt_state where k = 'proj');
@@ -203,9 +201,9 @@ begin
       from public.audit_log
      where project_id = v_proj
        and entity_type in ('task', 'task_item', 'task_member', 'task_assignee');
-    if v_cnt <> 0 then raise exception 'FAIL N8b: frank sees task-scoped audit rows (cnt=%)', v_cnt; end if;
+    if v_cnt = 0 then raise exception 'FAIL N8b: inherited task audit rows are hidden'; end if;
     select count(*) into v_cnt from public.task_members where task_id = (select v::uuid from tt_state where k = 't1');
-    if v_cnt <> 0 then raise exception 'FAIL N8b: project member without task access sees task_members (cnt=%)', v_cnt; end if;
+    if v_cnt <> 0 then raise exception 'FAIL N8b: unexpected explicit task metadata for inherited-only member (cnt=%)', v_cnt; end if;
 end $$;
 
 -- N8c: profile visibility is limited to self and users sharing a project.
@@ -285,7 +283,7 @@ begin
     if v_cnt <> 5 then raise exception 'FAIL: project member cannot read project_members (cnt=%)', v_cnt; end if;
 end $$;
 
--- P10: owner/admin add assignees (assignee must be project member AND task member)
+-- P10: owner/admin add assignees (assignee must be a project member)
 do $$
 declare
     v_t1 uuid := (select v::uuid from tt_state where k = 't1');
@@ -303,7 +301,7 @@ begin
     perform set_config('request.jwt.claim.sub', v_bob::text, true);
     perform public.add_task_assignee(v_t1, v_frank);
 
-    -- count as carol: she is a task member, so task_assignees is visible to her
+    -- count as carol: project membership makes task_assignees visible to her
     perform set_config('request.jwt.claim.sub', v_carol::text, true);
     select count(*) into v_cnt from public.task_assignees where task_id = v_t1;
     if v_cnt <> 2 then raise exception 'FAIL P10: assignees not added (cnt=%)', v_cnt; end if;
@@ -520,7 +518,7 @@ begin
     if v_cnt <> 0 then raise exception 'FAIL N5: assignee was added by member'; end if;
 end $$;
 
--- N9: cannot assign a user without task access (project member, not task member)
+-- N9: a project member can be assigned without a task_members row.
 do $$
 declare
     v_t2 uuid := (select v::uuid from tt_state where k = 't2');
@@ -532,11 +530,12 @@ begin
     perform set_config('request.jwt.claim.sub', v_alice::text, true);
     begin
         perform public.add_task_assignee(v_t2, v_frank);
-    exception when insufficient_privilege or raise_exception then v_ok := true; end;
-    if not v_ok then raise exception 'FAIL N9: assignee without task access was allowed'; end if;
+        v_ok := true;
+    exception when insufficient_privilege or raise_exception then v_ok := false; end;
+    if not v_ok then raise exception 'FAIL N9: project member could not be assigned'; end if;
 
     select count(*) into v_cnt from public.task_assignees where task_id = v_t2;
-    if v_cnt <> 0 then raise exception 'FAIL N9: assignee row created'; end if;
+    if v_cnt <> 1 then raise exception 'FAIL N9: inherited-access assignee row missing'; end if;
 end $$;
 
 -- N10: cannot grant task access to a user without project membership

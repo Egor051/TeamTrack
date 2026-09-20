@@ -189,7 +189,7 @@ describe('UI architecture regressions', () => {
     const provider = readFileSync(resolve(root, 'src/features/auth/PermissionProvider.tsx'), 'utf8');
     const realtime = readFileSync(resolve(root, 'src/lib/supabase/realtime.ts'), 'utf8');
     expect(provider).toContain("supabase.from('project_members')");
-    expect(provider).toContain("supabase.from('task_members')");
+    expect(provider).not.toContain("supabase.from('task_members')");
     expect(provider).not.toContain('event.new');
     expect(realtime).toContain('only tells the client');
   });

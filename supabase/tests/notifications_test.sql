@@ -172,8 +172,8 @@ select set_config('request.jwt.claim.sub', (select id::text from ntf_state where
 do $$ begin
   if not exists (select 1 from public.notifications where task_id=(select id from ntf_state where key='task_main') and type='task_member_removed') then raise exception 'FAIL NTF18: revoke notification not retained'; end if;
   if not exists (select 1 from public.tasks where id=(select id from ntf_state where key='task_main')) then raise exception 'FAIL NTF18: project member cannot see task stage'; end if;
-  if exists (select 1 from public.task_items where task_id=(select id from ntf_state where key='task_main')) then raise exception 'FAIL NTF18: revoked task item access still visible'; end if;
-  raise notice 'PASS NTF18: revoke notification retained and task-scoped access remains denied';
+  if not exists (select 1 from public.task_items where task_id=(select id from ntf_state where key='task_main')) then raise exception 'FAIL NTF18: project membership did not retain task item access'; end if;
+  raise notice 'PASS NTF18: revoke notification retained while inherited task access remains available';
 end $$;
 reset role;
 set local role authenticated;
