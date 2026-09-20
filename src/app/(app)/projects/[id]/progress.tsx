@@ -146,7 +146,7 @@ export default function ProjectDailyProgressScreen() {
                     <View key={`${entry.taskId}-${entry.taskItemId}`} style={[styles.row, index < progress.entries.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
                       <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText>{entry.stageNumber}</ThemedText></View>
                       <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText>{entry.title}</ThemedText></View>
-                      <View style={[styles.cell, styles.statusCell, completed && styles.completedCell]}><ThemedText style={completed ? styles.completedText : undefined}>{completed ? "Выполнен" : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`}</ThemedText></View>
+                      <View style={[styles.cell, styles.statusCell, completed && styles.completedCell]}><ThemedText numberOfLines={1} style={completed ? styles.completedText : undefined}>{completed ? "Выполнен" : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`}</ThemedText></View>
                     </View>
                   );
                 })}
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
   numberCell: { flex: 1, borderRightWidth: 1 },
   projectCell: { width: 80, flexGrow: 0, flexShrink: 0, borderRightWidth: 1 },
   itemCell: { flex: 2, borderRightWidth: 1 },
-  statusCell: { flex: 2 },
+  statusCell: { width: 275, flexGrow: 0, flexShrink: 0 },
   headerText: { fontWeight: "700" },
   completedCell: { backgroundColor: "#16835D" },
   completedText: { color: "#FFFFFF", fontWeight: "700" },
