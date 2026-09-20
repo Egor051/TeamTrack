@@ -118,7 +118,7 @@ export default function ProjectDailyProgressScreen() {
         ) : progress ? (
           <View style={styles.tables}>
             <View style={styles.tableBlock}>
-              <ThemedText type="small">Здесь каждому отображаемому этапу сопоставлен порядковый номер для второй таблицы.</ThemedText>
+              <ThemedText type="small">Здесь каждому отображаемому этапу сопоставлен порядковый номер для второй таблицы. <ThemedText type="small" style={styles.emphasis}>Вторая таблица является основной.</ThemedText></ThemedText>
               <View style={[styles.table, { borderColor: theme.border }]}>
                 <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
                   <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Этап</ThemedText></View>
@@ -133,7 +133,7 @@ export default function ProjectDailyProgressScreen() {
               </View>
             </View>
             <View style={styles.tableBlock}>
-              <ThemedText type="small">Здесь показаны пункты этапов, которые вы изменяли сегодня. Столбец «Этап» содержит номер этапа из первой таблицы.</ThemedText>
+              <ThemedText type="small">Здесь показаны пункты этапов, которые вы изменяли сегодня. Столбец «Этап» содержит номер этапа из первой таблицы. <ThemedText type="small" style={styles.emphasis}>Вторая таблица является основной.</ThemedText></ThemedText>
               <View style={[styles.table, { borderColor: theme.border }]}>
                 <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
                   <View style={[styles.cell, styles.stageNumberCell, { borderRightColor: theme.border }]}><ThemedText type="small" numberOfLines={1} style={styles.headerText}>Этап</ThemedText></View>
@@ -165,6 +165,7 @@ const styles = StyleSheet.create({
   feedback: { gap: spacing.sm },
   tables: { gap: spacing.lg },
   tableBlock: { gap: spacing.sm },
+  emphasis: { fontWeight: "700" },
   table: { width: "100%", borderWidth: 1 },
   row: { flexDirection: "row", width: "100%", minHeight: 56 },
   headerRow: { minHeight: 48, borderBottomWidth: 1 },
