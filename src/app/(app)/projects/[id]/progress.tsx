@@ -131,7 +131,7 @@ export default function ProjectDailyProgressScreen() {
             </View>
             <View style={[styles.table, { borderColor: theme.border }]}>
               <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
-                <View style={[styles.cell, styles.numberCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
+                <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
                 <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Пункт</ThemedText></View>
                 <View style={[styles.cell, styles.statusCell]}><ThemedText type="small" style={styles.headerText}>Статус</ThemedText></View>
               </View>
@@ -139,7 +139,7 @@ export default function ProjectDailyProgressScreen() {
                 const completed = entry.newPercentage === 100;
                 return (
                   <View key={`${entry.taskId}-${entry.taskItemId}`} style={[styles.row, index < progress.entries.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
-                    <View style={[styles.cell, styles.numberCell, { borderRightColor: theme.border }]}><ThemedText>{entry.stageNumber}</ThemedText></View>
+                    <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText>{entry.stageNumber}</ThemedText></View>
                     <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText>{entry.title}</ThemedText></View>
                     <View style={[styles.cell, styles.statusCell, completed && styles.completedCell]}><ThemedText style={completed ? styles.completedText : undefined}>{completed ? "Выполнен" : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`}</ThemedText></View>
                   </View>
@@ -164,6 +164,7 @@ const styles = StyleSheet.create({
   cell: { justifyContent: "center", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   stageCell: { flex: 2, borderRightWidth: 1 },
   numberCell: { flex: 1, borderRightWidth: 1 },
+  projectCell: { width: 80, flexGrow: 0, flexShrink: 0, borderRightWidth: 1 },
   itemCell: { flex: 2, borderRightWidth: 1 },
   statusCell: { flex: 2 },
   headerText: { fontWeight: "700" },
