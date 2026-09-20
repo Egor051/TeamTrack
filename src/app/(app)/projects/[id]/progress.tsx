@@ -117,34 +117,40 @@ export default function ProjectDailyProgressScreen() {
           <EmptyState title="Прогресс дня" description="Сегодня ещё не было увеличений прогресса." />
         ) : progress ? (
           <View style={styles.tables}>
-            <View style={[styles.table, { borderColor: theme.border }]}>
-              <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
-                <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
-                <View style={[styles.cell, styles.numberCell]}><ThemedText type="small" style={styles.headerText}>Порядковый номер</ThemedText></View>
-              </View>
-              {progress.stages.map((stage, index) => (
-                <View key={stage.taskId} style={[styles.row, index < progress.stages.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
-                  <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText>{stage.title}</ThemedText></View>
-                  <View style={[styles.cell, styles.numberCell]}><ThemedText>{stage.stageNumber}</ThemedText></View>
+            <View style={styles.tableBlock}>
+              <ThemedText type="small">Здесь каждому отображаемому этапу сопоставлен порядковый номер для второй таблицы.</ThemedText>
+              <View style={[styles.table, { borderColor: theme.border }]}>
+                <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
+                  <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
+                  <View style={[styles.cell, styles.numberCell]}><ThemedText type="small" style={styles.headerText}>Порядковый номер</ThemedText></View>
                 </View>
-              ))}
-            </View>
-            <View style={[styles.table, { borderColor: theme.border }]}>
-              <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
-                <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
-                <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Пункт</ThemedText></View>
-                <View style={[styles.cell, styles.statusCell]}><ThemedText type="small" style={styles.headerText}>Статус</ThemedText></View>
-              </View>
-              {progress.entries.map((entry, index) => {
-                const completed = entry.newPercentage === 100;
-                return (
-                  <View key={`${entry.taskId}-${entry.taskItemId}`} style={[styles.row, index < progress.entries.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
-                    <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText>{entry.stageNumber}</ThemedText></View>
-                    <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText>{entry.title}</ThemedText></View>
-                    <View style={[styles.cell, styles.statusCell, completed && styles.completedCell]}><ThemedText style={completed ? styles.completedText : undefined}>{completed ? "Выполнен" : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`}</ThemedText></View>
+                {progress.stages.map((stage, index) => (
+                  <View key={stage.taskId} style={[styles.row, index < progress.stages.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
+                    <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText>{stage.title}</ThemedText></View>
+                    <View style={[styles.cell, styles.numberCell]}><ThemedText>{stage.stageNumber}</ThemedText></View>
                   </View>
-                );
-              })}
+                ))}
+              </View>
+            </View>
+            <View style={styles.tableBlock}>
+              <ThemedText type="small">Здесь показаны пункты этапов, которые вы изменяли сегодня. Столбец «Проект» содержит номер этапа из первой таблицы.</ThemedText>
+              <View style={[styles.table, { borderColor: theme.border }]}>
+                <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
+                  <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
+                  <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Пункт</ThemedText></View>
+                  <View style={[styles.cell, styles.statusCell]}><ThemedText type="small" style={styles.headerText}>Статус</ThemedText></View>
+                </View>
+                {progress.entries.map((entry, index) => {
+                  const completed = entry.newPercentage === 100;
+                  return (
+                    <View key={`${entry.taskId}-${entry.taskItemId}`} style={[styles.row, index < progress.entries.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
+                      <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText>{entry.stageNumber}</ThemedText></View>
+                      <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText>{entry.title}</ThemedText></View>
+                      <View style={[styles.cell, styles.statusCell, completed && styles.completedCell]}><ThemedText style={completed ? styles.completedText : undefined}>{completed ? "Выполнен" : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`}</ThemedText></View>
+                    </View>
+                  );
+                })}
+              </View>
             </View>
           </View>
         ) : null}
@@ -158,6 +164,7 @@ const styles = StyleSheet.create({
   compactContent: { padding: spacing.lg },
   feedback: { gap: spacing.sm },
   tables: { gap: spacing.lg },
+  tableBlock: { gap: spacing.sm },
   table: { width: "100%", borderWidth: 1 },
   row: { flexDirection: "row", width: "100%", minHeight: 56 },
   headerRow: { minHeight: 48, borderBottomWidth: 1 },
