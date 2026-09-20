@@ -14,6 +14,7 @@ import { TaskStatus } from "@/components/ui/task-status";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { ErrorMessage } from "@/components/ui/error-message";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
   getProject,
   listTasksWithStats,
@@ -322,9 +323,18 @@ export default function ProjectScreen() {
          ) : null}
          {project?.status === "archived" ? <Card muted><ThemedText type="small">Проект в архиве. Его этапы доступны в архивном списке; владелец или администратор может восстановить их при необходимости.</ThemedText></Card> : null}
          <View style={styles.sectionHead}>
-          <ThemedText type="h2">
-             {showArchivedTasks ? "Архивные этапы" : "Этапы"} ({tasks.length})
-          </ThemedText>
+          <View style={styles.stageSectionTitle}>
+            <ThemedText type="h2">
+              {showArchivedTasks ? "Архивные этапы" : "Этапы"} ({tasks.length})
+            </ThemedText>
+            {project ? <SegmentedControl
+              value={showArchivedTasks ? "archived" : "active"}
+              accessibilityLabel="Этапы проекта"
+              disabled={project.status === "archived" || busy}
+              options={[{ value: "active", label: "Активные" }, { value: "archived", label: "Архив" }]}
+              onChange={(value) => setArchived(value === "archived")}
+            /> : null}
+          </View>
           <View style={styles.actions}>
             {canCreateTask ? (
               <Button
@@ -345,13 +355,13 @@ export default function ProjectScreen() {
             >
               Участники
             </Button> : null}
-            {project && project.status !== "archived" ? <Button
+            {project ? <Button
               size="sm"
               variant="ghost"
               disabled={busy}
-              onPress={() => setArchived((v) => !v)}
+              onPress={() => router.push(`/projects/${id}/progress` as never)}
             >
-              {showArchivedTasks ? "Активные" : "Архив"}
+              Прогресс дня
             </Button> : null}
           </View>
         </View>
@@ -441,6 +451,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
     gap: spacing.sm,
+  },
+  stageSectionTitle: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: spacing.md,
+    flex: 1,
+    minWidth: 0,
   },
   sectionHead: {
     flexDirection: "row",

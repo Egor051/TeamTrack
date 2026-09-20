@@ -17,6 +17,9 @@ export type ItemAction = Database['public']['Tables']['item_actions']['Row'];
 export type AuditEntry = Database['public']['Tables']['audit_log']['Row'];
 export type TaskItemLastEditor = Database['public']['Functions']['list_task_item_last_editors']['Returns'][number];
 export type DailyProgressEntry = DailyProgressSummary & { title: string; position: number };
+export type ProjectDailyProgressStage = { taskId: string; title: string; position: number; stageNumber: number };
+export type ProjectDailyProgressEntry = DailyProgressEntry & { taskId: string; stageNumber: number };
+export type ProjectDailyProgress = { stages: ProjectDailyProgressStage[]; entries: ProjectDailyProgressEntry[] };
 export type { Task, TaskItem };
 
 type SupabaseResult<T> = { data: T | null; error: { message: string } | null };
@@ -250,6 +253,82 @@ export async function listTaskDailyProgress(
     const item = itemById.get(summary.taskItemId);
     return item ? [{ ...summary, title: item.title, position: item.position }] : [];
   });
+}
+
+/**
+ * Lists this user's percentage increases for every stage in a project since
+ * the UTC+3 day boundary. Stages are numbered only after filtering to stages
+ * that contain at least one increase today, preserving the project order.
+ */
+export async function listProjectDailyProgress(projectId: string): Promise<ProjectDailyProgress> {
+  assertUuid(projectId, 'project id');
+  const { data: userData, error: userError } = await getCurrentUser();
+  if (userError || !userData.user) throw new Error('Требуется авторизация.');
+
+  const tasks = await listProjectTasks(projectId);
+  if (!tasks.length) return { stages: [], entries: [] };
+
+  const taskIds = tasks.map((task) => task.id);
+  const items = (await Promise.all(chunks(taskIds).map((ids) => fetchAll<TaskItem>((from, to) => supabase
+    .from('task_items')
+    .select('*')
+    .in('task_id', ids)
+    .order('position', { ascending: true })
+    .order('id', { ascending: true })
+    .range(from, to))))).flat();
+  if (!items.length) return { stages: [], entries: [] };
+
+  const now = new Date();
+  const itemIds = items.map((item) => item.id);
+  const auditRows = (await Promise.all(chunks(itemIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase
+    .from('audit_log')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('entity_type', 'task_item')
+    .eq('user_id', userData.user.id)
+    .in('entity_id', ids)
+    .gte('created_at', getUtcPlus3DayStart(now))
+    .lte('created_at', now.toISOString())
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .range(from, to))))).flat();
+
+  const itemsByTask = new Map<string, TaskItem[]>();
+  for (const item of items) {
+    const taskItems = itemsByTask.get(item.task_id) ?? [];
+    taskItems.push(item);
+    itemsByTask.set(item.task_id, taskItems);
+  }
+  for (const taskItems of itemsByTask.values()) {
+    taskItems.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
+  }
+
+  const auditByItem = new Map<string, AuditEntry[]>();
+  for (const row of auditRows) {
+    if (!row.entity_id) continue;
+    const itemAudit = auditByItem.get(row.entity_id) ?? [];
+    itemAudit.push(row);
+    auditByItem.set(row.entity_id, itemAudit);
+  }
+
+  const stages: ProjectDailyProgressStage[] = [];
+  const entries: ProjectDailyProgressEntry[] = [];
+  for (const task of tasks) {
+    const taskItems = itemsByTask.get(task.id) ?? [];
+    const taskAudit = taskItems.flatMap((item) => auditByItem.get(item.id) ?? []);
+    const summaries = selectDailyProgress(taskAudit, taskItems);
+    if (!summaries.length) continue;
+
+    const stageNumber = stages.length + 1;
+    stages.push({ taskId: task.id, title: task.title, position: task.position, stageNumber });
+    const itemById = new Map(taskItems.map((item) => [item.id, item]));
+    for (const summary of summaries) {
+      const item = itemById.get(summary.taskItemId);
+      if (item) entries.push({ ...summary, title: item.title, position: item.position, taskId: task.id, stageNumber });
+    }
+  }
+
+  return { stages, entries };
 }
 
 /**
