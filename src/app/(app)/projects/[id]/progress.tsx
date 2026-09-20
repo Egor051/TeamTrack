@@ -121,7 +121,7 @@ export default function ProjectDailyProgressScreen() {
               <ThemedText type="small">Здесь каждому отображаемому этапу сопоставлен порядковый номер для второй таблицы.</ThemedText>
               <View style={[styles.table, { borderColor: theme.border }]}>
                 <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
-                  <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
+                  <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Этап</ThemedText></View>
                   <View style={[styles.cell, styles.numberCell]}><ThemedText type="small" style={styles.headerText}>Порядковый номер</ThemedText></View>
                 </View>
                 {progress.stages.map((stage, index) => (
@@ -133,10 +133,10 @@ export default function ProjectDailyProgressScreen() {
               </View>
             </View>
             <View style={styles.tableBlock}>
-              <ThemedText type="small">Здесь показаны пункты этапов, которые вы изменяли сегодня. Столбец «Проект» содержит номер этапа из первой таблицы.</ThemedText>
+              <ThemedText type="small">Здесь показаны пункты этапов, которые вы изменяли сегодня. Столбец «Этап» содержит номер этапа из первой таблицы.</ThemedText>
               <View style={[styles.table, { borderColor: theme.border }]}>
                 <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
-                  <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Проект</ThemedText></View>
+                  <View style={[styles.cell, styles.stageNumberCell, { borderRightColor: theme.border }]}><ThemedText type="small" numberOfLines={1} style={styles.headerText}>Этап</ThemedText></View>
                   <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Пункт</ThemedText></View>
                   <View style={[styles.cell, styles.statusCell]}><ThemedText type="small" style={styles.headerText}>Статус</ThemedText></View>
                 </View>
@@ -144,7 +144,7 @@ export default function ProjectDailyProgressScreen() {
                   const completed = entry.newPercentage === 100;
                   return (
                     <View key={`${entry.taskId}-${entry.taskItemId}`} style={[styles.row, index < progress.entries.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
-                      <View style={[styles.cell, styles.projectCell, { borderRightColor: theme.border }]}><ThemedText>{entry.stageNumber}</ThemedText></View>
+                      <View style={[styles.cell, styles.stageNumberCell, { borderRightColor: theme.border }]}><ThemedText numberOfLines={1}>{entry.stageNumber}</ThemedText></View>
                       <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText>{entry.title}</ThemedText></View>
                       <View style={[styles.cell, styles.statusCell, completed && styles.completedCell]}><ThemedText numberOfLines={1} style={completed ? styles.completedText : undefined}>{completed ? "Выполнен" : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`}</ThemedText></View>
                     </View>
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
   cell: { justifyContent: "center", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   stageCell: { flex: 2, borderRightWidth: 1 },
   numberCell: { flex: 1, borderRightWidth: 1 },
-  projectCell: { width: 80, flexGrow: 0, flexShrink: 0, borderRightWidth: 1 },
+  stageNumberCell: { width: 61, flexGrow: 0, flexShrink: 0, borderRightWidth: 1 },
   itemCell: { flex: 2, borderRightWidth: 1 },
   statusCell: { width: 275, flexGrow: 0, flexShrink: 0 },
   headerText: { fontWeight: "700" },
