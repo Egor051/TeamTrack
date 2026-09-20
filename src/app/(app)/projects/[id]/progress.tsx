@@ -122,7 +122,7 @@ export default function ProjectDailyProgressScreen() {
               <View style={[styles.table, { borderColor: theme.border }]}>
                 <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
                   <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Этап</ThemedText></View>
-                  <View style={[styles.cell, styles.numberCell]}><ThemedText type="small" style={styles.headerText}>Порядковый номер</ThemedText></View>
+                  <View style={[styles.cell, styles.numberCell]}><ThemedText type="small" numberOfLines={1} style={styles.headerText}>Порядковый номер</ThemedText></View>
                 </View>
                 {progress.stages.map((stage, index) => (
                   <View key={stage.taskId} style={[styles.row, index < progress.stages.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   headerRow: { minHeight: 48, borderBottomWidth: 1 },
   cell: { justifyContent: "center", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   stageCell: { flex: 2, borderRightWidth: 1 },
-  numberCell: { flex: 1, borderRightWidth: 1 },
+  numberCell: { width: 171, flexGrow: 0, flexShrink: 0, borderRightWidth: 1 },
   stageNumberCell: { width: 61, flexGrow: 0, flexShrink: 0, borderRightWidth: 1 },
   itemCell: { flex: 2, borderRightWidth: 1 },
   statusCell: { width: 275, flexGrow: 0, flexShrink: 0 },
