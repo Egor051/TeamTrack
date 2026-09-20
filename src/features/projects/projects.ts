@@ -217,9 +217,9 @@ export function getUtcPlus3DayStart(now = new Date()): string {
 }
 
 /**
- * Lists this user's percentage increases since the UTC+3 day boundary.
- * Aggregation is delegated to the pure selector so the UI receives one row
- * per item while the database query remains scoped to the current user/day.
+ * Lists the final positive percentage change for each item changed since the
+ * UTC+3 day boundary. The audit query intentionally includes every visible
+ * project change, because the item's current state is shared by collaborators.
  */
 export async function listTaskDailyProgress(
   projectId: string,
@@ -240,7 +240,6 @@ export async function listTaskDailyProgress(
     .select('*')
     .eq('project_id', projectId)
     .eq('entity_type', 'task_item')
-    .eq('user_id', userData.user.id)
     .in('entity_id', items.map((item) => item.id))
     .gte('created_at', getUtcPlus3DayStart(now))
     .lte('created_at', now.toISOString())
@@ -256,9 +255,9 @@ export async function listTaskDailyProgress(
 }
 
 /**
- * Lists this user's percentage increases for every stage in a project since
+ * Lists final positive percentage changes for every stage in a project since
  * the UTC+3 day boundary. Stages are numbered only after filtering to stages
- * that contain at least one increase today, preserving the project order.
+ * that contain at least one positive final change, preserving project order.
  */
 export async function listProjectDailyProgress(projectId: string): Promise<ProjectDailyProgress> {
   assertUuid(projectId, 'project id');
@@ -285,7 +284,6 @@ export async function listProjectDailyProgress(projectId: string): Promise<Proje
     .select('*')
     .eq('project_id', projectId)
     .eq('entity_type', 'task_item')
-    .eq('user_id', userData.user.id)
     .in('entity_id', ids)
     .gte('created_at', getUtcPlus3DayStart(now))
     .lte('created_at', now.toISOString())

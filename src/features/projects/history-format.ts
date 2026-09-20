@@ -29,6 +29,8 @@ export type DailyProgressSummary = {
   newPercentage: number;
 };
 
+type DailyProgressItem = { id: string; percentage?: unknown };
+
 const fieldLabels: Record<string, string> = {
   title: 'название',
   description: 'описание',
@@ -149,15 +151,18 @@ export function selectChecklistHistory<T extends AuditHistoryRecord>(audit: read
 }
 
 /**
- * Selects and aggregates actual percentage increases from today's audit rows.
- * The caller is responsible for the date/user scope; this helper only applies
- * the percentage transition rules and preserves the supplied checklist order.
+ * Selects the final percentage state reached during the supplied day scope.
+ *
+ * The first percentage transition supplies the value at the start of the
+ * scope, while the current item row supplies the final value when available.
+ * This is deliberately state-based: intermediate peaks are not retained, and
+ * decreases never become progress by themselves.
  */
 export function selectDailyProgress<T extends AuditHistoryRecord>(
   audit: readonly T[],
-  items: readonly { id: string }[],
+  items: readonly DailyProgressItem[],
 ): DailyProgressSummary[] {
-  const byItem = new Map<string, DailyProgressSummary>();
+  const byItem = new Map<string, { startPercentage: number; finalPercentage: number }>();
   const orderedAudit = [...audit].sort((left, right) => {
     const timeOrder = left.created_at.localeCompare(right.created_at);
     return timeOrder || left.id - right.id;
@@ -169,17 +174,28 @@ export function selectDailyProgress<T extends AuditHistoryRecord>(
     const newObject = asObject(entry.new_data);
     const oldPercentage = percentageNumber(oldObject.percentage);
     const newPercentage = percentageNumber(newObject.percentage);
-    if (oldPercentage === null || newPercentage === null || newPercentage <= oldPercentage) continue;
+    if (newPercentage === null) continue;
 
     const previous = byItem.get(entry.entity_id);
-    byItem.set(entry.entity_id, previous
-      ? { ...previous, newPercentage }
-      : { taskItemId: entry.entity_id, oldPercentage, newPercentage });
+    byItem.set(entry.entity_id, previous ?? {
+      // Every percentage audit row contains the value immediately before the
+      // first change in the day. If old_data is unavailable, using the first
+      // new value is conservative and prevents inventing progress.
+      startPercentage: oldPercentage ?? newPercentage,
+      finalPercentage: newPercentage,
+    });
+    if (previous) previous.finalPercentage = newPercentage;
   }
 
   return items.flatMap((item) => {
-    const summary = byItem.get(item.id);
-    return summary ? [summary] : [];
+    const state = byItem.get(item.id);
+    if (!state) return [];
+
+    const finalPercentage = percentageNumber(item.percentage) ?? state.finalPercentage;
+    const dailyIncrease = Math.max(0, finalPercentage - state.startPercentage);
+    return dailyIncrease > 0
+      ? [{ taskItemId: item.id, oldPercentage: state.startPercentage, newPercentage: finalPercentage }]
+      : [];
   });
 }
 

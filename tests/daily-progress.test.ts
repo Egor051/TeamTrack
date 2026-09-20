@@ -18,26 +18,47 @@ const audit = (id: number, taskItemId: string, createdAt: string, oldPercentage:
 });
 
 describe('daily checklist progress selection', () => {
-  it('aggregates multiple increases and keeps checklist order', () => {
+  it('uses the final state instead of the maximum intermediate value', () => {
     const result = selectDailyProgress([
-      audit(3, 'second', '2026-09-18T10:00:00.000Z', 20, 50),
+      audit(3, 'second', '2026-09-18T10:00:00.000Z', 10, 30),
       audit(1, 'first', '2026-09-18T09:00:00.000Z', 0, 20),
-      audit(4, 'second', '2026-09-18T11:00:00.000Z', 50, 80),
-    ], [item('first'), item('second')]);
+      audit(4, 'second', '2026-09-18T11:00:00.000Z', 30, 20),
+    ], [{ ...item('first'), percentage: 20 }, { ...item('second'), percentage: 20 }]);
 
     expect(result).toEqual([
       { taskItemId: 'first', oldPercentage: 0, newPercentage: 20 },
-      { taskItemId: 'second', oldPercentage: 20, newPercentage: 80 },
+      { taskItemId: 'second', oldPercentage: 10, newPercentage: 20 },
     ]);
   });
 
-  it('includes completion and excludes decreases or non-percentage changes', () => {
+  it.each([
+    [[0, 100, 50], 0, 50],
+    [[10, 30, 20], 10, 20],
+    [[30, 20], null, null],
+    [[30, 70, 40], 30, 40],
+    [[50, 100, 80], 50, 80],
+    [[20, 40, 60], 20, 60],
+    [[0, 20, 10, 30], 0, 30],
+  ])('calculates %j from start-of-day to final state', (values, oldPercentage, newPercentage) => {
+    const transitions = (values as number[]).slice(1).map((value, index) =>
+      audit(index + 1, 'item', `2026-09-18T${String(index + 9).padStart(2, '0')}:00:00.000Z`, (values as number[])[index], value),
+    );
+    const result = selectDailyProgress(transitions, [{ ...item('item'), percentage: (values as number[]).at(-1) }]);
+    expect(result).toEqual(oldPercentage === null ? [] : [{ taskItemId: 'item', oldPercentage, newPercentage }]);
+  });
+
+  it('includes completion and excludes non-percentage changes', () => {
     const result = selectDailyProgress([
       audit(1, 'complete', '2026-09-18T09:00:00.000Z', 50, 100, 'checked'),
       audit(2, 'decreased', '2026-09-18T10:00:00.000Z', 100, 80),
       audit(3, 'reset', '2026-09-18T10:30:00.000Z', 100, 0, 'unchecked'),
       { ...audit(4, 'comment', '2026-09-18T11:00:00.000Z', undefined, undefined), old_data: { comment: null }, new_data: { comment: 'note' } },
-    ], [item('complete'), item('decreased'), item('reset'), item('comment')]);
+    ], [
+      { ...item('complete'), percentage: 100 },
+      { ...item('decreased'), percentage: 80 },
+      { ...item('reset'), percentage: 0 },
+      { ...item('comment'), percentage: 0 },
+    ]);
 
     expect(result).toEqual([{ taskItemId: 'complete', oldPercentage: 50, newPercentage: 100 }]);
   });

@@ -66,6 +66,14 @@ select exists (
 \quit 1
 \endif
 
+select percentage = 100 and is_completed as checkbox_state_consistent
+  from public.task_items where id=:'item' \gset
+\if :checkbox_state_consistent
+\else
+\echo 'FAIL checkbox state/percentage consistency'
+\quit 1
+\endif
+
 -- Creation alone is not an edit: there is no qualifying last editor yet.
 select public.create_task_item(:'task','Untouched item') \gset
 \set untouched_item :create_task_item
@@ -129,7 +137,7 @@ select title = 'First item' as member_text_edit_denied
 
 select public.set_task_item_comment(:'item','Комментарий: Member note');
 select public.set_task_item_percentage(:'item',75);
-select comment = 'Комментарий: Member note' and percentage = 75 as member_progress_comment_ok
+select comment = 'Комментарий: Member note' and percentage = 75 and not is_completed as member_progress_comment_ok
   from public.task_items where id=:'item' \gset
 \if :member_progress_comment_ok
 \else
