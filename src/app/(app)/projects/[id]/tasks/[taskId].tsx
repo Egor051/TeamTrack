@@ -333,11 +333,16 @@ export default function TaskScreen() {
                 <Button variant="ghost" disabled={busy} onPress={() => setTaskEditing(false)}>Отмена</Button>
               </View>
             </Card> : null}
-            <View style={styles.actions}>
-              {canEditTask && !taskEditing ? <Button variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
-              {canManage ? <Button variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
-              <Button variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
-              <Button variant="outline" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/progress` as never)}>Прогресс дня</Button>
+            <View style={[styles.stageActions, compact && styles.stageActionsCompact]}>
+              {((canEditTask && !taskEditing) || canManage) ? <View style={[styles.stageActionsGroup, compact && styles.stageActionsGroupCompact]}>
+                {canEditTask && !taskEditing ? <Button size="sm" variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
+                {canManage ? <Button size="sm" variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
+              </View> : null}
+              <View style={[styles.stageActionsGroup, styles.stageActionsRight, compact && styles.stageActionsGroupCompact]}>
+                <Button size="sm" variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
+                <View accessibilityElementsHidden style={[styles.actionDivider, { backgroundColor: theme.border }]} />
+                <Button size="sm" variant="outline" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/progress` as never)}>Прогресс дня</Button>
+              </View>
             </View>
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
             {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : project?.role === "viewer" ? "У вас доступ только для просмотра." : hasTaskAccess ? "У вас доступ только для просмотра." : "Этап виден участникам проекта. Для изменения этапа и чек-листа нужен отдельный доступ к этапу."}</ThemedText></View> : null}
@@ -698,6 +703,12 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1, minWidth: 0 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  stageActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: spacing.md },
+  stageActionsCompact: { alignItems: "stretch" },
+  stageActionsGroup: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm, maxWidth: "100%", minWidth: 0 },
+  stageActionsGroupCompact: { width: "100%" },
+  stageActionsRight: { marginLeft: "auto", justifyContent: "flex-end" },
+  actionDivider: { width: 1, height: 44, marginHorizontal: spacing.xs },
   taskFooter: { borderTopWidth: 1, paddingTop: spacing.md, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm },
   footerCopy: { flex: 1, minWidth: 140 },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", alignItems: "center" },
