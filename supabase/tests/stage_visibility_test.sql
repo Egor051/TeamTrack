@@ -59,6 +59,7 @@ do $$
 declare
     v_task uuid := (select id from stage_visibility_state where key = 'existing_task');
     v_user uuid;
+    v_role public.project_role;
     v_count integer;
 begin
     foreach v_user in array array[
@@ -74,16 +75,57 @@ begin
         end if;
     end loop;
 
+    -- Effective stage roles are inherited directly from project_members.
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'owner')) into v_role;
+    if v_role <> 'owner' then raise exception 'owner role did not inherit'; end if;
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'admin')) into v_role;
+    if v_role <> 'admin' then raise exception 'admin role did not inherit'; end if;
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    if v_role <> 'member' then raise exception 'member role did not inherit'; end if;
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'viewer')) into v_role;
+    if v_role <> 'viewer' then raise exception 'viewer role did not inherit'; end if;
+
+    -- Role changes apply to the existing stage immediately and do not create
+    -- or depend on task_members rows.
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'owner'), true);
+    perform public.change_member_role(
+        (select id from stage_visibility_state where key = 'project'),
+        (select id from stage_visibility_state where key = 'member'),
+        'admin'
+    );
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    if v_role <> 'admin' then raise exception 'member to admin role did not inherit'; end if;
+
+    perform public.change_member_role(
+        (select id from stage_visibility_state where key = 'project'),
+        (select id from stage_visibility_state where key = 'member'),
+        'viewer'
+    );
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    if v_role <> 'viewer' then raise exception 'admin to viewer role did not inherit'; end if;
+
+    perform public.change_member_role(
+        (select id from stage_visibility_state where key = 'project'),
+        (select id from stage_visibility_state where key = 'member'),
+        'member'
+    );
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    if v_role <> 'member' then raise exception 'viewer to member role did not inherit'; end if;
+
     perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'outsider'), true);
     select count(*) into v_count from public.tasks where id = v_task;
     if v_count <> 0 then
         raise exception 'outsider can see project stage';
     end if;
+    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'outsider')) into v_role;
+    if v_role is not null then raise exception 'outsider received inherited stage role'; end if;
 end
 $$;
 
 -- A stage created after membership is visible without creating task_members rows.
-select set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'owner'), true);
+-- Create it as the member so owner access is explicitly tested without an
+-- owner task_members row.
+select set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'member'), true);
 insert into stage_visibility_state
 select 'new_task', public.create_task(
     (select id from stage_visibility_state where key = 'project'),
@@ -105,6 +147,7 @@ declare
     v_count integer;
 begin
     foreach v_user in array array[
+        (select id from stage_visibility_state where key = 'owner'),
         (select id from stage_visibility_state where key = 'admin'),
         (select id from stage_visibility_state where key = 'member'),
         (select id from stage_visibility_state where key = 'viewer')
@@ -114,11 +157,13 @@ begin
         if v_count <> 1 then
             raise exception 'project member cannot see newly created stage';
         end if;
-        select count(*) into v_count
-          from public.task_members
-         where task_id = v_task and user_id = v_user;
-        if v_count <> 0 then
-            raise exception 'stage visibility created unexpected task_members access';
+        if v_user <> (select id from stage_visibility_state where key = 'member') then
+            select count(*) into v_count
+              from public.task_members
+             where task_id = v_task and user_id = v_user;
+            if v_count <> 0 then
+                raise exception 'stage visibility created unexpected task_members access';
+            end if;
         end if;
         select count(*) into v_count from public.task_items where id = v_item;
         if v_count <> 1 then

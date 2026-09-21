@@ -16,6 +16,14 @@ describe('inherited project-member stage access', () => {
     expect(migration).toContain('task_members is not required');
     expect(migration).toContain('create or replace function public.add_task_assignee');
     expect(migration).not.toContain('assignee must have access to the task (task_members)');
+
+    const canonicalRoleMigration = readFileSync(
+      resolve(root, 'supabase/migrations/20260926000000_canonical_task_role.sql'),
+      'utf8',
+    );
+    expect(canonicalRoleMigration).toContain('function private.task_role_of');
+    expect(canonicalRoleMigration).toContain('join public.project_members pm');
+    expect(canonicalRoleMigration).not.toContain('join public.task_members');
   });
 
   it('derives checklist capabilities from the loaded project/task, not task_members', () => {
@@ -26,7 +34,11 @@ describe('inherited project-member stage access', () => {
 
     expect(task).toContain('const hasTaskAccess = Boolean(user && project && task);');
     expect(task).not.toContain('taskMembers.some');
-    expect(task).toContain('Доступ участника проекта');
+    expect(task).toContain('Владелец');
+    expect(task).toContain('Администратор');
+    expect(task).toContain('Участник');
+    expect(task).toContain('Только просмотр');
+    expect(task).not.toContain('Нет доступа</Badge>');
     expect(task).not.toContain('нужен отдельный доступ к этапу');
   });
 });

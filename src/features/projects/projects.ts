@@ -12,7 +12,8 @@ export type TaskTemplate = Database['public']['Functions']['list_task_templates'
 export type TaskTemplateItem = Database['public']['Functions']['list_task_template_items']['Returns'][number] & { position: number };
 export function calculateAverageProgress(percentages: number[]): number { return percentages.length ? percentages.reduce((sum, value) => sum + value, 0) / percentages.length : 0; }
 export type MyTask = Task & { project_name: string | null };
-export type TaskMember = { user_id: string; approved_at: string; profile: Profile | null };
+/** Optional legacy task metadata. This is not effective stage access. */
+export type TaskMemberMetadata = { user_id: string; approved_at: string; profile: Profile | null };
 export type ItemAction = Database['public']['Tables']['item_actions']['Row'];
 export type AuditEntry = Database['public']['Tables']['audit_log']['Row'];
 export type TaskItemLastEditor = Database['public']['Functions']['list_task_item_last_editors']['Returns'][number];
@@ -188,8 +189,14 @@ export async function setTaskItemPercentage(itemId: string, percentage: number) 
 export async function archiveTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('archive_task_item', { p_task_item_id: itemId })); }
 export async function setTaskItemState(itemId: string, completed: boolean) { assertUuid(itemId, 'task item id'); return requireData(await supabase.rpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed })); }
 export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await supabase.rpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
-export async function listTaskMembers(taskId: string): Promise<TaskMember[]> { assertUuid(taskId, 'task id'); const rows = await fetchAll<{ user_id: string; approved_at: string }>((from, to) => supabase.from('task_members').select('user_id,approved_at').eq('task_id', taskId).range(from, to)); const profiles = rows.length ? (await Promise.all(chunks(rows.map((r) => r.user_id)).map((ids) => fetchAll<Profile>((from, to) => supabase.from('profiles').select('*').in('id', ids).range(from, to))))).flat() : []; const byId = new Map(profiles.map((p) => [p.id, p])); return rows.map((r) => ({ ...r, profile: byId.get(r.user_id) || null })); }
+/**
+ * Reads optional legacy task metadata for audit/compatibility only. Project
+ * membership remains the sole source of effective stage access and role.
+ */
+export async function listTaskMemberMetadata(taskId: string): Promise<TaskMemberMetadata[]> { assertUuid(taskId, 'task id'); const rows = await fetchAll<{ user_id: string; approved_at: string }>((from, to) => supabase.from('task_members').select('user_id,approved_at').eq('task_id', taskId).range(from, to)); const profiles = rows.length ? (await Promise.all(chunks(rows.map((r) => r.user_id)).map((ids) => fetchAll<Profile>((from, to) => supabase.from('profiles').select('*').in('id', ids).range(from, to))))).flat() : []; const byId = new Map(profiles.map((p) => [p.id, p])); return rows.map((r) => ({ ...r, profile: byId.get(r.user_id) || null })); }
+/** Legacy metadata mutation. It does not grant or revoke inherited access. */
 export async function approveTaskMember(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('approve_task_member', { p_task_id: taskId, p_user_id: userId })); }
+/** Legacy metadata mutation. It does not grant or revoke inherited access. */
 export async function revokeTaskMember(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('revoke_task_member', { p_task_id: taskId, p_user_id: userId })); }
 export async function addTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('add_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
 export async function removeTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('remove_task_assignee', { p_task_id: taskId, p_user_id: userId })); }

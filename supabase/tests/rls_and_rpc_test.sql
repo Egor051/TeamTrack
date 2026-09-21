@@ -202,8 +202,11 @@ begin
      where project_id = v_proj
        and entity_type in ('task', 'task_item', 'task_member', 'task_assignee');
     if v_cnt = 0 then raise exception 'FAIL N8b: inherited task audit rows are hidden'; end if;
-    select count(*) into v_cnt from public.task_members where task_id = (select v::uuid from tt_state where k = 't1');
-    if v_cnt <> 0 then raise exception 'FAIL N8b: unexpected explicit task metadata for inherited-only member (cnt=%)', v_cnt; end if;
+    select count(*) into v_cnt
+      from public.task_members
+     where task_id = (select v::uuid from tt_state where k = 't1')
+       and user_id = (select v::uuid from tt_state where k = 'u_frank');
+    if v_cnt <> 0 then raise exception 'FAIL N8b: inherited-only member received explicit task metadata (cnt=%)', v_cnt; end if;
 end $$;
 
 -- N8c: profile visibility is limited to self and users sharing a project.

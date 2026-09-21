@@ -54,6 +54,13 @@ import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
 import { filterChecklistItems, formatChecklistComment, parsePercentageInput } from "@/features/projects/checklist";
 import { formatLastEditorSummary } from "@/features/projects/history-format";
 
+const projectRoleLabels: Record<ProjectMember["role"], string> = {
+  owner: "Владелец",
+  admin: "Администратор",
+  member: "Участник",
+  viewer: "Только просмотр",
+};
+
 export default function TaskScreen() {
   const { colors: theme } = useTheme();
   const { width } = useWindowDimensions();
@@ -546,8 +553,8 @@ export default function TaskScreen() {
                           <ThemedText style={styles.flex}>
                             {member.profile?.display_name || member.user_id.slice(0, 8)}
                           </ThemedText>
-                          <Badge tone="success">
-                            {member.role === "viewer" ? "Доступ для просмотра" : "Доступ участника проекта"}
+                          <Badge tone={member.role === "viewer" ? "neutral" : "success"}>
+                            {projectRoleLabels[member.role]}
                           </Badge>
                         </View>
                       );
