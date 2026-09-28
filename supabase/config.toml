@@ -43,7 +43,7 @@ major_version = 17
 [db.pooler]
 enabled = false
 # Local migrations and the SQL test harness intentionally use native Postgres
-# on 54322. Hosted CLI linking resolves to Supabase's pooler endpoint; do not
+# on 55432. Hosted CLI linking resolves to Supabase's pooler endpoint; do not
 # copy a hosted direct URL into SUPABASE_DB_URL.
 # Port to use for the local connection pooler.
 port = 55439
@@ -165,13 +165,17 @@ site_url = "http://127.0.0.1:8081"
 additional_redirect_urls = [
   "http://127.0.0.1:8081",
   "http://localhost:8081",
-  "http://127.0.0.1:8081/reset-password",
-  "http://localhost:8081/reset-password",
+  "http://127.0.0.1:8081/reset-password?auth_type=recovery",
+  "http://localhost:8081/reset-password?auth_type=recovery",
+  "http://127.0.0.1:8081/login?auth_type=signup",
+  "http://localhost:8081/login?auth_type=signup",
   "http://127.0.0.1:3000",
   "http://localhost:3000",
-  "http://127.0.0.1:3000/reset-password",
-  "http://localhost:3000/reset-password",
-  "tasktrace://reset-password"
+  "http://127.0.0.1:3000/reset-password?auth_type=recovery",
+  "http://localhost:3000/reset-password?auth_type=recovery",
+  "http://127.0.0.1:3000/login?auth_type=signup",
+  "http://localhost:3000/login?auth_type=signup",
+  "com.teamtrack.tasktrace://**"
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600

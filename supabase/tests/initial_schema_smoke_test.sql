@@ -36,8 +36,8 @@ select p.id, 'Setup CI', u.id
 from public.projects p, auth.users u
 where p.name = 'Apollo' and u.email = 'alice@example.com';
 
-insert into public.task_members (task_id, user_id, approved_by)
-select t.id, u.id, t.created_by
+insert into public.task_members (task_id, user_id, set_by, role_override)
+select t.id, u.id, t.created_by, 'viewer'
 from public.tasks t, auth.users u
 where t.title = 'Setup CI' and u.email = 'bob@example.com';
 

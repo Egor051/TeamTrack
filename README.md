@@ -18,9 +18,9 @@ Realtime работают через Supabase.
 - регистрация, вход, выход, восстановление и смена пароля через Supabase Auth;
 - проекты с ролями `owner`, `admin`, `member`, `viewer`;
 - приглашение участников проекта по email или идентификатору;
-- участник проекта автоматически получает базовый доступ `member` ко всем
-  этапам, чек-листам и пунктам через `project_members`; `task_members` остаётся
-  только совместимым явным task-метаданным и не является обязательным условием;
+- участник проекта автоматически наследует свою роль во всех этапах;
+  `task_members.role_override` позволяет owner/admin отдельно повысить или
+  понизить только права чек-листа, не меняя права проекта;
 - назначение исполнителей через `task_assignees`;
 - чек-листы с изменением состояния и редактированием пунктов;
 - автоматический статус этапа по активным пунктам чек-листа:
@@ -32,7 +32,7 @@ Realtime работают через Supabase.
 - immutable история действий чек-листа в `item_actions`;
 - подробный immutable `audit_log`;
 - контекстные уведомления о доступе, назначениях, чек-листах и archive/restore;
-- Supabase Realtime для обновлений проекта, этапа, истории и уведомлений;
+- приватный Supabase Broadcast для invalidation проекта, этапа и уведомлений;
 - статический web export и запуск на Android/iOS через Expo.
 
 ## Стек
@@ -42,7 +42,7 @@ Realtime работают через Supabase.
 - TypeScript 6;
 - Supabase JS 2;
 - Supabase PostgreSQL 17;
-- Supabase Auth и Postgres Changes Realtime;
+- Supabase Auth PKCE и private Broadcast Realtime;
 - ESLint с `eslint-config-expo`;
 - Docker для локального Supabase stack.
 
@@ -122,7 +122,7 @@ SUPABASE_PROJECT_ID=YOUR_PROJECT_REF
 ```
 
 `SUPABASE_DB_URL` для локального `gen:types` намеренно указывает на direct
-порт `54322`: это локальная native-операция Supabase CLI. Для hosted
+порт `55432`: это локальная native-операция Supabase CLI. Для hosted
 подключения используйте Supavisor session mode (`*.pooler.supabase.com:5432`;
 `sslmode=require`) либо `--project-id`/linked CLI. Hosted direct endpoint и
 transaction mode для этого CLI-пути блокируются проверкой репозитория.
@@ -153,8 +153,11 @@ npm run android   # Android emulator или устройство
 npm run ios       # iOS simulator, macOS
 ```
 
-Приложение использует scheme `tasktrace` для native recovery links. Для web
-Expo Router генерирует статический export.
+Приложение использует PKCE и reverse-domain scheme
+`com.teamtrack.tasktrace` для native signup/recovery callbacks. Клиент принимает
+только точные маршруты `login` и `reset-password`, назначение `auth_type`, code и
+`sb_flow_id`; implicit-flow tokens и произвольные callback-параметры отвергаются.
+Для web Expo Router генерирует статический export.
 
 ## Локальный Supabase
 
@@ -168,10 +171,10 @@ npx --yes supabase@2.116.0 start
 
 | Сервис | Адрес/порт |
 | --- | --- |
-| Supabase API | `http://127.0.0.1:54321` |
-| PostgreSQL | `127.0.0.1:54322` |
-| Supabase Studio | `http://127.0.0.1:54323` |
-| Email testing UI | `http://127.0.0.1:54324` |
+| Supabase API | `http://127.0.0.1:55431` |
+| PostgreSQL | `127.0.0.1:55432` |
+| Supabase Studio | `http://127.0.0.1:55433` |
+| Email testing UI | `http://127.0.0.1:55434` |
 | Expo web по умолчанию | `http://localhost:8081` |
 
 Остановить stack:
@@ -200,14 +203,17 @@ Native session хранится через Expo SecureStore, web session — ч�
 `(auth)` или `(app)` и показывают bootstrap loading state во время проверки
 session.
 
-Профиль создаётся серверным trigger `on_auth_user_created` из миграции
-`20260903000000_profile_provisioning.sql`. При регистрации display name берётся
-из `raw_user_meta_data`, но это поле не используется для authorization.
+Профиль первоначально создаётся серверным trigger из Auth metadata, после чего
+каноническим источником становится `public.profiles`. Чтение/самовосстановление
+идёт через `get_my_profile()`, изменение — только через `update_my_profile()`.
+Последующие изменения Auth metadata не перезаписывают профиль, а прямой UPDATE
+таблицы клиенту не выдан.
 
 Для hosted проекта настройте в Supabase Dashboard:
 
-1. Site URL и полный allow-list redirect URL для web;
-2. `tasktrace://reset-password` для native recovery;
+1. Site URL и точные PKCE callback URL для web;
+2. `com.teamtrack.tasktrace://**` для native PKCE callbacks; точный endpoint
+   дополнительно проверяется клиентом до обмена кода;
 3. leaked-password protection;
 4. `secure_password_change`;
 5. SMTP, rate limits и environment-specific callback URLs.
@@ -224,9 +230,10 @@ RLS и RPC, поэтому скрытие кнопки в UI не являетс
 | --- | --- | --- | --- | --- |
 | Просмотр проекта и всех его этапов | да | да | да | да |
 | Создание этапов | да | да | да | нет |
-| Работа с пунктами чек-листа | да | да | да | нет |
-| Управление участниками проекта | да | да, в пределах своей роли | нет | нет |
-| Управление `task_members` | да | да | нет | нет |
+| Изменение прогресса/комментария чек-листа | да | да | да | нет |
+| Изменение структуры чек-листа | да | да | нет | нет |
+| Управление участниками проекта | да | только `member`/`viewer` | нет | нет |
+| Управление checklist override | да | только `member`/`viewer` | нет | нет |
 | Управление исполнителями | да | да | нет | нет |
 | Редактирование/архивирование проекта | да | да | нет | нет |
 | Архивирование/восстановление этапа | да | да | нет | нет |
@@ -236,16 +243,21 @@ RLS и RPC, поэтому скрытие кнопки в UI не являетс
 
 - наличие `project_members` даёт доступ ко всей вложенной структуре проекта,
   включая существующие и будущие этапы, чек-листы и пункты;
-- `task_members` сохраняется для обратной совместимости, аудита и явных
-  административных операций, но отсутствие этой строки не ограничивает
-  участника проекта;
-- assignee обязан быть участником проекта; отдельная запись `task_members` не
-  требуется;
-- удаление участника проекта атомарно удаляет его явные task-метаданные и
+- для каждой пары «этап × участник проекта» существует `task_members`-строка;
+  `role_override = null` означает наследование `project_members.role`;
+- override влияет только на checklist API: он не даёт права редактировать этап,
+  участников проекта или исполнителей;
+- assignee обязан быть участником проекта;
+- удаление участника проекта атомарно удаляет его task role state и
   assignees, после чего проектная роль больше не даёт доступа;
 - owner нельзя удалить до передачи ownership;
 - viewer остаётся read-only;
 - archived project и archived task не допускают writable checklist mutations.
+
+Все проектные mutation RPC сначала блокируют project row, затем task/item и
+строки ролей в одном порядке. Authorization и active/archived state проверяются
+по текущим `FOR UPDATE`-строкам после ожидания lock, поэтому concurrent revoke,
+role override и archive не могут завершиться записью из устаревшего snapshot.
 
 ## Жизненный цикл проекта, этапа и чек-листа
 
@@ -283,7 +295,8 @@ notifications.
 - `add_project_member`, `add_project_member_by_identifier`,
   `remove_project_member`, `change_member_role`,
   `transfer_project_ownership`;
-- `approve_task_member`, `revoke_task_member`;
+- `get_my_task_role`, `list_task_member_overrides`,
+  `set_task_member_override`, `clear_task_member_override`;
 - `add_task_assignee`, `remove_task_assignee`;
 - `archive_project`, `restore_project`, `archive_task`, `restore_task`;
 - `mark_notification_read`, `mark_all_notifications_read`.
@@ -296,11 +309,14 @@ notifications.
 - не принимают actor/user identity из клиентского payload;
 - выполняются атомарно: исключение откатывает бизнес-изменение и audit side
   effects;
-- закрыты для `anon`; нужные функции явно выдаются `authenticated`, а
-  отдельные server-side операции также доступны `service_role`.
+- закрыты для `anon` и `service_role`; нужные функции явно выдаются только
+  `authenticated`. `service_role` используется для Auth administration, но не
+  является скрытым CRUD/RPC API application tables.
 
 Прямой `INSERT`/`UPDATE`/`DELETE` для application tables закрыт ACL/RLS.
 `task_items.is_completed` нельзя изменить обходя `set_task_item_state()`.
+Названия ограничены 500 символами, description/comment — 10 000 символами как
+в RPC, так и storage constraints.
 Сгенерированные типы находятся в `src/types/database.types.ts`; файл не нужно
 редактировать вручную.
 
@@ -309,6 +325,8 @@ notifications.
 `item_actions` — append-only история checkbox transitions. `audit_log` хранит
 создание, изменение, membership, assignment, archive/restore и другие
 значимые события с PostgreSQL timestamps и actor из `auth.uid()`.
+Owner/admin видят всю историю своего проекта; profile history доступна только
+самому пользователю; история templates доступна их создателю.
 
 Уведомления создаются внутренней функцией `private.audit_to_notification()`:
 
@@ -322,25 +340,17 @@ notifications.
 
 ## Realtime
 
-В publication `supabase_realtime` включены:
+Application tables исключены из publication `supabase_realtime`: Postgres
+Changes не используется, в том числе для DELETE, где row-level фильтрация не
+может безопасно скрыть старую строку.
 
-- `projects`;
-- `project_members`;
-- `tasks`;
-- `task_members`;
-- `task_assignees`;
-- `task_items`;
-- `item_actions`;
-- `audit_log`;
-- `notifications`.
-
-`src/lib/supabase/realtime.ts` создаёт scoped channels с фильтрами по
-`project_id`, `task_id` или `user_id`. Клиент подписывается только на
-`INSERT`/`UPDATE`: DELETE не используется как источник авторизации, потому что
-после удаления строка уже не может быть проверена через RLS. После успешной
-подписки UI повторяет initial fetch, а после mutation перечитывает актуальное
-состояние. Realtime является механизмом обновления интерфейса, но не заменяет
-RLS или RPC authorization.
+Database triggers отправляют минимальные private Broadcast invalidations на
+точные topics `project:<uuid>`, `task:<uuid>` и `user:<uuid>`. Payload содержит
+только table/operation и непрозрачный message id, без данных строки. Realtime
+Authorization разрешает topic по текущей membership; клиент multiplex-ит один
+channel на topic, закрывает resource channels при изменении прав и всегда
+перечитывает данные через RLS/RPC. Realtime не является источником данных или
+авторизации.
 
 ## Миграции и схема
 
@@ -415,15 +425,19 @@ npm run test:sql
 ```
 
 `npm run test:sql` делает local database reset, применяет все миграции и
-запускает:
+запускает семь наборов:
 
 - `initial_schema_smoke_test.sql`;
+- `stage_visibility_test.sql`;
 - `rls_and_rpc_test.sql`;
 - `notifications_test.sql`;
-- `full_integration_test.sql`.
+- `full_integration_test.sql`;
+- `hard_delete_history_test.sql`;
+- `task_enhancements_test.sql`.
 
-`supabase/tests/concurrency_test.sql` — manual two-session harness для проверки
-блокировок и порядка audit/history.
+`npm run test:backend` дополнительно проверяет реальные локальные GoTrue и
+PostgREST запросы, private Realtime WebSocket, отсутствие Postgres Changes,
+web/native PKCE через Mailpit и автоматические two-session concurrency races.
 
 Дополнительные production-oriented проверки:
 
@@ -444,7 +458,8 @@ CI (`.github/workflows/ci.yml`) повторяет статические про
 
 1. примените все migrations к нужному Supabase project;
 2. проверьте `migration list`, RLS, grants, functions и publication;
-3. настройте Auth redirect allow-list для web и `tasktrace://reset-password`;
+3. настройте точные web PKCE callbacks и native scheme
+   `com.teamtrack.tasktrace://**`;
 4. задайте в EAS environment (`development`, `preview`, `production`) только
    `EXPO_PUBLIC_SUPABASE_URL` и публичный anon/publishable key;
 5. никогда не добавляйте `service_role` или database credentials в app bundle;

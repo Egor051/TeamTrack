@@ -39,8 +39,8 @@ const entityLabels: Record<string, string> = {
   task_assignee: "Исполнитель", project: "Проект", project_member: "Участник проекта", profile: "Профиль",
 };
 const extraFieldLabels: Record<string, string> = {
-  status: "статус", name: "название", role: "роль", user_id: "участник", approved_by: "кто предоставил доступ",
-  approved_at: "дата предоставления доступа", assigned_by: "кто назначил исполнителя", assigned_at: "дата назначения",
+  status: "статус", name: "название", role: "роль", role_override: "роль чек-листа", user_id: "участник",
+  set_by: "кто изменил права чек-листа", set_at: "дата изменения прав", assigned_by: "кто назначил исполнителя", assigned_at: "дата назначения",
   display_name: "имя пользователя", owner_id: "владелец", created_by: "автор",
 };
 function readableAuditChanges(entry: AuditEntry) {
@@ -127,18 +127,26 @@ export default function History() {
           realtimeConnectedRef.current = false;
         }
       };
-    return subscribeMany([
+      return subscribeMany([
         {
-          table: "item_actions",
+          table: "projects",
+          options: { projectId: id, onEvent: () => void load(), onStatus },
+        },
+        {
+          table: "tasks",
           options: { taskId, onEvent: () => void load(), onStatus },
         },
         {
-          table: "audit_log",
-          options: {
-            projectId: id,
-            onEvent: () => void load(),
-            onStatus,
-          },
+          table: "task_items",
+          options: { taskId, onEvent: () => void load(), onStatus },
+        },
+        {
+          table: "task_members",
+          options: { taskId, onEvent: () => void load(), onStatus },
+        },
+        {
+          table: "task_assignees",
+          options: { taskId, onEvent: () => void load(), onStatus },
         },
       ]);
     }, [id, taskId, load, permissionVersion]),

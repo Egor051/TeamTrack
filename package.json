@@ -5,15 +5,15 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "~2.2.0",
     "@supabase/supabase-js": "^2.114.0",
-    "expo": "~57.0.20",
+    "expo": "~57.0.25",
     "expo-constants": "~57.0.17",
     "expo-font": "~57.0.3",
-    "expo-linking": "~57.0.9",
-    "expo-router": "~57.0.19",
-    "expo-secure-store": "~57.0.3",
-    "expo-splash-screen": "~57.0.8",
+    "expo-linking": "~57.0.11",
+    "expo-router": "~57.0.23",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
-    "expo-system-ui": "~57.0.3",
+    "expo-system-ui": "~57.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -25,11 +25,13 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@types/node": "^22.20.4",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
+    "pg": "8.23.0",
     "typescript": "~6.0.3",
-    "vitest": "^3.2.7"
+    "vitest": "^5.0.2"
   },
   "overrides": {
     "decode-uri-component": "0.5.0",
@@ -46,6 +48,7 @@
     "test": "npm run check:db && npm run typecheck && npm run lint && npm run test:unit",
     "test:unit": "vitest run",
     "test:sql": "node scripts/run-sql-tests.mjs",
+    "test:backend": "node scripts/run-backend-integration-tests.mjs && node scripts/run-pkce-integration-tests.mjs && node scripts/run-concurrency-tests.mjs",
     "gen:types": "node scripts/gen-types.mjs"
   },
   "private": true

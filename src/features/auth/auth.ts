@@ -9,7 +9,7 @@
  */
 
 import { supabase } from '@/lib/supabase/client';
-import * as Linking from 'expo-linking';
+import { createAuthRedirectUrl } from './auth-links';
 
 export type SignUpInput = {
   email: string;
@@ -44,6 +44,7 @@ export async function signUp(input: SignUpInput) {
     email,
     password,
     options: {
+      emailRedirectTo: createAuthRedirectUrl('signup'),
       data: {
         display_name: displayName,
       },
@@ -99,7 +100,7 @@ export async function signOut() {
  */
 export async function requestPasswordReset(email: string) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: Linking.createURL('reset-password'),
+    redirectTo: createAuthRedirectUrl('recovery'),
   });
 
   if (error) {
@@ -111,7 +112,7 @@ export async function requestPasswordReset(email: string) {
  * Update the current user's password.
  *
  * Used on the reset-password screen after the user opens the reset link.
- * AuthProvider consumes native deep links and restores the recovery session.
+ * AuthProvider validates the web/native callback and exchanges its PKCE code.
  */
 export async function updatePassword(newPassword: string) {
   const { data, error } = await supabase.auth.updateUser({

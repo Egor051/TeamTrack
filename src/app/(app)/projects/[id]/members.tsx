@@ -24,6 +24,7 @@ import {
   type ProjectRole,
 } from '@/features/projects/projects';
 import { userMessage } from '@/lib/errors/user-message';
+import { subscribeMany, type RealtimeStatus } from '@/lib/supabase/realtime';
 import { layout, spacing } from '@/components/ui/theme';
 import { useTheme } from '@/components/ui/theme-provider';
 
@@ -59,6 +60,7 @@ export default function MembersScreen() {
   const [remove, setRemove] = useState<ProjectMember | null>(null);
   const requestRef = useRef(0);
   const actionRef = useRef(false);
+  const realtimeConnectedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -87,7 +89,27 @@ export default function MembersScreen() {
     return () => { requestRef.current += 1; };
   }, [load, permissionVersion]));
 
+  useFocusEffect(useCallback(() => {
+    if (!id) return;
+    realtimeConnectedRef.current = false;
+    const onStatus = (next: RealtimeStatus) => {
+      if (next === 'connected' && !realtimeConnectedRef.current) {
+        realtimeConnectedRef.current = true;
+        void load();
+      } else if (next !== 'connected') {
+        realtimeConnectedRef.current = false;
+      }
+    };
+    return subscribeMany([
+      { table: 'projects', options: { projectId: id, onEvent: () => void load(), onStatus } },
+      { table: 'project_members', options: { projectId: id, onEvent: () => void load(), onStatus } },
+    ]);
+  }, [id, load]));
+
   const canManage = (currentRole === 'owner' || currentRole === 'admin') && projectStatus === 'active';
+  const manageableRoleOptions = currentRole === 'owner'
+    ? roleOptions
+    : roleOptions.filter((option) => option.value !== 'admin');
 
   async function run(key: string, action: () => Promise<unknown>, message: string) {
     if (actionRef.current) return;
@@ -143,7 +165,7 @@ export default function MembersScreen() {
             disabled={Boolean(busy)}
             autoFocus
           />
-          <Select label="Роль в проекте" value={newRole} options={roleOptions} onChange={(role) => setNewRole(role as ProjectRole)} accessibilityLabel="Роль нового участника" disabled={Boolean(busy)} />
+          <Select label="Роль в проекте" value={newRole} options={manageableRoleOptions} onChange={(role) => setNewRole(role as ProjectRole)} accessibilityLabel="Роль нового участника" disabled={Boolean(busy)} />
           <ThemedText type="small">{roleDescriptions[newRole]}</ThemedText>
           <ErrorMessage message={actionError} type="validation" />
           <View style={styles.actions}>
@@ -174,6 +196,7 @@ export default function MembersScreen() {
             const name = member.profile?.display_name || member.user_id.slice(0, 8);
             const isEditing = editingMember === member.user_id;
             const canChangeRole = canManage && member.role !== 'owner' && !(currentRole === 'admin' && member.role === 'admin');
+            const canRemoveMember = canManage && member.role !== 'owner' && !(currentRole === 'admin' && member.role === 'admin');
             return (
               <Card key={member.user_id}>
                 <View style={styles.row}>
@@ -185,7 +208,7 @@ export default function MembersScreen() {
                 </View>
                 {isEditing && canChangeRole ? (
                   <View style={[styles.roleEditor, { borderTopColor: theme.border }]}>
-                    <Select label="Новая роль" value={editingRole} options={roleOptions} onChange={(role) => setEditingRole(role as ProjectRole)} accessibilityLabel={`Роль участника ${name}`} disabled={Boolean(busy)} />
+                    <Select label="Новая роль" value={editingRole} options={manageableRoleOptions} onChange={(role) => setEditingRole(role as ProjectRole)} accessibilityLabel={`Роль участника ${name}`} disabled={Boolean(busy)} />
                     <ThemedText type="small">{roleDescriptions[editingRole]}</ThemedText>
                     <ErrorMessage message={actionError} type="validation" />
                     <View style={styles.actions}>
@@ -204,7 +227,7 @@ export default function MembersScreen() {
                 ) : canManage && member.role !== 'owner' ? (
                   <View style={styles.actions}>
                     {canChangeRole ? <Button size="sm" variant="outline" disabled={Boolean(busy)} onPress={() => { setEditingMember(member.user_id); setEditingRole(member.role); setActionError(''); setShowAdd(false); }}>Изменить роль</Button> : null}
-                    <Button size="sm" variant="ghost" disabled={Boolean(busy)} onPress={() => { setActionError(''); setRemove(member); }}>Удалить из проекта</Button>
+                    {canRemoveMember ? <Button size="sm" variant="ghost" disabled={Boolean(busy)} onPress={() => { setActionError(''); setRemove(member); }}>Удалить из проекта</Button> : null}
                   </View>
                 ) : null}
               </Card>

@@ -20,7 +20,6 @@ select public.create_task_item(:'task','First item') \gset
 \set item :create_task_item
 
 select public.add_project_member(:'project','30000000-0000-0000-0000-000000000003','admin');
-select public.approve_task_member(:'task','30000000-0000-0000-0000-000000000003');
 
 select public.update_task(:'task','Renamed task','Updated description');
 select public.set_task_item_comment(:'item','A useful note');
@@ -89,7 +88,6 @@ select not exists (
 
 -- Members cannot change task item title/description.
 select public.add_project_member(:'project','30000000-0000-0000-0000-000000000002','member');
-select public.approve_task_member(:'task','30000000-0000-0000-0000-000000000002');
 select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000002',true);
 select set_config('task_enhancements.item_id', :'item', true);
 select set_config('task_enhancements.task_id', :'task', true);
@@ -99,7 +97,7 @@ declare
     v_count integer;
 begin
     begin
-        perform public.update_task_item(current_setting('task_enhancements.item_id')::uuid,'Title-only rename',null,null,null);
+        perform public.update_task_item(current_setting('task_enhancements.item_id')::uuid,'Title-only rename');
     exception when insufficient_privilege then
         v_denied := true;
     end;

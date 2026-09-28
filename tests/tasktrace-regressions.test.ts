@@ -171,7 +171,9 @@ describe('UI architecture regressions', () => {
   it('limits stage text editing to project admins and formats visible comments', () => {
     const task = readFileSync(resolve(root, 'src/app/(app)/projects/[id]/tasks/[taskId].tsx'), 'utf8');
     const migration = readFileSync(resolve(root, 'supabase/migrations/20260923000000_restrict_member_stage_text_edit.sql'), 'utf8');
-    expect(task).toContain('const canEditTask = canManage;');
+    expect(task).toContain('const canEditTask = canManageTask;');
+    expect(task).toContain('(effectiveTaskRole === "owner" || effectiveTaskRole === "admin")');
+    expect(task).toContain('setTaskMemberOverride');
     expect(task).toContain('formatChecklistComment(item.comment)');
     expect(migration).toContain('private.is_project_admin(project_id)');
     expect(migration).toContain("only owner/admin can edit stage details");
@@ -191,7 +193,9 @@ describe('UI architecture regressions', () => {
     expect(provider).toContain("supabase.from('project_members')");
     expect(provider).not.toContain("supabase.from('task_members')");
     expect(provider).not.toContain('event.new');
-    expect(realtime).toContain('only tells the client');
+    expect(realtime).toContain("supabase.channel(topic, { config: { private: true } })");
+    expect(realtime).toContain(".on('broadcast', { event: 'invalidate' }");
+    expect(realtime).not.toContain("'postgres_changes'");
   });
 
 });

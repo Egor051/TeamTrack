@@ -75,41 +75,51 @@ begin
         end if;
     end loop;
 
-    -- Effective stage roles are inherited directly from project_members.
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'owner')) into v_role;
+    -- Effective stage roles are exposed only for the authenticated subject;
+    -- arbitrary-user private helpers are intentionally not client-callable.
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'owner'), true);
+    select public.get_my_task_role(v_task) into v_role;
     if v_role <> 'owner' then raise exception 'owner role did not inherit'; end if;
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'admin')) into v_role;
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'admin'), true);
+    select public.get_my_task_role(v_task) into v_role;
     if v_role <> 'admin' then raise exception 'admin role did not inherit'; end if;
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'member'), true);
+    select public.get_my_task_role(v_task) into v_role;
     if v_role <> 'member' then raise exception 'member role did not inherit'; end if;
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'viewer')) into v_role;
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'viewer'), true);
+    select public.get_my_task_role(v_task) into v_role;
     if v_role <> 'viewer' then raise exception 'viewer role did not inherit'; end if;
 
-    -- Role changes apply to the existing stage immediately and do not create
-    -- or depend on task_members rows.
+    -- Role changes apply to the existing stage immediately. The stable
+    -- task_members row remains nullable, so no explicit override is involved.
     perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'owner'), true);
     perform public.change_member_role(
         (select id from stage_visibility_state where key = 'project'),
         (select id from stage_visibility_state where key = 'member'),
         'admin'
     );
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'member'), true);
+    select public.get_my_task_role(v_task) into v_role;
     if v_role <> 'admin' then raise exception 'member to admin role did not inherit'; end if;
 
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'owner'), true);
     perform public.change_member_role(
         (select id from stage_visibility_state where key = 'project'),
         (select id from stage_visibility_state where key = 'member'),
         'viewer'
     );
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'member'), true);
+    select public.get_my_task_role(v_task) into v_role;
     if v_role <> 'viewer' then raise exception 'admin to viewer role did not inherit'; end if;
 
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'owner'), true);
     perform public.change_member_role(
         (select id from stage_visibility_state where key = 'project'),
         (select id from stage_visibility_state where key = 'member'),
         'member'
     );
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'member')) into v_role;
+    perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'member'), true);
+    select public.get_my_task_role(v_task) into v_role;
     if v_role <> 'member' then raise exception 'viewer to member role did not inherit'; end if;
 
     perform set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'outsider'), true);
@@ -117,14 +127,16 @@ begin
     if v_count <> 0 then
         raise exception 'outsider can see project stage';
     end if;
-    select private.task_role_of(v_task, (select id from stage_visibility_state where key = 'outsider')) into v_role;
-    if v_role is not null then raise exception 'outsider received inherited stage role'; end if;
+    begin
+        perform public.get_my_task_role(v_task);
+        raise exception 'outsider received inherited stage role';
+    exception when insufficient_privilege then null;
+    end;
 end
 $$;
 
--- A stage created after membership is visible without creating task_members rows.
--- Create it as the member so owner access is explicitly tested without an
--- owner task_members row.
+-- A stage created after membership creates one nullable inheritance-state row
+-- per project member, while visibility still derives from project membership.
 select set_config('request.jwt.claim.sub', (select id::text from stage_visibility_state where key = 'member'), true);
 insert into stage_visibility_state
 select 'new_task', public.create_task(
@@ -157,13 +169,13 @@ begin
         if v_count <> 1 then
             raise exception 'project member cannot see newly created stage';
         end if;
-        if v_user <> (select id from stage_visibility_state where key = 'member') then
-            select count(*) into v_count
-              from public.task_members
-             where task_id = v_task and user_id = v_user;
-            if v_count <> 0 then
-                raise exception 'stage visibility created unexpected task_members access';
-            end if;
+        select count(*) into v_count
+          from public.task_members
+         where task_id = v_task
+           and user_id = v_user
+           and role_override is null;
+        if v_count <> 1 then
+            raise exception 'stage is missing nullable inherited-role state';
         end if;
         select count(*) into v_count from public.task_items where id = v_item;
         if v_count <> 1 then

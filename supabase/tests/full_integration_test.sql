@@ -30,16 +30,13 @@ select public.add_project_member((select id from it_state where key='project'),(
 select public.add_project_member((select id from it_state where key='project'),(select id from it_state where key='viewer'),'viewer');
 insert into it_state select 'task', public.create_task((select id from it_state where key='project'),'Integration task','flow');
 insert into it_state select 'item', public.create_task_item((select id from it_state where key='task'),'Initial item','desc');
-select public.approve_task_member((select id from it_state where key='task'),(select id from it_state where key='admin_a'));
-select public.approve_task_member((select id from it_state where key='task'),(select id from it_state where key='admin_b'));
-select public.approve_task_member((select id from it_state where key='task'),(select id from it_state where key='member'));
-select public.approve_task_member((select id from it_state where key='task'),(select id from it_state where key='viewer'));
 reset role;
 
 do $$ declare n int; begin
   if (select count(*) from public.project_members where project_id=(select id from it_state where key='project')) <> 5 then raise exception 'FAIL lifecycle project membership'; end if;
-  if (select count(*) from public.task_members where task_id=(select id from it_state where key='task')) <> 5 then raise exception 'FAIL lifecycle task membership'; end if;
-  raise notice 'PASS lifecycle: project/task/checklist created and visible';
+  if (select count(*) from public.task_members where task_id=(select id from it_state where key='task')) <> 5 then raise exception 'FAIL lifecycle missing inherited task role rows'; end if;
+  if exists (select 1 from public.task_members where task_id=(select id from it_state where key='task') and role_override is not null) then raise exception 'FAIL lifecycle created explicit overrides'; end if;
+  raise notice 'PASS lifecycle: project/task/checklist created with inherited access';
 end $$;
 
 -- Admin matrix: operational access, but no owner mutation or peer-admin mutation.
@@ -98,7 +95,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from it_state where key='owner'),true);
 select public.set_task_item_state((select id from it_state where key='item'),true);
 select public.set_task_item_state((select id from it_state where key='item'),true);
-select public.update_task_item((select id from it_state where key='item'),'Edited item',null,null,null);
+select public.update_task_item((select id from it_state where key='item'),'Edited item');
 select public.set_task_item_state((select id from it_state where key='item'),false);
 select public.archive_task_item((select id from it_state where key='item'));
 reset role;

@@ -26,7 +26,7 @@ import {
   type ProjectWithRole,
   type TaskWithStats,
 } from "@/features/projects/projects";
-import { subscribeMany, type RealtimeEvent, type RealtimeStatus } from "@/lib/supabase/realtime";
+import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
 import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
@@ -56,7 +56,6 @@ export default function ProjectScreen() {
   const requestRef = useRef(0);
   const busyRef = useRef(false);
   const loadedProjectIdRef = useRef<string | null>(null);
-  const taskIdsRef = useRef<Set<string>>(new Set());
   const realtimeConnectedRef = useRef(false);
   useEffect(() => {
     if (loadedProjectIdRef.current === null || loadedProjectIdRef.current === id) return;
@@ -65,9 +64,6 @@ export default function ProjectScreen() {
     setTasks([]);
     setEditing(false);
   }, [id]);
-  useEffect(() => {
-    taskIdsRef.current = new Set(tasks.map((task) => task.id));
-  }, [tasks]);
   const load = useCallback(async () => {
     if (!id) return;
     const request = ++requestRef.current;
@@ -128,6 +124,14 @@ export default function ProjectScreen() {
       };
       const specs = [
         {
+          table: "projects",
+          options: {
+            projectId: id,
+            onEvent: () => void load(),
+            onStatus,
+          },
+        },
+        {
           table: "tasks",
           options: {
             projectId: id,
@@ -146,10 +150,8 @@ export default function ProjectScreen() {
         {
           table: "task_items",
           options: {
-            onEvent: (event: RealtimeEvent) => {
-              const taskId = String(event.new.task_id ?? event.old.task_id ?? "");
-              if (taskIdsRef.current.has(taskId)) void load();
-            },
+            projectId: id,
+            onEvent: () => void load(),
             onStatus,
           },
         },

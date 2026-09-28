@@ -5,6 +5,7 @@ import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/
 import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
+export type TaskChecklistRole = Exclude<ProjectRole, 'owner'>;
 export type ProjectWithRole = Project & { role: ProjectRole };
 export type ProjectMember = { user_id: string; role: ProjectRole; joined_at: string; profile: Profile | null };
 export type TaskWithStats = Task & { itemCount: number; completedCount: number; progressPercent: number; assignees: string[] };
@@ -12,8 +13,12 @@ export type TaskTemplate = Database['public']['Functions']['list_task_templates'
 export type TaskTemplateItem = Database['public']['Functions']['list_task_template_items']['Returns'][number] & { position: number };
 export function calculateAverageProgress(percentages: number[]): number { return percentages.length ? percentages.reduce((sum, value) => sum + value, 0) / percentages.length : 0; }
 export type MyTask = Task & { project_name: string | null };
-/** Optional legacy task metadata. This is not effective stage access. */
-export type TaskMemberMetadata = { user_id: string; approved_at: string; profile: Profile | null };
+export type TaskMemberOverride = {
+  user_id: string;
+  role_override: TaskChecklistRole;
+  set_by: string;
+  set_at: string;
+};
 export type ItemAction = Database['public']['Tables']['item_actions']['Row'];
 export type AuditEntry = Database['public']['Tables']['audit_log']['Row'];
 export type TaskItemLastEditor = Database['public']['Functions']['list_task_item_last_editors']['Returns'][number];
@@ -184,20 +189,28 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
 }
 export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
 export async function updateTask(taskId: string, title: string, description: string) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('update_task', { p_task_id: taskId, p_title: title, p_description: description })); }
-export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 2000) throw new Error('Комментарий слишком длинный (максимум 2000 символов).'); return requireSuccess(await supabase.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '' })); }
+export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 10000) throw new Error('Комментарий слишком длинный (максимум 10000 символов).'); return requireSuccess(await supabase.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '' })); }
 export async function setTaskItemPercentage(itemId: string, percentage: number) { assertUuid(itemId, 'task item id'); if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) throw new Error('Процент должен быть целым числом от 0 до 100.'); return requireData(await supabase.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage })); }
 export async function archiveTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('archive_task_item', { p_task_item_id: itemId })); }
 export async function setTaskItemState(itemId: string, completed: boolean) { assertUuid(itemId, 'task item id'); return requireData(await supabase.rpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed })); }
 export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await supabase.rpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
-/**
- * Reads optional legacy task metadata for audit/compatibility only. Project
- * membership remains the sole source of effective stage access and role.
- */
-export async function listTaskMemberMetadata(taskId: string): Promise<TaskMemberMetadata[]> { assertUuid(taskId, 'task id'); const rows = await fetchAll<{ user_id: string; approved_at: string }>((from, to) => supabase.from('task_members').select('user_id,approved_at').eq('task_id', taskId).range(from, to)); const profiles = rows.length ? (await Promise.all(chunks(rows.map((r) => r.user_id)).map((ids) => fetchAll<Profile>((from, to) => supabase.from('profiles').select('*').in('id', ids).range(from, to))))).flat() : []; const byId = new Map(profiles.map((p) => [p.id, p])); return rows.map((r) => ({ ...r, profile: byId.get(r.user_id) || null })); }
-/** Legacy metadata mutation. It does not grant or revoke inherited access. */
-export async function approveTaskMember(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('approve_task_member', { p_task_id: taskId, p_user_id: userId })); }
-/** Legacy metadata mutation. It does not grant or revoke inherited access. */
-export async function revokeTaskMember(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('revoke_task_member', { p_task_id: taskId, p_user_id: userId })); }
+export async function getMyTaskRole(taskId: string): Promise<ProjectRole> {
+  assertUuid(taskId, 'task id');
+  return requireData(await supabase.rpc('get_my_task_role', { p_task_id: taskId }));
+}
+export async function listTaskMemberOverrides(taskId: string): Promise<TaskMemberOverride[]> {
+  assertUuid(taskId, 'task id');
+  const rows = await requireData(await supabase.rpc('list_task_member_overrides', { p_task_id: taskId }));
+  return rows.map((row) => ({ ...row, role_override: row.role_override as TaskChecklistRole }));
+}
+export async function setTaskMemberOverride(taskId: string, userId: string, role: TaskChecklistRole) {
+  assertUuid(taskId, 'task id'); assertUuid(userId, 'user id');
+  return requireSuccess(await supabase.rpc('set_task_member_override', { p_task_id: taskId, p_user_id: userId, p_role: role }));
+}
+export async function clearTaskMemberOverride(taskId: string, userId: string) {
+  assertUuid(taskId, 'task id'); assertUuid(userId, 'user id');
+  return requireSuccess(await supabase.rpc('clear_task_member_override', { p_task_id: taskId, p_user_id: userId }));
+}
 export async function addTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('add_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
 export async function removeTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('remove_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
 export async function listTaskAssignees(taskId: string): Promise<string[]> { assertUuid(taskId, 'task id'); const rows = await fetchAll<{ user_id: string }>((from, to) => supabase.from('task_assignees').select('user_id').eq('task_id', taskId).range(from, to)); return rows.map((r) => r.user_id); }
@@ -410,7 +423,6 @@ export async function deleteTaskTemplate(templateId: string) { assertUuid(templa
 export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
 export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
 export async function deleteTaskTemplateItem(itemId: string) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('delete_task_template_item', { p_item_id: itemId })); }
-export async function removeTaskTemplateItem(itemId: string) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('remove_task_template_item', { p_item_id: itemId })); }
 
 export async function archiveTask(taskId: string) {
   assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('archive_task', { p_task_id: taskId }));

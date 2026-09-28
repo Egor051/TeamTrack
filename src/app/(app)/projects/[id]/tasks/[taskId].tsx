@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { RealtimeIndicator } from "@/components/ui/realtime-indicator";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -32,6 +33,10 @@ import {
   updateTask,
   listProjectMembers,
   listTaskAssignees,
+  getMyTaskRole,
+  listTaskMemberOverrides,
+  setTaskMemberOverride,
+  clearTaskMemberOverride,
   listTaskItemLastEditors,
   addTaskAssignee,
   removeTaskAssignee,
@@ -42,6 +47,9 @@ import {
   type TaskItem,
   type ProjectMember,
   type ProjectWithRole,
+  type ProjectRole,
+  type TaskChecklistRole,
+  type TaskMemberOverride,
   type TaskItemLastEditor,
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
@@ -76,6 +84,8 @@ export default function TaskScreen() {
   const [loadedView, setLoadedView] = useState<"active" | "archived" | null>(null);
   const [lastEditors, setLastEditors] = useState<Map<string, TaskItemLastEditor>>(new Map());
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [effectiveTaskRole, setEffectiveTaskRole] = useState<ProjectRole | null>(null);
+  const [taskMemberOverrides, setTaskMemberOverrides] = useState<TaskMemberOverride[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
@@ -121,6 +131,7 @@ export default function TaskScreen() {
         nextAssignees,
         nextLastEditors,
         nextActiveItems,
+        nextTaskRole,
       ] = await Promise.all([
         getTask(taskId, id),
         getProject(id),
@@ -129,7 +140,11 @@ export default function TaskScreen() {
         listTaskAssignees(taskId),
         listTaskItemLastEditors(taskId),
         showArchivedItems ? listTaskItems(taskId, "active") : Promise.resolve(null),
+        getMyTaskRole(taskId),
       ]);
+      const nextOverrides = nextProject.role === "owner" || nextProject.role === "admin"
+        ? await listTaskMemberOverrides(taskId)
+        : [];
       if (request !== requestRef.current) return;
       setTask(nextTask);
       setProject(nextProject);
@@ -137,6 +152,8 @@ export default function TaskScreen() {
       setSummaryItems(nextActiveItems ?? nextItems);
       setLoadedView(showArchivedItems ? "archived" : "active");
       setProjectMembers(nextProjectMembers);
+      setEffectiveTaskRole(nextTaskRole);
+      setTaskMemberOverrides(nextOverrides);
       setAssignees(nextAssignees);
       setLastEditors(new Map(nextLastEditors.map((entry) => [entry.task_item_id, entry])));
       setLoadError("");
@@ -149,6 +166,8 @@ export default function TaskScreen() {
           setItems([]);
           setSummaryItems([]);
           setProjectMembers([]);
+          setEffectiveTaskRole(null);
+          setTaskMemberOverrides([]);
           setAssignees([]);
           setLastEditors(new Map());
           router.replace("/projects" as never);
@@ -185,6 +204,10 @@ export default function TaskScreen() {
       };
       return subscribeMany([
         {
+          table: "projects",
+          options: { projectId: id, onEvent, onStatus },
+        },
+        {
           table: "tasks",
           options: { taskId, onEvent, onStatus },
         },
@@ -194,6 +217,10 @@ export default function TaskScreen() {
         },
         {
           table: "task_assignees",
+          options: { taskId, onEvent, onStatus },
+        },
+        {
+          table: "task_members",
           options: { taskId, onEvent, onStatus },
         },
         ...(user
@@ -264,21 +291,23 @@ export default function TaskScreen() {
     }, item.id);
   }
 
-  const canManage =
+  const canManageTask =
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
     task?.status !== "archived";
-  // A successfully loaded task and project prove effective access through
-  // project membership. task_members is only optional legacy metadata.
   const hasTaskAccess = Boolean(user && project && task);
   const canUpdateChecklistProgress =
     hasTaskAccess &&
     project?.status === "active" &&
-    project.role !== "viewer" &&
+    effectiveTaskRole !== null &&
+    effectiveTaskRole !== "viewer" &&
     task?.status !== "archived";
   const canEditChecklist =
-    canManage;
-  const canEditTask = canManage;
+    hasTaskAccess &&
+    project?.status === "active" &&
+    (effectiveTaskRole === "owner" || effectiveTaskRole === "admin") &&
+    task?.status !== "archived";
+  const canEditTask = canManageTask;
   const canRestore =
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
@@ -292,6 +321,7 @@ export default function TaskScreen() {
     const member = projectMembers.find((entry) => entry.user_id === assigneeId);
     return member?.profile?.display_name || assigneeId.slice(0, 8);
   });
+  const overrideByUserId = new Map(taskMemberOverrides.map((entry) => [entry.user_id, entry.role_override]));
 
   return (
     <Screen padded={false} centerContent={false}>
@@ -330,9 +360,9 @@ export default function TaskScreen() {
               </View>
             </Card> : null}
             <View style={[styles.stageActions, compact && styles.stageActionsCompact]}>
-              {((canEditTask && !taskEditing) || canManage) ? <View style={[styles.stageActionsGroup, compact && styles.stageActionsGroupCompact]}>
+              {((canEditTask && !taskEditing) || canManageTask) ? <View style={[styles.stageActionsGroup, compact && styles.stageActionsGroupCompact]}>
                 {canEditTask && !taskEditing ? <Button size="sm" variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
-                {canManage ? <Button size="sm" variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
+                {canManageTask ? <Button size="sm" variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
               </View> : null}
               <View style={[styles.stageActionsGroup, styles.stageActionsRight, compact && styles.stageActionsGroupCompact]}>
                 <Button size="sm" variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
@@ -341,7 +371,7 @@ export default function TaskScreen() {
               </View>
             </View>
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
-            {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : project?.role === "viewer" ? "У вас доступ только для просмотра." : hasTaskAccess ? "Прогресс чек-листа сейчас недоступен." : "Нет доступа к этапу."}</ThemedText></View> : null}
+            {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : effectiveTaskRole === "viewer" ? "Для чек-листа этого этапа у вас доступ только для просмотра." : hasTaskAccess ? "Прогресс чек-листа сейчас недоступен." : "Нет доступа к этапу."}</ThemedText></View> : null}
             <Card muted>
               <Progress
                 value={progress}
@@ -351,7 +381,7 @@ export default function TaskScreen() {
             </Card>
             <View style={styles.sectionHead}>
               <View style={styles.sectionTitle}><ThemedText type="h2">Чек-лист</ThemedText><ThemedText type="small">{showArchivedItems ? "Архивные пункты доступны для просмотра." : "Отмечайте готовые пункты или уточняйте прогресс в деталях."}</ThemedText></View>
-              {canManage ? <SegmentedControl value={currentView} accessibilityLabel="Пункты чек-листа" options={[{ value: "active", label: "Активные" }, { value: "archived", label: "Архив" }]} onChange={(value) => { if (busy) return; setShowArchivedItems(value === "archived"); setExpandedItem(null); setEditing(null); setCommentEditing(null); setActionError(null); }} /> : null}
+              {canEditChecklist ? <SegmentedControl value={currentView} accessibilityLabel="Пункты чек-листа" options={[{ value: "active", label: "Активные" }, { value: "archived", label: "Архив" }]} onChange={(value) => { if (busy) return; setShowArchivedItems(value === "archived"); setExpandedItem(null); setEditing(null); setCommentEditing(null); setActionError(null); }} /> : null}
             </View>
             {loadedView !== currentView ? (loadError ? <View style={styles.feedback}><ThemedText type="small">Выбранный список пунктов не загрузился.</ThemedText><Button size="sm" variant="outline" onPress={() => void load()}>Повторить</Button></View> : <LoadingState label={showArchivedItems ? "Загружаем архив…" : "Загружаем чек-лист…"} />) : !visibleItems.length ? (
               <EmptyState
@@ -426,8 +456,8 @@ export default function TaskScreen() {
                     {expandedItem === item.id ? <View style={[styles.itemDetails, { borderTopColor: theme.border }]}>
                     <Progress value={item.percentage} label="Выполнение пункта" />
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
-                      <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={2000} placeholder="Необязательно" disabled={busy} />
-                      <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 2000} onPress={() => void run(async () => { await setTaskItemComment(item.id, editComment); setCommentEditing(null); }, item.id)}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
+                      <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={10000} placeholder="Необязательно" disabled={busy} />
+                      <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 10000} onPress={() => void run(async () => { await setTaskItemComment(item.id, editComment); setCommentEditing(null); }, item.id)}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
                     </View> : null}
                     {canUpdateChecklistProgress && !item.is_archived && editing !== item.id && commentEditing !== item.id ? <View style={styles.progressEditor}>
                       <View style={styles.percentageField}><Input label="Прогресс, от 1 до 100%" value={percentageRaw} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value }))} keyboardType="numeric" maxLength={7} onSubmitEditing={() => savePercentage(item)} disabled={busy} /></View>
@@ -457,7 +487,7 @@ export default function TaskScreen() {
                           Отмена
                         </Button>
                       </View>
-                    ) : item.is_archived && canManage ? (
+                    ) : item.is_archived && canEditChecklist ? (
                       <View style={styles.actions}><Button size="sm" variant="destructive" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить навсегда</Button></View>
                     ) : canUpdateChecklistProgress && !item.is_archived && commentEditing !== item.id ? (
                       <View style={styles.actions}>
@@ -475,7 +505,7 @@ export default function TaskScreen() {
                         <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setCommentEditing(item.id); setEditComment(item.comment || ""); }}>
                           {item.comment ? "Изменить комментарий" : "Добавить комментарий"}
                         </Button>
-                        {canManage ? <Button
+                        {canEditChecklist ? <Button
                           size="sm"
                           variant="ghost"
                           disabled={busy}
@@ -527,19 +557,19 @@ export default function TaskScreen() {
                 {actionError?.target === "new-item" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
               </Card>
             ) : null}
-            {canManage ? <View style={[styles.taskFooter, { borderTopColor: theme.border }]}><ThemedText type="small" style={styles.footerCopy}>Этап больше не нужен в текущей работе?</ThemedText><Button size="sm" variant="outline" disabled={busy} onPress={() => setConfirm({ title: "Архивировать этап?", description: "Этап переместится в архив проекта. Его можно будет восстановить вместе с чек-листом.", action: () => archiveTask(taskId), confirmLabel: "Архивировать", destructive: false })}>Архивировать этап</Button></View> : null}
-            {task && canManage ? (
+            {canManageTask ? <View style={[styles.taskFooter, { borderTopColor: theme.border }]}><ThemedText type="small" style={styles.footerCopy}>Этап больше не нужен в текущей работе?</ThemedText><Button size="sm" variant="outline" disabled={busy} onPress={() => setConfirm({ title: "Архивировать этап?", description: "Этап переместится в архив проекта. Его можно будет восстановить вместе с чек-листом.", action: () => archiveTask(taskId), confirmLabel: "Архивировать", destructive: false })}>Архивировать этап</Button></View> : null}
+            {task && canManageTask ? (
               <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => { if (!busy) setManageOpen(false); }}>
                 <View style={[styles.modalBackdrop, !compact && styles.modalBackdropDesktop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, !compact && styles.modalSheetDesktop, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]} accessibilityViewIsModal pointerEvents={confirm ? "none" : "auto"} accessibilityElementsHidden={Boolean(confirm)} importantForAccessibility={confirm ? "no-hide-descendants" : "auto"}>
                   <View style={styles.sectionHead}><View style={styles.flex}><ThemedText type="h2">Участники и исполнители</ThemedText><ThemedText type="small" numberOfLines={2}>{task.title}</ThemedText></View><Button size="sm" variant="ghost" disabled={busy} onPress={() => setManageOpen(false)}>Закрыть</Button></View>
                   <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
-                  {!canManage ? <ThemedText type="small">Управлять доступом и назначениями могут владелец и администратор активного проекта.</ThemedText> : null}
+                  {!canManageTask ? <ThemedText type="small">Управлять доступом и назначениями могут владелец и администратор активного проекта.</ThemedText> : null}
                   {actionError?.target === "members" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
                   {busyAction === "members" ? <ThemedText type="small" accessibilityLiveRegion="polite">Сохраняем изменения…</ThemedText> : null}
                   <Card>
                   <ThemedText type="h2">Участники этапа</ThemedText>
                   <ThemedText type="small">
-                    Доступ наследуется от участников проекта
+                    По умолчанию роль наследуется из проекта. Изменение ниже действует только на чек-лист этого этапа.
                   </ThemedText>
                   {!projectMembers.length ? (
                     <EmptyState
@@ -548,14 +578,36 @@ export default function TaskScreen() {
                     />
                   ) : (
                     projectMembers.map((member) => {
+                      const override = overrideByUserId.get(member.user_id);
+                      const canManageMemberOverride = project?.role === "owner" || (member.role !== "owner" && member.role !== "admin");
+                      const overrideOptions = [
+                        { value: "inherit", label: `Наследовать: ${projectRoleLabels[member.role]}` },
+                        ...(["admin", "member", "viewer"] as TaskChecklistRole[])
+                          .filter((role) => role !== member.role)
+                          .map((role) => ({ value: role, label: `Чек-лист: ${projectRoleLabels[role]}` })),
+                      ];
                       return (
                         <View key={member.user_id} style={styles.memberRow}>
                           <ThemedText style={styles.flex}>
                             {member.profile?.display_name || member.user_id.slice(0, 8)}
                           </ThemedText>
-                          <Badge tone={member.role === "viewer" ? "neutral" : "success"}>
-                            {projectRoleLabels[member.role]}
-                          </Badge>
+                          <View style={styles.overrideControl}>
+                            <Select
+                              value={override ?? "inherit"}
+                              options={overrideOptions}
+                              onChange={(value) => void run(
+                                () => value === "inherit"
+                                  ? clearTaskMemberOverride(taskId, member.user_id)
+                                  : setTaskMemberOverride(taskId, member.user_id, value as TaskChecklistRole),
+                                "members",
+                              )}
+                              accessibilityLabel={`Роль чек-листа для ${member.profile?.display_name || member.user_id.slice(0, 8)}`}
+                              disabled={busy || !canManageMemberOverride}
+                            />
+                            <ThemedText type="caption">
+                              Проект: {projectRoleLabels[member.role]}{override ? ` · На этапе: ${projectRoleLabels[override]}` : " · Без переопределения"}
+                            </ThemedText>
+                          </View>
                         </View>
                       );
                     })
@@ -576,7 +628,7 @@ export default function TaskScreen() {
                           {assigned ? (
                             <Badge tone="primary">Назначен</Badge>
                           ) : null}
-                          {canManage ? <Button
+                          {canManageTask ? <Button
                             size="sm"
                             variant="outline"
                             disabled={busy}
@@ -670,6 +722,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     paddingVertical: spacing.sm,
   },
+  overrideControl: { width: 280, maxWidth: "100%", gap: spacing.xs },
   flex: { flex: 1, minWidth: 0 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   stageActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: spacing.md },

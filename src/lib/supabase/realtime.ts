@@ -1,58 +1,110 @@
 import { supabase } from '@/lib/supabase/client';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
-export type RealtimeEvent = { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; new: Record<string, unknown>; old: Record<string, unknown> };
-type SubscriptionOptions = { projectId?: string; taskId?: string; userId?: string; onEvent: (event: RealtimeEvent) => void; onStatus?: (status: RealtimeStatus, message?: string) => void };
-type ActiveChannel = {
-  channel: ReturnType<typeof supabase.channel>;
-  cleanup: () => void;
+export type RealtimeEvent = {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  table: string;
+  new: Record<string, never>;
+  old: Record<string, never>;
 };
 
-const activeChannels = new Set<ActiveChannel>();
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+type SubscriptionOptions = {
+  projectId?: string;
+  taskId?: string;
+  userId?: string;
+  onEvent: (event: RealtimeEvent) => void;
+  onStatus?: (status: RealtimeStatus, message?: string) => void;
+};
+
+type Listener = {
+  table: string;
+  onEvent: SubscriptionOptions['onEvent'];
+  onStatus?: SubscriptionOptions['onStatus'];
+};
+
+type SharedChannel = {
+  channel: ReturnType<typeof supabase.channel>;
+  listeners: Set<Listener>;
+  status: RealtimeStatus;
+  message?: string;
+};
+
+const sharedChannels = new Map<string, SharedChannel>();
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function scopeTopic(options: SubscriptionOptions): string | null {
+  const scopes = [
+    options.projectId ? `project:${options.projectId}` : null,
+    options.taskId ? `task:${options.taskId}` : null,
+    options.userId ? `user:${options.userId}` : null,
+  ].filter((value): value is string => Boolean(value));
+  if (scopes.length !== 1) return null;
+  const id = scopes[0].slice(scopes[0].indexOf(':') + 1);
+  return UUID_PATTERN.test(id) ? scopes[0] : null;
+}
 
 function asRealtimeEvent(payload: unknown): RealtimeEvent | null {
   if (!payload || typeof payload !== 'object') return null;
-  const value = payload as { eventType?: unknown; new?: unknown; old?: unknown };
-  if (value.eventType !== 'INSERT' && value.eventType !== 'UPDATE' && value.eventType !== 'DELETE') return null;
-  const record = (candidate: unknown): Record<string, unknown> => candidate && typeof candidate === 'object' ? candidate as Record<string, unknown> : {};
-  return { eventType: value.eventType, new: record(value.new), old: record(value.old) };
+  const envelope = payload as { payload?: unknown };
+  if (!envelope.payload || typeof envelope.payload !== 'object') return null;
+  const value = envelope.payload as { table?: unknown; operation?: unknown };
+  if (typeof value.table !== 'string') return null;
+  if (value.operation !== 'INSERT' && value.operation !== 'UPDATE' && value.operation !== 'DELETE') return null;
+  return { eventType: value.operation, table: value.table, new: {}, old: {} };
+}
+
+function broadcastStatus(entry: SharedChannel, status: RealtimeStatus, message?: string) {
+  entry.status = status;
+  entry.message = message;
+  for (const listener of entry.listeners) listener.onStatus?.(status, message);
+}
+
+function createSharedChannel(topic: string): SharedChannel {
+  const entry: SharedChannel = {
+    channel: supabase.channel(topic, { config: { private: true } }),
+    listeners: new Set(),
+    status: 'connecting',
+  };
+  sharedChannels.set(topic, entry);
+  entry.channel
+    .on('broadcast', { event: 'invalidate' }, (payload) => {
+      const event = asRealtimeEvent(payload);
+      if (!event) return;
+      for (const listener of entry.listeners) {
+        if (listener.table === event.table) listener.onEvent(event);
+      }
+    })
+    .subscribe((status, error) => {
+      if (!sharedChannels.has(topic)) return;
+      if (status === 'SUBSCRIBED') broadcastStatus(entry, 'connected');
+      else if (status === 'CHANNEL_ERROR') broadcastStatus(entry, 'error', error?.message);
+      else if (status === 'TIMED_OUT') broadcastStatus(entry, 'reconnecting');
+      else if (status === 'CLOSED') broadcastStatus(entry, 'disconnected');
+    });
+  return entry;
 }
 
 export function subscribeTable(table: string, options: SubscriptionOptions) {
-  const scope = options.userId ?? options.taskId ?? options.projectId;
-  if (scope && !UUID_PATTERN.test(scope)) {
-    options.onStatus?.('error', 'Invalid realtime scope');
+  const topic = scopeTopic(options);
+  if (!topic) {
+    options.onStatus?.('error', 'Exactly one valid realtime scope is required');
     return () => undefined;
   }
+
+  const entry = sharedChannels.get(topic) ?? createSharedChannel(topic);
+  const listener: Listener = { table, onEvent: options.onEvent, onStatus: options.onStatus };
+  entry.listeners.add(listener);
+  options.onStatus?.(entry.status, entry.message);
+
   let active = true;
-  const filter = options.userId ? `user_id=eq.${options.userId}` : options.taskId ? `task_id=eq.${options.taskId}` : options.projectId ? `project_id=eq.${options.projectId}` : undefined;
-  const channel = supabase.channel(`tasktrace:${table}:${options.userId || options.projectId || ''}:${options.taskId || ''}`);
-  const cleanup = () => {
+  return () => {
     if (!active) return;
     active = false;
-    activeChannels.delete(entry);
-    void supabase.removeChannel(channel);
+    entry.listeners.delete(listener);
+    if (entry.listeners.size > 0) return;
+    sharedChannels.delete(topic);
+    void supabase.removeChannel(entry.channel);
   };
-  const entry: ActiveChannel = { channel, cleanup };
-  activeChannels.add(entry);
-  options.onStatus?.('connecting');
-  const handlePayload = (payload: unknown) => {
-    const event = asRealtimeEvent(payload);
-    if (active && event) options.onEvent(event);
-  };
-  const change = { schema: 'public' as const, table, ...(filter ? { filter } : {}) };
-  channel.on('postgres_changes', { ...change, event: 'INSERT' }, handlePayload);
-  channel.on('postgres_changes', { ...change, event: 'UPDATE' }, handlePayload);
-  channel.on('postgres_changes', { ...change, event: 'DELETE' }, handlePayload);
-  channel.subscribe((status, err) => {
-    if (!active) return;
-    if (status === 'SUBSCRIBED') options.onStatus?.('connected');
-    else if (status === 'CHANNEL_ERROR') options.onStatus?.('error', err?.message);
-    else if (status === 'TIMED_OUT') options.onStatus?.('reconnecting');
-    else if (status === 'CLOSED') options.onStatus?.('disconnected');
-  });
-  return cleanup;
 }
 
 export function subscribeMany(specs: { table: string; options: SubscriptionOptions }[]) {
@@ -61,25 +113,41 @@ export function subscribeMany(specs: { table: string; options: SubscriptionOptio
 }
 
 /**
- * Permission changes are a signal to revalidate through the normal RLS path.
- * The payload is deliberately ignored by callers: realtime never grants
- * access, it only tells the client that its cached authorization may be stale.
+ * Permission broadcasts carry no authorization data. They invalidate local
+ * state, close resource topics immediately, and force all resulting data to be
+ * fetched again through RLS-protected queries.
  */
 export function subscribeToPermissionChanges(
   userId: string,
   onChange: () => void,
   onStatus?: (status: RealtimeStatus, message?: string) => void,
 ) {
+  const invalidate = () => {
+    closeResourceRealtimeChannels();
+    onChange();
+  };
   return subscribeMany([
-    { table: 'project_members', options: { userId, onEvent: onChange, onStatus } },
-    { table: 'task_assignees', options: { userId, onEvent: onChange, onStatus } },
-    // These tables are RLS-filtered by the current user's visible resources.
-    // They cover archive/restore and task state changes that affect access/UI.
-    { table: 'projects', options: { onEvent: onChange, onStatus } },
-    { table: 'tasks', options: { onEvent: onChange, onStatus } },
+    { table: 'projects', options: { userId, onEvent: invalidate, onStatus } },
+    { table: 'tasks', options: { userId, onEvent: invalidate, onStatus } },
+    { table: 'project_members', options: { userId, onEvent: invalidate, onStatus } },
+    { table: 'task_members', options: { userId, onEvent: invalidate, onStatus } },
+    { table: 'task_assignees', options: { userId, onEvent: invalidate, onStatus } },
   ]);
 }
 
+export function closeResourceRealtimeChannels() {
+  for (const [topic, entry] of [...sharedChannels]) {
+    if (topic.startsWith('user:')) continue;
+    sharedChannels.delete(topic);
+    entry.listeners.clear();
+    void supabase.removeChannel(entry.channel);
+  }
+}
+
 export function closeAllRealtimeChannels() {
-  for (const entry of [...activeChannels]) entry.cleanup();
+  for (const [topic, entry] of [...sharedChannels]) {
+    sharedChannels.delete(topic);
+    entry.listeners.clear();
+    void supabase.removeChannel(entry.channel);
+  }
 }

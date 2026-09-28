@@ -91,7 +91,7 @@ export default function DailyProgress() {
         }
       };
       return subscribeMany([
-        { table: "audit_log", options: { projectId: id, onEvent, onStatus } },
+        { table: "projects", options: { projectId: id, onEvent, onStatus } },
         { table: "task_items", options: { taskId, onEvent, onStatus } },
         { table: "tasks", options: { taskId, onEvent, onStatus } },
       ]);

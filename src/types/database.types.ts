@@ -305,23 +305,26 @@ export type Database = {
       }
       task_members: {
         Row: {
-          approved_at: string
-          approved_by: string
           created_at: string
+          role_override: Database["public"]["Enums"]["project_role"] | null
+          set_at: string
+          set_by: string
           task_id: string
           user_id: string
         }
         Insert: {
-          approved_at?: string
-          approved_by: string
           created_at?: string
+          role_override?: Database["public"]["Enums"]["project_role"] | null
+          set_at?: string
+          set_by: string
           task_id: string
           user_id: string
         }
         Update: {
-          approved_at?: string
-          approved_by?: string
           created_at?: string
+          role_override?: Database["public"]["Enums"]["project_role"] | null
+          set_at?: string
+          set_by?: string
           task_id?: string
           user_id?: string
         }
@@ -478,10 +481,6 @@ export type Database = {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
       }
-      approve_task_member: {
-        Args: { p_task_id: string; p_user_id: string }
-        Returns: undefined
-      }
       archive_project: { Args: { p_project_id: string }; Returns: undefined }
       archive_task: { Args: { p_task_id: string }; Returns: undefined }
       archive_task_item: {
@@ -498,6 +497,10 @@ export type Database = {
           p_project_id: string
           p_user_id: string
         }
+        Returns: undefined
+      }
+      clear_task_member_override: {
+        Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
       }
       create_project: {
@@ -543,6 +546,26 @@ export type Database = {
         Args: { p_item_id: string }
         Returns: undefined
       }
+      get_my_profile: {
+        Args: never
+        Returns: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string
+          id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      get_my_task_role: {
+        Args: { p_task_id: string }
+        Returns: Database["public"]["Enums"]["project_role"]
+      }
       get_task_template: { Args: { p_template_id: string }; Returns: Json }
       hard_delete_project: {
         Args: { p_project_id: string }
@@ -557,14 +580,19 @@ export type Database = {
         Args: { p_task_id: string }
         Returns: {
           changed_at: string
-          display_name: string | null
+          display_name: string
           task_item_id: string
           user_id: string
         }[]
       }
-      move_task: {
-        Args: { p_direction: number; p_task_id: string }
-        Returns: undefined
+      list_task_member_overrides: {
+        Args: { p_task_id: string }
+        Returns: {
+          role_override: Database["public"]["Enums"]["project_role"]
+          set_at: string
+          set_by: string
+          user_id: string
+        }[]
       }
       list_task_template_items: {
         Args: { p_template_id: string }
@@ -595,6 +623,10 @@ export type Database = {
         Args: { p_notification_id: string }
         Returns: undefined
       }
+      move_task: {
+        Args: { p_direction: number; p_task_id: string }
+        Returns: undefined
+      }
       remove_project_member: {
         Args: { p_project_id: string; p_user_id: string }
         Returns: undefined
@@ -603,16 +635,8 @@ export type Database = {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
       }
-      remove_task_template_item: {
-        Args: { p_item_id: string }
-        Returns: undefined
-      }
       restore_project: { Args: { p_project_id: string }; Returns: undefined }
       restore_task: { Args: { p_task_id: string }; Returns: undefined }
-      revoke_task_member: {
-        Args: { p_task_id: string; p_user_id: string }
-        Returns: undefined
-      }
       set_task_item_comment: {
         Args: { p_comment: string; p_task_item_id: string }
         Returns: undefined
@@ -624,6 +648,14 @@ export type Database = {
       set_task_item_state: {
         Args: { p_completed: boolean; p_task_item_id: string }
         Returns: boolean
+      }
+      set_task_member_override: {
+        Args: {
+          p_role: Database["public"]["Enums"]["project_role"]
+          p_task_id: string
+          p_user_id: string
+        }
+        Returns: undefined
       }
       transfer_project_ownership: {
         Args: { p_new_owner_id: string; p_project_id: string }
@@ -706,6 +738,7 @@ export type Database = {
         | "project_restored"
         | "task_archived"
         | "task_restored"
+        | "task_role_changed"
       project_role: "owner" | "admin" | "member" | "viewer"
       project_status: "active" | "archived"
       task_status: "not_started" | "in_progress" | "completed" | "archived"
@@ -866,6 +899,7 @@ export const Constants = {
         "project_restored",
         "task_archived",
         "task_restored",
+        "task_role_changed",
       ],
       project_role: ["owner", "admin", "member", "viewer"],
       project_status: ["active", "archived"],

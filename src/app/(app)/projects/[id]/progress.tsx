@@ -85,8 +85,9 @@ export default function ProjectDailyProgressScreen() {
         }
       };
       return subscribeMany([
-        { table: "audit_log", options: { projectId: id, onEvent, onStatus } },
+        { table: "projects", options: { projectId: id, onEvent, onStatus } },
         { table: "tasks", options: { projectId: id, onEvent, onStatus } },
+        { table: "task_items", options: { projectId: id, onEvent, onStatus } },
       ]);
     }, [id, load, permissionVersion]),
   );

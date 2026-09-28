@@ -47,7 +47,11 @@ export const supabase: SupabaseClient<DatabaseSchema> = createClient<DatabaseSch
       storage: new StorageAdapter(),
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: typeof window !== 'undefined',
+      flowType: 'pkce',
+      detectSessionInUrl: false,
+      experimental: {
+        appendPkceFlowIdToRedirects: true,
+      },
     },
   },
 );

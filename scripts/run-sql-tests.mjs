@@ -52,4 +52,4 @@ try {
   rmSync(tempRoot, { recursive: true, force: true });
 }
 
-console.log('SQL suites passed. concurrency_test.sql remains a two-session manual harness.');
+console.log('SQL suites passed. Automated two-session checks run through npm run test:backend.');

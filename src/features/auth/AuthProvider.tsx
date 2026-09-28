@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import * as Linking from 'expo-linking';
-import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase/client';
 import type { Profile } from '@/lib/supabase/client';
 import type { AuthState } from './types';
@@ -15,6 +14,7 @@ import {
   getCurrentSession,
 } from './auth';
 import { closeAllRealtimeChannels } from '@/lib/supabase/realtime';
+import { parseAuthCallbackUrl, stripAuthCallbackParams } from './auth-links';
 
 type AuthContextType = {
   state: AuthState;
@@ -38,47 +38,17 @@ const initialState: AuthState = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-async function fetchProfile(userId: string): Promise<Profile | null> {
+async function fetchProfile(): Promise<Profile | null> {
   try {
-    const { data, error } = await supabase
-      .from('profiles').select('*').eq('id', userId).single();
+    const { data, error } = await supabase.rpc('get_my_profile');
     if (error) {
       if (process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] profile fetch error:', error.message);
       return null;
     }
-    return data;
+    return data as Profile;
   } catch {
     if (process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] profile fetch exception');
     return null;
-  }
-}
-
-function parseLinkParams(url: string): Record<string, string> {
-  const params: Record<string, string> = {};
-  const source = url.includes('#') ? url.slice(url.indexOf('#') + 1) : url.split('?')[1] ?? '';
-  for (const part of source.split('&')) {
-    if (!part) continue;
-    const [rawKey, rawValue = ''] = part.split('=');
-    try {
-      params[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.replace(/\+/g, ' '));
-    } catch {
-      // Ignore malformed query fragments; Supabase will reject missing/invalid tokens.
-    }
-  }
-  return params;
-}
-
-async function consumeNativeAuthLink(url: string): Promise<void> {
-  if (Platform.OS === 'web') return;
-  try {
-    const params = parseLinkParams(url);
-    if (params.access_token && params.refresh_token) {
-      await supabase.auth.setSession({ access_token: params.access_token, refresh_token: params.refresh_token });
-    } else if (params.code) {
-      await supabase.auth.exchangeCodeForSession(params.code);
-    }
-  } catch (error) {
-    if (process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] auth link rejected', error);
   }
 }
 
@@ -89,6 +59,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let generation = 0;
     let activeUserId: string | null = null;
+    const handledAuthLinks = new Set<string>();
+
+    const consumeAuthLink = async (url: string): Promise<void> => {
+      const callback = parseAuthCallbackUrl(url);
+      if (!callback || handledAuthLinks.has(url)) return;
+      handledAuthLinks.add(url);
+      try {
+        const { error } = await supabase.auth.exchangeCodeForSession(callback.code, { flowId: callback.flowId });
+        if (error) throw error;
+        if (typeof window !== 'undefined' && window.location.href === url) {
+          window.history.replaceState(null, '', stripAuthCallbackParams(url));
+        }
+      } catch (error) {
+        handledAuthLinks.delete(url);
+        if (process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] auth callback rejected', error);
+        if (!cancelled) setState((prev) => ({ ...prev, isLoading: false, error: mapSupabaseAuthError(error) }));
+      }
+    };
 
     const applySession = async (session: AuthState['session'], currentGeneration: number) => {
       if (cancelled || currentGeneration !== generation) return;
@@ -102,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       activeUserId = session.user.id;
 
       setState((prev) => ({ ...prev, isLoading: false, session, user: session.user, profile: null, error: null }));
-      const profile = await fetchProfile(session.user.id);
+      const profile = await fetchProfile();
       if (cancelled || currentGeneration !== generation) return;
       setState((prev) => prev.user?.id === session.user.id ? { ...prev, profile } : prev);
     };
@@ -132,8 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const linkSubscription = Linking.addEventListener('url', ({ url }) => { void consumeNativeAuthLink(url); });
-    void Linking.getInitialURL().then((url) => { if (url) return consumeNativeAuthLink(url); }).catch(() => undefined);
+    const linkSubscription = Linking.addEventListener('url', ({ url }) => { void consumeAuthLink(url); });
+    void Linking.getInitialURL().then((url) => { if (url) return consumeAuthLink(url); }).catch(() => undefined);
+    if (typeof window !== 'undefined') void consumeAuthLink(window.location.href);
 
     return () => {
       cancelled = true;
