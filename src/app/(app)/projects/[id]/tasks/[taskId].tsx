@@ -58,7 +58,7 @@ import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
-import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
+import { isCachedResult, isExplicitAccessError, isTransportFailure } from "@/lib/local-cache/cache";
 import { filterChecklistItems, formatChecklistComment, parsePercentageInput } from "@/features/projects/checklist";
 import { formatLastEditorSummary } from "@/features/projects/history-format";
 
@@ -102,6 +102,7 @@ export default function TaskScreen() {
   const [editComment, setEditComment] = useState("");
   const [editPercentage, setEditPercentage] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState("");
+  const [offline, setOffline] = useState(false);
   const [actionError, setActionError] = useState<{ message: string; target: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -122,6 +123,15 @@ export default function TaskScreen() {
     if (!id || !taskId) return;
     const request = ++requestRef.current;
     setLoadError("");
+    let supplementaryOffline = false;
+    async function optional<T>(promise: Promise<T>, fallback: T): Promise<T> {
+      try { return await promise; }
+      catch (error) {
+        if (!isTransportFailure(error)) throw error;
+        supplementaryOffline = true;
+        return fallback;
+      }
+    }
     try {
       const [
         nextTask,
@@ -136,14 +146,14 @@ export default function TaskScreen() {
         getTask(taskId, id),
         getProject(id),
         listTaskItems(taskId, showArchivedItems ? "archived" : "active"),
-        listProjectMembers(id),
-        listTaskAssignees(taskId),
-        listTaskItemLastEditors(taskId),
-        showArchivedItems ? listTaskItems(taskId, "active") : Promise.resolve(null),
-        getMyTaskRole(taskId),
+        optional(listProjectMembers(id), [] as ProjectMember[]),
+        optional(listTaskAssignees(taskId), [] as string[]),
+        optional(listTaskItemLastEditors(taskId), [] as TaskItemLastEditor[]),
+        showArchivedItems ? optional(listTaskItems(taskId, "active"), [] as TaskItem[]) : Promise.resolve(null),
+        optional(getMyTaskRole(taskId), "viewer" as ProjectRole),
       ]);
       const nextOverrides = nextProject.role === "owner" || nextProject.role === "admin"
-        ? await listTaskMemberOverrides(taskId)
+        ? await optional(listTaskMemberOverrides(taskId), [] as TaskMemberOverride[])
         : [];
       if (request !== requestRef.current) return;
       setTask(nextTask);
@@ -156,11 +166,12 @@ export default function TaskScreen() {
       setTaskMemberOverrides(nextOverrides);
       setAssignees(nextAssignees);
       setLastEditors(new Map(nextLastEditors.map((entry) => [entry.task_item_id, entry])));
+      setOffline(supplementaryOffline || [nextTask, nextProject, nextItems, nextProjectMembers, nextAssignees, nextLastEditors, nextActiveItems, nextOverrides].some(isCachedResult));
       setLoadError("");
     } catch (e) {
       if (request === requestRef.current) {
         setLoadError(userMessage(e, "Не удалось обновить этап."));
-        if (e instanceof ResourceAccessDeniedError) {
+        if (isExplicitAccessError(e)) {
           setTask(null);
           setProject(null);
           setItems([]);
@@ -170,6 +181,7 @@ export default function TaskScreen() {
           setTaskMemberOverrides([]);
           setAssignees([]);
           setLastEditors(new Map());
+          setOffline(false);
           router.replace("/projects" as never);
         }
       }
@@ -349,6 +361,7 @@ export default function TaskScreen() {
           <LoadingState label="Загружаем этап..." />
         ) : (
           <>
+            {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
             {loadError ? <Card><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить данные</Button></Card> : null}
             {actionError?.target === "task" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
             {taskEditing ? <Card>

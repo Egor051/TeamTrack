@@ -32,7 +32,7 @@ import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
-import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
+import { isCachedResult, isExplicitAccessError } from "@/lib/local-cache/cache";
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
 
 export default function ProjectScreen() {
@@ -45,6 +45,7 @@ export default function ProjectScreen() {
   const [archived, setArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [offline, setOffline] = useState(false);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -81,6 +82,7 @@ export default function ProjectScreen() {
       const nextTasks = await listTasksWithStats(id, nextArchived);
       if (request !== requestRef.current) return;
       setTasks(nextTasks);
+      setOffline(isCachedResult(nextProject) || isCachedResult(nextTasks));
     } catch (e) {
       if (request === requestRef.current) {
         if (loadedProjectIdRef.current !== id) {
@@ -89,10 +91,11 @@ export default function ProjectScreen() {
         }
         setLoadError(userMessage(e, "Не удалось обновить проект."));
       }
-      if (request === requestRef.current && e instanceof ResourceAccessDeniedError) {
+      if (request === requestRef.current && isExplicitAccessError(e)) {
         loadedProjectIdRef.current = null;
         setProject(null);
         setTasks([]);
+        setOffline(false);
         router.replace("/projects" as never);
       }
     } finally {
@@ -307,6 +310,7 @@ export default function ProjectScreen() {
         project.status === "archived" ? (
           <View style={styles.actions}><Button onPress={() => void restore()} loading={busy} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
         ) : null}
+         {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
          {loadError && project ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить проект</Button></View> : null}
          {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
          {project ? (
