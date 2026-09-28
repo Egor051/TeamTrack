@@ -12,6 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '@/features/auth/AuthProvider';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/components/ui/theme-provider';
+import { PwaUpdateBanner } from '@/components/pwa-update-banner';
 
 /**
  * RootStack lives inside ThemeProvider so the navigation container always
@@ -29,6 +30,7 @@ function RootStack() {
         }}
       />
       <StatusBar style={resolved === 'dark' ? 'light' : 'dark'} />
+      <PwaUpdateBanner />
     </>
   );
 }

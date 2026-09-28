@@ -31,7 +31,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm audit --omit=optional
-      - run: npx expo export --platform web
+      - run: npm run build:web
       - run: npx expo-doctor
 
   database:
