@@ -25,7 +25,7 @@ import {
 } from '@/features/projects/projects';
 import { getCurrentUser } from '@/features/auth/auth';
 import { layout, spacing } from '@/components/ui/theme';
-import { userMessage } from '@/lib/errors/user-message';
+import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
 
 export default function TemplatesScreen() {
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
@@ -94,7 +94,7 @@ export default function TemplatesScreen() {
       try {
         await action();
       } catch (e) {
-        setError(userMessage(e, 'Операция не выполнена.'));
+        setError(mutationUserMessage(e, 'Операция не выполнена.'));
         return;
       }
       try {

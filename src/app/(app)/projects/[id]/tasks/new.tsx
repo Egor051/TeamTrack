@@ -14,7 +14,7 @@ import { ErrorMessage } from '@/components/ui/error-message';
 import { layout, spacing } from '@/components/ui/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { createTask, createTaskFromTemplate, getProject, listTaskTemplates, type ProjectRole, type TaskTemplate } from '@/features/projects/projects';
-import { userMessage } from '@/lib/errors/user-message';
+import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
 
 type Draft = { title: string; description: string };
 
@@ -90,7 +90,7 @@ export default function NewTask() {
         : await createTask(id, draft.title.trim(), draft.description.trim());
       router.replace(`/projects/${id}/tasks/${taskId}` as never);
     } catch (e) {
-      setError(userMessage(e, 'Не удалось создать этап. Попробуйте ещё раз.'));
+      setError(mutationUserMessage(e, 'Не удалось создать этап. Попробуйте ещё раз.'));
     } finally {
       submitRef.current = false;
       setBusy(false);

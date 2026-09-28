@@ -3,7 +3,8 @@ import { getCurrentUser } from '@/features/auth/auth';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/client';
 import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
-import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, isCachedResult, putCached, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
+import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, putCached, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
+import { applyPendingOperations, listPendingOperations, offlineWriteEnabled } from '@/lib/local-cache/outbox';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
 export type TaskChecklistRole = Exclude<ProjectRole, 'owner'>;
@@ -195,7 +196,19 @@ export async function listProjectTasks(projectId: string): Promise<Task[]> {
 
 export async function listTasksWithStats(projectId: string, archivedOnly = false): Promise<TaskWithStats[]> {
   assertUuid(projectId, 'project id');
-  return readThroughCache(`task-stats:${projectId}:${archivedOnly ? 'archived' : 'active'}`, () => listTasksWithStatsOnline(projectId, archivedOnly), { projectId, filterCached: filterBlockedTasks });
+  const confirmed = await readThroughCache(`task-stats:${projectId}:${archivedOnly ? 'archived' : 'active'}`, () => listTasksWithStatsOnline(projectId, archivedOnly), { projectId, filterCached: filterBlockedTasks });
+  if (!offlineWriteEnabled()) return confirmed;
+  const userId = await activeCacheUserId();
+  if (!userId) return confirmed;
+  const pending = await listPendingOperations(userId);
+  const dirtyTasks = new Set(pending.filter((operation) => operation.project_id === projectId).map((operation) => operation.task_id));
+  const effective = await Promise.all(confirmed.map(async (task) => {
+    if (!dirtyTasks.has(task.id)) return task;
+    const effective = await listTaskItems(task.id, 'active');
+    return { ...task, itemCount: effective.length, completedCount: effective.filter((item) => item.is_completed).length,
+      progressPercent: calculateAverageProgress(effective.map((item) => item.percentage)) };
+  }));
+  return inheritCachedResult(confirmed, effective);
 }
 
 async function listTasksWithStatsOnline(projectId: string, archivedOnly: boolean): Promise<TaskWithStats[]> {
@@ -259,12 +272,17 @@ export type TaskItemListMode = 'active' | 'archived' | 'all';
 export async function listTaskItems(taskId: string, mode: TaskItemListMode | boolean = 'active'): Promise<TaskItem[]> {
   assertUuid(taskId, 'task id');
   const normalizedMode = mode === true ? 'all' : mode;
-  return readThroughCache(`items:${taskId}:${normalizedMode}`, () => fetchAll<TaskItem>((from, to) => {
+  const confirmed = await readThroughCache(`items:${taskId}:${normalizedMode}`, () => fetchAll<TaskItem>((from, to) => {
     let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, to);
     if (mode === 'archived') return query.eq('is_archived', true);
     if (mode === 'all' || mode === true) return query;
     return query.eq('is_archived', false);
   }));
+  if (!offlineWriteEnabled()) return confirmed;
+  const userId = await activeCacheUserId();
+  if (!userId) return [];
+  const operations = await listPendingOperations(userId, taskId);
+  return inheritCachedResult(confirmed, applyPendingOperations(confirmed, operations, userId, taskId));
 }
 export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
 export async function updateTask(taskId: string, title: string, description: string) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('update_task', { p_task_id: taskId, p_title: title, p_description: description })); }

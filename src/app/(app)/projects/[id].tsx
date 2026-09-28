@@ -27,7 +27,7 @@ import {
   type TaskWithStats,
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
-import { userMessage } from "@/lib/errors/user-message";
+import { mutationUserMessage, userMessage } from "@/lib/errors/user-message";
 import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
@@ -172,7 +172,7 @@ export default function ProjectScreen() {
       setConfirm(false);
       router.replace("/projects" as never);
     } catch (e) {
-      setActionError(userMessage(e, "Не удалось архивировать проект."));
+      setActionError(mutationUserMessage(e, "Не удалось архивировать проект."));
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -187,13 +187,13 @@ export default function ProjectScreen() {
       await restoreProject(id!);
       router.replace("/projects" as never);
     } catch (e) {
-      setActionError(userMessage(e, "Не удалось восстановить проект."));
+      setActionError(mutationUserMessage(e, "Не удалось восстановить проект."));
     } finally {
       busyRef.current = false;
       setBusy(false);
     }
   }
-  async function hardDelete() { if (busyRef.current) return; setActionError(''); busyRef.current = true; setBusy(true); try { await hardDeleteProject(id!); setHardDeleteConfirm(false); router.replace('/projects' as never); } catch (e) { setActionError(userMessage(e, 'Не удалось удалить проект навсегда.')); } finally { busyRef.current = false; setBusy(false); } }
+  async function hardDelete() { if (busyRef.current) return; setActionError(''); busyRef.current = true; setBusy(true); try { await hardDeleteProject(id!); setHardDeleteConfirm(false); router.replace('/projects' as never); } catch (e) { setActionError(mutationUserMessage(e, 'Не удалось удалить проект навсегда.')); } finally { busyRef.current = false; setBusy(false); } }
   async function save() {
     if (busyRef.current) return;
     const nextName = editName.trim();
@@ -206,7 +206,7 @@ export default function ProjectScreen() {
       setEditing(false);
       await load();
     } catch (e) {
-      setActionError(userMessage(e, "Не удалось сохранить проект."));
+      setActionError(mutationUserMessage(e, "Не удалось сохранить проект."));
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -221,7 +221,7 @@ export default function ProjectScreen() {
       await moveTask(taskId, direction);
       await load();
     } catch (e) {
-      setActionError(userMessage(e, "Не удалось изменить порядок этапов."));
+      setActionError(mutationUserMessage(e, "Не удалось изменить порядок этапов."));
     } finally {
       busyRef.current = false;
       setBusy(false);

@@ -14,6 +14,10 @@ function markCached<T>(value: T): T {
   return value;
 }
 
+export function inheritCachedResult<T>(source: unknown, value: T): T {
+  return isCachedResult(source) ? markCached(value) : value;
+}
+
 function logCacheError(operation: string, error: unknown): void {
   console.warn(`[TaskTrace] local cache ${operation} failed`, error);
 }

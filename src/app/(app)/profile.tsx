@@ -13,7 +13,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { radii, spacing } from '@/components/ui/theme';
 import { listOwnedProjects, listProjectMembers, transferProjectOwnership, type ProjectWithRole, type ProjectMember } from '@/features/projects/projects';
-import { userMessage } from '@/lib/errors/user-message';
+import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
 import { useTheme, type ThemeMode } from '@/components/ui/theme-provider';
 
 const roleLabels = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
@@ -101,7 +101,7 @@ export default function ProfileScreen() {
     setBusyAction('save');
     setProfileError('');
     try { await updateProfile(value); setEditing(false); setProfileSaved(true); }
-    catch (e) { setProfileError(userMessage(e, 'Не удалось сохранить ник.')); }
+    catch (e) { setProfileError(mutationUserMessage(e, 'Не удалось сохранить ник.')); }
     finally { actionRef.current = false; setBusyAction(null); }
   }
 
@@ -120,7 +120,7 @@ export default function ProfileScreen() {
       await loadOwned();
     } catch (e) {
       setConfirm(false);
-      setTransferError(userMessage(e, 'Не удалось передать владение. Вы можете повторить попытку.'));
+      setTransferError(mutationUserMessage(e, 'Не удалось передать владение. Вы можете повторить попытку.'));
     } finally { actionRef.current = false; setBusyAction(null); }
   }
 

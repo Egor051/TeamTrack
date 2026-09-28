@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { layout, spacing } from '@/components/ui/theme';
 import { createProject } from '@/features/projects/projects';
-import { userMessage } from '@/lib/errors/user-message';
+import { mutationUserMessage } from '@/lib/errors/user-message';
 
 export default function NewProjectScreen() {
   const [name, setName] = useState('');
@@ -30,7 +30,7 @@ export default function NewProjectScreen() {
       const id = await createProject(name.trim(), description.trim());
       router.replace(`/projects/${id}` as never);
     } catch (e) {
-      setError(userMessage(e, 'Не удалось создать проект. Попробуйте ещё раз.'));
+      setError(mutationUserMessage(e, 'Не удалось создать проект. Попробуйте ещё раз.'));
     } finally {
       submitRef.current = false;
       setBusy(false);

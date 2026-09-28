@@ -32,7 +32,7 @@ describe('inherited project-member stage access', () => {
       'utf8',
     );
 
-    expect(task).toContain('const hasTaskAccess = Boolean(user && project && task);');
+    expect(task).toContain('const hasTaskAccess = Boolean(user && project && task && project.id === id && task.project_id === id);');
     expect(task).not.toContain('taskMembers.some');
     expect(task).toContain('Владелец');
     expect(task).toContain('Администратор');

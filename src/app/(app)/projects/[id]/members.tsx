@@ -23,7 +23,7 @@ import {
   type ProjectMember,
   type ProjectRole,
 } from '@/features/projects/projects';
-import { userMessage } from '@/lib/errors/user-message';
+import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
 import { subscribeMany, type RealtimeStatus } from '@/lib/supabase/realtime';
 import { layout, spacing } from '@/components/ui/theme';
 import { useTheme } from '@/components/ui/theme-provider';
@@ -121,7 +121,7 @@ export default function MembersScreen() {
       try {
         await action();
       } catch (e) {
-        setActionError(userMessage(e, 'Операция не выполнена. Попробуйте ещё раз.'));
+        setActionError(mutationUserMessage(e, 'Операция не выполнена. Попробуйте ещё раз.'));
         return;
       }
       setSuccess(message);

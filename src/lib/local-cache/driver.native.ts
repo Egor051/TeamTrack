@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import type { CacheEntry, LocalCacheDriver } from './types';
+import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationInput } from './types';
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -17,6 +17,22 @@ function database(): Promise<SQLite.SQLiteDatabase> {
           schema_version INTEGER NOT NULL,
           PRIMARY KEY (user_id, cache_key)
         ); PRAGMA user_version = 1;`);
+      }
+      if ((version?.user_version ?? 0) < 2) {
+        await db.execAsync(`CREATE TABLE IF NOT EXISTS pending_operations (
+          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+          operation_id TEXT NOT NULL UNIQUE,
+          user_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          task_item_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          status TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS pending_operations_user_task ON pending_operations (user_id, task_id, sequence);
+        PRAGMA user_version = 2;`);
       }
       return db;
     })().catch((error) => {
@@ -46,5 +62,23 @@ export const localCacheDriver: LocalCacheDriver = {
   async remove(userId, key) {
     const db = await database();
     await db.runAsync('DELETE FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, key]);
+  },
+  async enqueue(operation: OfflineOperationInput): Promise<OfflineOperation> {
+    const db = await database();
+    const result = await db.runAsync(
+      'INSERT INTO pending_operations (operation_id, user_id, project_id, task_id, task_item_id, type, payload, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [operation.operation_id, operation.user_id, operation.project_id, operation.task_id, operation.task_item_id, operation.type, JSON.stringify(operation.payload), operation.created_at, operation.status],
+    );
+    return { ...operation, sequence: result.lastInsertRowId };
+  },
+  async listPending(userId, taskId): Promise<OfflineOperation[]> {
+    const db = await database();
+    const rows = await db.getAllAsync<Omit<OfflineOperation, 'payload'> & { payload: string }>(
+      taskId
+        ? 'SELECT * FROM pending_operations WHERE user_id = ? AND task_id = ? ORDER BY sequence'
+        : 'SELECT * FROM pending_operations WHERE user_id = ? ORDER BY sequence',
+      taskId ? [userId, taskId] : [userId],
+    );
+    return rows.map((row) => ({ ...row, payload: JSON.parse(row.payload) as OfflineOperation['payload'] }));
   },
 };

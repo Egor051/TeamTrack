@@ -58,9 +58,11 @@ import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
-import { isCachedResult, isExplicitAccessError, isTransportFailure } from "@/lib/local-cache/cache";
+import { activeCacheUserId, isCachedResult, isExplicitAccessError, isTransportFailure } from "@/lib/local-cache/cache";
 import { filterChecklistItems, formatChecklistComment, parsePercentageInput } from "@/features/projects/checklist";
 import { formatLastEditorSummary } from "@/features/projects/history-format";
+import { applyPendingOperations, listPendingOperations, offlineWriteEnabled, type SupportedEdit } from "@/lib/local-cache/outbox";
+import { performSupportedEdit } from "@/lib/local-cache/edit";
 
 const projectRoleLabels: Record<ProjectMember["role"], string> = {
   owner: "Владелец",
@@ -103,6 +105,9 @@ export default function TaskScreen() {
   const [editPercentage, setEditPercentage] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState("");
   const [offline, setOffline] = useState(false);
+  const [offlineForEdits, setOfflineForEdits] = useState(false);
+  const [pendingItemIds, setPendingItemIds] = useState<Set<string>>(new Set());
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<{ message: string; target: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -120,7 +125,7 @@ export default function TaskScreen() {
   const realtimeConnectedRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!id || !taskId) return;
+    if (!id || !taskId || !user) return;
     const request = ++requestRef.current;
     setLoadError("");
     let supplementaryOffline = false;
@@ -152,14 +157,18 @@ export default function TaskScreen() {
         showArchivedItems ? optional(listTaskItems(taskId, "active"), [] as TaskItem[]) : Promise.resolve(null),
         optional(getMyTaskRole(taskId), "viewer" as ProjectRole),
       ]);
+      const pending = user ? await listPendingOperations(user.id, taskId) : [];
       const nextOverrides = nextProject.role === "owner" || nextProject.role === "admin"
         ? await optional(listTaskMemberOverrides(taskId), [] as TaskMemberOverride[])
         : [];
       if (request !== requestRef.current) return;
+      if (await activeCacheUserId() !== user.id) return;
       setTask(nextTask);
+      setLoadedUserId(user.id);
       setProject(nextProject);
       setItems(nextItems);
       setSummaryItems(nextActiveItems ?? nextItems);
+      setPendingItemIds(new Set(pending.map((operation) => operation.task_item_id)));
       setLoadedView(showArchivedItems ? "archived" : "active");
       setProjectMembers(nextProjectMembers);
       setEffectiveTaskRole(nextTaskRole);
@@ -167,26 +176,30 @@ export default function TaskScreen() {
       setAssignees(nextAssignees);
       setLastEditors(new Map(nextLastEditors.map((entry) => [entry.task_item_id, entry])));
       setOffline(supplementaryOffline || [nextTask, nextProject, nextItems, nextProjectMembers, nextAssignees, nextLastEditors, nextActiveItems, nextOverrides].some(isCachedResult));
+      setOfflineForEdits([nextTask, nextProject, nextItems, nextTaskRole].some(isCachedResult));
       setLoadError("");
     } catch (e) {
       if (request === requestRef.current) {
         setLoadError(userMessage(e, "Не удалось обновить этап."));
         if (isExplicitAccessError(e)) {
           setTask(null);
+          setLoadedUserId(null);
           setProject(null);
           setItems([]);
           setSummaryItems([]);
+          setPendingItemIds(new Set());
           setProjectMembers([]);
           setEffectiveTaskRole(null);
           setTaskMemberOverrides([]);
           setAssignees([]);
           setLastEditors(new Map());
           setOffline(false);
+          setOfflineForEdits(false);
           router.replace("/projects" as never);
         }
       }
     }
-  }, [id, taskId, showArchivedItems]);
+  }, [id, taskId, showArchivedItems, user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -253,6 +266,7 @@ export default function TaskScreen() {
     setActionError(null);
     let completed = false;
     try {
+      if (offlineForEdits && offlineWriteEnabled()) throw new Error("Для этого действия требуется подключение к интернету.");
       await fn();
       completed = true;
       try {
@@ -261,7 +275,9 @@ export default function TaskScreen() {
         setLoadError(userMessage(e, "Не удалось обновить этап."));
       }
     } catch (e) {
-      setActionError({ message: userMessage(e, "Операция не выполнена."), target });
+      setActionError({ message: offlineWriteEnabled() && isTransportFailure(e)
+        ? "Для этого действия требуется подключение к интернету."
+        : userMessage(e, "Операция не выполнена."), target });
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -293,21 +309,50 @@ export default function TaskScreen() {
       setActionError({ message: "Введите целое число от 1 до 100.", target: item.id });
       return;
     }
-    void run(async () => {
-      await setTaskItemPercentage(item.id, value);
+    void runItemEdit(item, { type: 'set_task_item_percentage', payload: { percentage: value } }, () => setTaskItemPercentage(item.id, value), () => {
       setEditPercentage((current) => {
         const next = { ...current };
         delete next[item.id];
         return next;
       });
-    }, item.id);
+    });
+  }
+
+  async function runItemEdit(item: TaskItem, edit: SupportedEdit, onlineAction: () => Promise<unknown>, afterSave?: () => void): Promise<void> {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setBusyAction(item.id);
+    setActionError(null);
+    try {
+      if (!user || !project || !task || !canUpdateChecklistProgress || item.is_archived || item.task_id !== taskId || project.status !== 'active' || task.status === 'archived') {
+        throw new Error('Нет доступа к изменению пункта.');
+      }
+      const result = await performSupportedEdit({ userId: user.id, projectId: id, taskId, itemId: item.id, offline: offlineForEdits, edit, onlineAction });
+      if (result.kind === 'server') {
+        afterSave?.();
+        await load();
+      } else {
+        const { operation } = result;
+        setItems((current) => applyPendingOperations(current, [operation], user.id, taskId));
+        setSummaryItems((current) => applyPendingOperations(current, [operation], user.id, taskId));
+        setPendingItemIds((current) => new Set(current).add(item.id));
+        afterSave?.();
+      }
+    } catch (error) {
+      setActionError({ message: userMessage(error, 'Операция не выполнена.'), target: item.id });
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      setBusyAction(null);
+    }
   }
 
   const canManageTask =
     (project?.role === "owner" || project?.role === "admin") &&
     project?.status === "active" &&
     task?.status !== "archived";
-  const hasTaskAccess = Boolean(user && project && task);
+  const hasTaskAccess = Boolean(user && project && task && project.id === id && task.project_id === id);
   const canUpdateChecklistProgress =
     hasTaskAccess &&
     project?.status === "active" &&
@@ -334,6 +379,10 @@ export default function TaskScreen() {
     return member?.profile?.display_name || assigneeId.slice(0, 8);
   });
   const overrideByUserId = new Map(taskMemberOverrides.map((entry) => [entry.user_id, entry.role_override]));
+
+  if (!user || loadedUserId !== user.id) {
+    return <Screen padded={false} centerContent={false}>{loadError ? <ErrorState message={loadError} onRetry={load} /> : <LoadingState label="Загружаем этап..." />}</Screen>;
+  }
 
   return (
     <Screen padded={false} centerContent={false}>
@@ -416,7 +465,7 @@ export default function TaskScreen() {
                         disabled={busy || !canUpdateChecklistProgress || item.is_archived}
                         label={`${item.title}, ${item.is_completed ? "выполнено" : "не выполнено"}`}
                         onPress={() =>
-                          void run(() => setTaskItemState(item.id, !item.is_completed), item.id)
+                           void runItemEdit(item, { type: 'set_task_item_state', payload: { completed: !item.is_completed } }, () => setTaskItemState(item.id, !item.is_completed))
                         }
                       />
                       <View style={styles.flex}>
@@ -439,7 +488,7 @@ export default function TaskScreen() {
                             accessibilityLabel={`${item.is_completed ? "Снять отметку" : "Отметить выполненным"}: ${item.title}`}
                             accessibilityState={{ disabled: busy || !canUpdateChecklistProgress || item.is_archived }}
                             disabled={busy || !canUpdateChecklistProgress || item.is_archived}
-                            onPress={() => void run(() => setTaskItemState(item.id, !item.is_completed), item.id)}
+                             onPress={() => void runItemEdit(item, { type: 'set_task_item_state', payload: { completed: !item.is_completed } }, () => setTaskItemState(item.id, !item.is_completed))}
                             style={({ pressed }) => [styles.titleToggle, pressed && styles.pressed]}
                           >
                             <ThemedText style={item.is_completed ? [styles.completed, { color: theme.textMuted }] : undefined}>
@@ -449,10 +498,11 @@ export default function TaskScreen() {
                         )}
                         {formattedComment ? <ThemedText type="small" style={styles.itemComment}>{formattedComment}</ThemedText> : null}
                         <View style={styles.itemMeta}>
-                          <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
+                           <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
+                           {pendingItemIds.has(item.id) ? <ThemedText type="caption" accessibilityLiveRegion="polite">Сохранено на устройстве</ThemedText> : null}
                           {busyAction === item.id ? <ThemedText type="caption" accessibilityLiveRegion="polite">Сохраняем…</ThemedText> : null}
                         </View>
-                        {formatLastEditorSummary(lastEditors.get(item.id)) ? <ThemedText type="caption">Последнее изменение: {formatLastEditorSummary(lastEditors.get(item.id))}</ThemedText> : null}
+                         {!pendingItemIds.has(item.id) && formatLastEditorSummary(lastEditors.get(item.id)) ? <ThemedText type="caption">Последнее изменение: {formatLastEditorSummary(lastEditors.get(item.id))}</ThemedText> : null}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -470,7 +520,7 @@ export default function TaskScreen() {
                     <Progress value={item.percentage} label="Выполнение пункта" />
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
                       <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={10000} placeholder="Необязательно" disabled={busy} />
-                      <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 10000} onPress={() => void run(async () => { await setTaskItemComment(item.id, editComment); setCommentEditing(null); }, item.id)}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
+                       <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 10000} onPress={() => void runItemEdit(item, { type: 'set_task_item_comment', payload: { comment: editComment } }, () => setTaskItemComment(item.id, editComment), () => setCommentEditing(null))}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
                     </View> : null}
                     {canUpdateChecklistProgress && !item.is_archived && editing !== item.id && commentEditing !== item.id ? <View style={styles.progressEditor}>
                       <View style={styles.percentageField}><Input label="Прогресс, от 1 до 100%" value={percentageRaw} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value }))} keyboardType="numeric" maxLength={7} onSubmitEditing={() => savePercentage(item)} disabled={busy} /></View>
