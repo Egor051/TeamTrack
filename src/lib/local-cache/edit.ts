@@ -7,6 +7,7 @@ export async function performSupportedEdit(input: {
   projectId: string;
   taskId: string;
   itemId: string;
+  itemVersion?: number;
   offline: boolean;
   edit: SupportedEdit;
   onlineAction: () => Promise<unknown>;
@@ -23,6 +24,6 @@ export async function performSupportedEdit(input: {
       if (!enabled || !isTransportFailure(error)) throw error;
     }
   }
-  const operation = await enqueueOperation(input.userId, input.projectId, input.taskId, input.itemId, input.edit);
+  const operation = await enqueueOperation(input.userId, input.projectId, input.taskId, input.itemId, input.edit, input.itemVersion);
   return { kind: 'local', operation };
 }

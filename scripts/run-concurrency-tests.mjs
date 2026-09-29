@@ -144,6 +144,98 @@ try {
     "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
   )).rows[0].n), beforeAudit + 1);
 
+  // v2 duplicates serialize on the same receipt, then return one stored
+  // success even though the successful write advanced sync_version.
+  const versionBeforeV2 = Number((await observer.query('select sync_version from public.task_items where id=$1', [itemId])).rows[0].sync_version);
+  const v2OperationId = randomUUID();
+  const auditBeforeV2 = Number((await observer.query(
+    "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
+  )).rows[0].n);
+  const v2Duplicates = await Promise.all([
+    asUser(memberWriter, memberId, () => memberWriter.query(
+      'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result', [v2OperationId, itemId, versionBeforeV2, 65],
+    )),
+    asUser(archiveWriter, memberId, () => archiveWriter.query(
+      'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result', [v2OperationId, itemId, versionBeforeV2, 65],
+    )),
+  ]);
+  assert.deepEqual(v2Duplicates.map((result) => result.rows[0].result.status), ['applied', 'applied']);
+  assert.deepEqual(v2Duplicates.map((result) => Number(result.rows[0].result.version)),
+    [versionBeforeV2 + 1, versionBeforeV2 + 1]);
+  assert.equal(Number((await observer.query(
+    "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
+  )).rows[0].n), auditBeforeV2 + 1);
+  assert.equal(Number((await observer.query('select percentage from public.task_items where id=$1', [itemId])).rows[0].percentage), 65);
+
+  // A mismatch creates no receipt or audit, so the same semantic operation
+  // can be retried after explicit user resolution with a fresh precondition.
+  const conflictedId = randomUUID();
+  const stale = await asUser(memberWriter, memberId, () => memberWriter.query(
+    'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result', [conflictedId, itemId, versionBeforeV2, 70],
+  ));
+  assert.equal(stale.rows[0].result.status, 'conflict');
+  assert.equal(Number((await observer.query(
+    'select count(*) n from private.client_operation_receipts where user_id=$1 and operation_id=$2', [memberId, conflictedId],
+  )).rows[0].n), 0);
+  assert.equal(Number((await observer.query(
+    "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
+  )).rows[0].n), auditBeforeV2 + 1);
+  const currentVersion = Number(stale.rows[0].result.version);
+  const resolved = await asUser(memberWriter, memberId, () => memberWriter.query(
+    'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result', [conflictedId, itemId, currentVersion, 70],
+  ));
+  assert.equal(resolved.rows[0].result.status, 'applied');
+  assert.equal(Number((await observer.query('select percentage from public.task_items where id=$1', [itemId])).rows[0].percentage), 70);
+
+  // A second server write before the user's choice forces another conflict.
+  const secondConflictId = randomUUID();
+  await asUser(observer, ownerId, () => observer.query('select public.set_task_item_percentage($1,$2)', [itemId, 80]));
+  const firstConflict = await asUser(memberWriter, memberId, () => memberWriter.query(
+    'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result',
+    [secondConflictId, itemId, Number(resolved.rows[0].result.version), 90],
+  ));
+  assert.equal(firstConflict.rows[0].result.status, 'conflict');
+  await asUser(observer, ownerId, () => observer.query('select public.set_task_item_percentage($1,$2)', [itemId, 55]));
+  const secondConflict = await asUser(memberWriter, memberId, () => memberWriter.query(
+    'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result',
+    [secondConflictId, itemId, Number(firstConflict.rows[0].result.version), 90],
+  ));
+  assert.equal(secondConflict.rows[0].result.status, 'conflict');
+  assert.equal(Number((await observer.query('select percentage from public.task_items where id=$1', [itemId])).rows[0].percentage), 55);
+
+  // Remote write wins the project lock before a v2 replay. The RPC's version
+  // check runs after the lock and cannot overwrite that committed write.
+  const raceVersion = Number((await observer.query('select sync_version from public.task_items where id=$1', [itemId])).rows[0].sync_version);
+  await blocker.query('begin');
+  await blocker.query('select id from public.projects where id=$1 for update', [projectId]);
+  const raceWrite = asUser(memberWriter, memberId, () => memberWriter.query(
+    'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result', [randomUUID(), itemId, raceVersion, 95],
+  ));
+  await waitForWaitEvent(observer, `tt_member_writer_${nonce}`, (row) => row.wait_event_type === 'Lock');
+  await blocker.query('set local role authenticated');
+  await blocker.query("select set_config('request.jwt.claim.sub',$1,true)", [ownerId]);
+  await blocker.query('select public.set_task_item_percentage($1,$2)', [itemId, 85]);
+  await blocker.query('commit');
+  assert.equal((await raceWrite).rows[0].result.status, 'conflict');
+  assert.equal(Number((await observer.query('select percentage from public.task_items where id=$1', [itemId])).rows[0].percentage), 85);
+
+  // Revocation while the v2 caller waits on the parent lock fails closed.
+  const revocationVersion = Number((await observer.query('select sync_version from public.task_items where id=$1', [itemId])).rows[0].sync_version);
+  await blocker.query('begin');
+  await blocker.query('select id from public.projects where id=$1 for update', [projectId]);
+  const revokedV2 = asUser(memberWriter, memberId, () => memberWriter.query(
+    'select public.apply_task_item_comment_operation_v2($1,$2,$3,$4) result',
+    [randomUUID(), itemId, revocationVersion, 'must not commit'],
+  ));
+  await waitForWaitEvent(observer, `tt_member_writer_${nonce}`, (row) => row.wait_event_type === 'Lock');
+  await blocker.query('delete from public.project_members where project_id=$1 and user_id=$2', [projectId, memberId]);
+  await blocker.query('commit');
+  const revokedV2Result = await Promise.allSettled([revokedV2]);
+  assert.equal(revokedV2Result[0].status, 'rejected');
+  assert.equal(revokedV2Result[0].reason.code, '42501');
+  assert.equal((await observer.query('select comment from public.task_items where id=$1', [itemId])).rows[0].comment, null);
+  await asUser(observer, ownerId, () => observer.query("select public.add_project_member($1,$2,'member')", [projectId, memberId]));
+
   // Force hard-delete to pause while holding project -> task locks. A parallel
   // restore follows the same order, waits, and finishes without a deadlock.
   await asUser(observer, ownerId, async () => {

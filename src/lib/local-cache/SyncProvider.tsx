@@ -4,6 +4,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { offlineSyncEnabled } from './outbox';
 import { syncPendingOperations } from './sync';
+import { subscribeTable } from '@/lib/supabase/realtime';
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -21,7 +22,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     const foreground = AppState.addEventListener('change', (state) => {
       if (state === 'active') trigger();
     });
-    return () => { network(); foreground.remove(); };
+    const realtime = subscribeTable('task_items', { userId, onEvent: trigger });
+    const online = () => trigger();
+    if (typeof window !== 'undefined') window.addEventListener('online', online);
+    return () => {
+      network(); foreground.remove(); realtime();
+      if (typeof window !== 'undefined') window.removeEventListener('online', online);
+    };
   }, [userId]);
 
   return children;

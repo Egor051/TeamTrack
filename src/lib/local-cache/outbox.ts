@@ -3,6 +3,7 @@ import { activeCacheUserId } from './cache';
 import { localCacheDriver } from './driver';
 import type { OfflineOperation, OfflineOperationInput } from './types';
 import { newOperationId } from './uuid';
+import { validSyncVersion } from './pull-cache';
 
 export function offlineWriteEnabled(): boolean {
   return process.env.EXPO_PUBLIC_OFFLINE_WRITE_ENABLED === 'true';
@@ -38,6 +39,7 @@ export async function enqueueOperation(
   taskId: string,
   itemId: string,
   edit: SupportedEdit,
+  displayedVersion?: number,
 ): Promise<OfflineOperation> {
   if (!offlineWriteEnabled()) throw new Error('Офлайн-редактирование отключено.');
   if (!userId || await activeCacheUserId() !== userId) throw new Error('Требуется авторизация.');
@@ -46,6 +48,7 @@ export async function enqueueOperation(
     operation_id: newOperationId(), user_id: userId, project_id: projectId,
     task_id: taskId, task_item_id: itemId, ...checked,
     created_at: new Date().toISOString(), status: 'pending',
+    expected_version: validSyncVersion(displayedVersion) ? displayedVersion : null,
   };
   const saved = await localCacheDriver.enqueue(operation);
   if (await activeCacheUserId() !== userId) throw new Error('Сеанс изменился. Обновите страницу.');

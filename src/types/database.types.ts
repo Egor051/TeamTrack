@@ -261,6 +261,7 @@ export type Database = {
           is_completed: boolean
           percentage: number
           position: number
+          sync_version: number
           task_id: string
           title: string
           updated_at: string
@@ -275,6 +276,7 @@ export type Database = {
           is_completed?: boolean
           percentage?: number
           position: number
+          sync_version?: number
           task_id: string
           title: string
           updated_at?: string
@@ -289,6 +291,7 @@ export type Database = {
           is_completed?: boolean
           percentage?: number
           position?: number
+          sync_version?: number
           task_id?: string
           title?: string
           updated_at?: string
@@ -489,6 +492,15 @@ export type Database = {
         }
         Returns: string
       }
+      apply_task_item_comment_operation_v2: {
+        Args: {
+          p_comment: string
+          p_expected_version: number
+          p_operation_id: string
+          p_task_item_id: string
+        }
+        Returns: Json
+      }
       apply_task_item_percentage_operation: {
         Args: {
           p_operation_id: string
@@ -497,6 +509,15 @@ export type Database = {
         }
         Returns: number
       }
+      apply_task_item_percentage_operation_v2: {
+        Args: {
+          p_expected_version: number
+          p_operation_id: string
+          p_percentage: number
+          p_task_item_id: string
+        }
+        Returns: Json
+      }
       apply_task_item_state_operation: {
         Args: {
           p_completed: boolean
@@ -504,6 +525,15 @@ export type Database = {
           p_task_item_id: string
         }
         Returns: boolean
+      }
+      apply_task_item_state_operation_v2: {
+        Args: {
+          p_completed: boolean
+          p_expected_version: number
+          p_operation_id: string
+          p_task_item_id: string
+        }
+        Returns: Json
       }
       archive_project: { Args: { p_project_id: string }; Returns: undefined }
       archive_task: { Args: { p_task_id: string }; Returns: undefined }
@@ -590,6 +620,7 @@ export type Database = {
         Args: { p_task_id: string }
         Returns: Database["public"]["Enums"]["project_role"]
       }
+      get_task_item_sync_cursor: { Args: never; Returns: number }
       get_task_template: { Args: { p_template_id: string }; Returns: Json }
       hard_delete_project: {
         Args: { p_project_id: string }
@@ -650,6 +681,10 @@ export type Database = {
       move_task: {
         Args: { p_direction: number; p_task_id: string }
         Returns: undefined
+      }
+      pull_task_item_changes: {
+        Args: { p_after_cursor: number; p_limit?: number }
+        Returns: Json
       }
       remove_project_member: {
         Args: { p_project_id: string; p_user_id: string }

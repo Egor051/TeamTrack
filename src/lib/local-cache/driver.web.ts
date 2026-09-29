@@ -1,13 +1,16 @@
-import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationInput } from './types';
+import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationInput, SyncConflict } from './types';
 import { reconcileEntries, reconciledKeys } from './reconcile';
+import { applyPullToEntries, validSyncVersion } from './pull-cache';
 
 const DB_NAME = 'tasktrace-local-cache';
 const STORE = 'entries';
 const OUTBOX = 'pending_operations';
+const CONFLICTS = 'sync_conflicts';
+const pullKey = 'sync:task-items:cursor';
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 3);
+    const request = indexedDB.open(DB_NAME, 4);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
@@ -16,6 +19,10 @@ function openDatabase(): Promise<IDBDatabase> {
         outbox.createIndex('by_operation_id', 'operation_id', { unique: true });
         outbox.createIndex('by_user', 'user_id');
         outbox.createIndex('by_user_task', ['user_id', 'task_id']);
+      }
+      if (!db.objectStoreNames.contains(CONFLICTS)) {
+        const conflicts = db.createObjectStore(CONFLICTS, { keyPath: 'conflict_id' });
+        conflicts.createIndex('by_user', 'user_id');
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -65,16 +72,66 @@ export const localCacheDriver: LocalCacheDriver = {
     store.delete(entryKey(userId, key));
     resolve();
   }),
-  enqueue: (operation: OfflineOperationInput) => transact<OfflineOperation>('readwrite', (store, resolve) => {
-    // The auto-increment key is allocated inside the IndexedDB write transaction.
-    // Concurrent tabs cannot allocate the same sequence or overwrite one another.
-    const request = store.add(operation);
-    request.onsuccess = () => {
-      const saved = { ...operation, sequence: Number(request.result) };
-      store.put(saved);
-      resolve(saved);
-    };
-  }, OUTBOX),
+  listEntries: (userId, prefix = '') => transact<CacheEntry[]>('readonly', (store, resolve) => {
+    const request = store.getAll();
+    request.onsuccess = () => resolve((request.result as CacheEntry[])
+      .filter((entry) => entry.user_id === userId && entry.key.startsWith(prefix)));
+  }),
+  async enqueue(operation: OfflineOperationInput) {
+    const db = await openDatabase();
+    let semanticError: Error | null = null;
+    try {
+      return await new Promise<OfflineOperation>((resolve, reject) => {
+        const tx = db.transaction([OUTBOX, STORE], 'readwrite');
+        const outbox = tx.objectStore(OUTBOX);
+        const cache = tx.objectStore(STORE);
+        let saved: OfflineOperation;
+        tx.oncomplete = () => resolve(saved);
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB enqueue failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB enqueue aborted'));
+        const pendingRequest = outbox.index('by_user_task').getAll([operation.user_id, operation.task_id]);
+        pendingRequest.onsuccess = () => {
+          const chain = (pendingRequest.result as OfflineOperation[])
+            .filter((row) => row.task_item_id === operation.task_item_id).sort((a, b) => a.sequence - b.sequence);
+          if (chain.some((row) => row.status === 'failed' || row.status === 'conflict')) {
+            semanticError = new Error('Сначала разрешите несинхронизированные изменения пункта.');
+            tx.abort(); return;
+          }
+          const predecessor = chain.at(-1);
+          const entryRequest = cache.get(entryKey(operation.user_id, `items:${operation.task_id}:active`));
+          entryRequest.onsuccess = () => {
+            try {
+              const active = entryRequest.result as CacheEntry | undefined;
+              const item = active ? (JSON.parse(active.data) as { id: string; sync_version?: number }[])
+                .find((row) => row.id === operation.task_item_id) : undefined;
+              if (!predecessor && !validSyncVersion(item?.sync_version)) {
+                semanticError = new Error('Для офлайн-редактирования сначала синхронизируйте данные при подключении к интернету.');
+                tx.abort(); return;
+              }
+              if (predecessor && !validSyncVersion(chain[0].expected_version) && !chain[0].depends_on_operation_id) {
+                semanticError = new Error('Сначала разрешите несинхронизированные изменения пункта.');
+                tx.abort(); return;
+              }
+              const candidate: OfflineOperationInput = { ...operation,
+                expected_version: predecessor
+                  ? (predecessor.status === 'synced_unreconciled' && validSyncVersion(predecessor.server_version)
+                    ? predecessor.server_version : null)
+                  : validSyncVersion(operation.expected_version) ? operation.expected_version : item!.sync_version!,
+                depends_on_operation_id: predecessor?.operation_id ?? null };
+              const add = outbox.add(candidate);
+              add.onsuccess = () => {
+                saved = { ...candidate, sequence: Number(add.result) };
+                outbox.put(saved);
+              };
+            } catch { tx.abort(); }
+          };
+        };
+      });
+    } catch (error) {
+      if (semanticError) throw semanticError;
+      throw error;
+    } finally { db.close(); }
+  },
   listPending: (userId, taskId) => transact<OfflineOperation[]>('readonly', (store, resolve) => {
     const index = store.index(taskId ? 'by_user_task' : 'by_user');
     const request = index.getAll(taskId ? [userId, taskId] : userId);
@@ -88,6 +145,180 @@ export const localCacheDriver: LocalCacheDriver = {
       resolve();
     };
   }, OUTBOX),
+  async acknowledgeOperation(userId, operationId, version, conflictId, item) {
+    const db = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(conflictId ? [OUTBOX, CONFLICTS] : [OUTBOX], 'readwrite');
+        const store = tx.objectStore(OUTBOX);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB ACK failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB ACK aborted'));
+        const request = store.index('by_operation_id').get(operationId);
+        request.onsuccess = () => {
+          const operation = request.result as OfflineOperation | undefined;
+          if (!operation || operation.user_id !== userId) return;
+          store.put({ ...operation, status: 'synced_unreconciled', server_version: version });
+          const following = store.index('by_user_task').getAll([userId, operation.task_id]);
+          following.onsuccess = () => {
+            for (const row of following.result as OfflineOperation[]) {
+              if (row.depends_on_operation_id === operationId && row.task_item_id === operation.task_item_id)
+                store.put({ ...row, expected_version: version });
+            }
+            if (conflictId && item) {
+              const conflicts = tx.objectStore(CONFLICTS);
+              const conflictRequest = conflicts.get(conflictId);
+              conflictRequest.onsuccess = () => {
+                const conflict = conflictRequest.result as SyncConflict | undefined;
+                if (conflict?.user_id === userId && conflict.operation_ids.includes(operationId))
+                  conflicts.put({ ...conflict, server_state: item, server_version: version,
+                    updated_at: new Date().toISOString() });
+              };
+            }
+          };
+        };
+      });
+    } finally { db.close(); }
+  },
+  listConflicts: (userId) => transact<SyncConflict[]>('readonly', (store, resolve) => {
+    const request = store.index('by_user').getAll(userId);
+    request.onsuccess = () => resolve((request.result as SyncConflict[])
+      .filter((row) => row.user_id === userId && row.status === 'unresolved')
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.conflict_id.localeCompare(b.conflict_id)));
+  }, CONFLICTS),
+  async createConflict(conflict) {
+    const db = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([CONFLICTS, OUTBOX], 'readwrite');
+        const store = tx.objectStore(CONFLICTS);
+        const outbox = tx.objectStore(OUTBOX);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('Conflict storage failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('Conflict storage aborted'));
+        const existing = store.get(conflict.conflict_id);
+        existing.onsuccess = () => {
+          const old = existing.result as SyncConflict | undefined;
+          if (old && old.user_id !== conflict.user_id) { tx.abort(); return; }
+          store.put({ ...conflict, created_at: old?.created_at ?? conflict.created_at });
+          const request = outbox.index('by_user_task').getAll([conflict.user_id, conflict.task_id]);
+          request.onsuccess = () => {
+            for (const operation of request.result as OfflineOperation[]) {
+              if (conflict.operation_ids.includes(operation.operation_id) && operation.task_item_id === conflict.task_item_id)
+                outbox.put({ ...operation, status: 'conflict' });
+            }
+          };
+        };
+      });
+    } finally { db.close(); }
+  },
+  async rebaseConflict(userId, conflictId, version) {
+    const db = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([CONFLICTS, OUTBOX], 'readwrite');
+        const conflicts = tx.objectStore(CONFLICTS);
+        const outbox = tx.objectStore(OUTBOX);
+        tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed')); tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+        const request = conflicts.get(conflictId);
+        request.onsuccess = () => {
+          const conflict = request.result as SyncConflict | undefined;
+          if (!conflict || conflict.user_id !== userId || !conflict.operation_ids.length) { tx.abort(); return; }
+          const all = outbox.index('by_user_task').getAll([userId, conflict.task_id]);
+          all.onsuccess = () => {
+            const chain = (all.result as OfflineOperation[]).filter((row) => conflict.operation_ids.includes(row.operation_id))
+              .sort((a, b) => a.sequence - b.sequence);
+            const firstUnconfirmed = chain.find((row) => row.status !== 'synced_unreconciled');
+            for (const row of chain) {
+              if (row.status === 'synced_unreconciled') continue;
+              outbox.put({ ...row, status: 'pending',
+                expected_version: row.operation_id === firstUnconfirmed?.operation_id ? version : row.expected_version });
+            }
+          };
+        };
+      });
+    } finally { db.close(); }
+  },
+  async resolveServerConflict(userId, conflictId) {
+    const db = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([CONFLICTS, OUTBOX, STORE], 'readwrite');
+        const conflicts = tx.objectStore(CONFLICTS), outbox = tx.objectStore(OUTBOX), cache = tx.objectStore(STORE);
+        tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed')); tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+        const request = conflicts.get(conflictId);
+        request.onsuccess = () => {
+          const conflict = request.result as SyncConflict | undefined;
+          if (!conflict || conflict.user_id !== userId) { tx.abort(); return; }
+          const all = outbox.index('by_user_task').getAll([userId, conflict.task_id]);
+          all.onsuccess = () => {
+            for (const row of all.result as OfflineOperation[]) {
+              if (row.task_item_id === conflict.task_item_id && conflict.operation_ids.includes(row.operation_id)) outbox.delete(row.sequence);
+            }
+            const entriesRequest = cache.getAll();
+            entriesRequest.onsuccess = () => {
+              try {
+                const entries = (entriesRequest.result as CacheEntry[]).filter((entry) => entry.user_id === userId);
+                const next = applyPullToEntries(entries, [{ cursor: 0, task_id: conflict.task_id,
+                  task_item_id: conflict.task_item_id, change_type: conflict.server_state ? 'upsert' : 'delete',
+                  item: conflict.server_state }], conflict.project_id);
+                for (const entry of next) cache.put(entry, entryKey(userId, entry.key));
+                for (const entry of entries) if (!next.some((row) => row.key === entry.key)) cache.delete(entryKey(userId, entry.key));
+                conflicts.delete(conflictId);
+              } catch { tx.abort(); }
+            };
+          };
+        };
+      });
+    } finally { db.close(); }
+  },
+  finishMineConflict: (userId, conflictId) => transact<void>('readwrite', (store, resolve) => {
+    const request = store.get(conflictId);
+    request.onsuccess = () => { if ((request.result as SyncConflict | undefined)?.user_id === userId) store.delete(conflictId); resolve(); };
+  }, CONFLICTS),
+  initializePullCursor: (userId, cursor) => transact<boolean>('readwrite', (store, resolve) => {
+    const key = entryKey(userId, pullKey);
+    const request = store.get(key);
+    request.onsuccess = () => {
+      if (request.result) { resolve(false); return; }
+      store.put({ user_id: userId, key: pullKey, data: JSON.stringify(cursor),
+        last_synced_at: new Date().toISOString(), schema_version: 1 } satisfies CacheEntry, key);
+      resolve(true);
+    };
+  }),
+  async applyPullPage(userId, afterCursor, nextCursor, changes) {
+    const db = await openDatabase();
+    try {
+      return await new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        const cache = tx.objectStore(STORE);
+        let applied = false;
+        tx.oncomplete = () => resolve(applied); tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed')); tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+        const cursorRequest = cache.get(entryKey(userId, pullKey));
+        cursorRequest.onsuccess = () => {
+          const current = cursorRequest.result as CacheEntry | undefined;
+          if (Number(JSON.parse(current?.data ?? '0')) !== afterCursor) return;
+          const entriesRequest = cache.getAll();
+          entriesRequest.onsuccess = () => {
+            try {
+              const entries = (entriesRequest.result as CacheEntry[]).filter((entry) => entry.user_id === userId);
+              let next = entries;
+              for (const change of changes) {
+                const task = entries.find((entry) => entry.key === `task:${change.task_id}`);
+                const projectId = task ? (JSON.parse(task.data) as { project_id?: string }).project_id : undefined;
+                next = applyPullToEntries(next, [change], projectId);
+              }
+              for (const entry of next) cache.put(entry, entryKey(userId, entry.key));
+              for (const entry of entries) if (!next.some((row) => row.key === entry.key)) cache.delete(entryKey(userId, entry.key));
+              cache.put({ user_id: userId, key: pullKey, data: JSON.stringify(nextCursor),
+                last_synced_at: new Date().toISOString(), schema_version: 1 } satisfies CacheEntry, entryKey(userId, pullKey));
+              applied = true;
+            } catch { tx.abort(); }
+          };
+        };
+      });
+    } finally { db.close(); }
+  },
   async reconcileOperation(userId, operationId, item, activeSnapshot) {
     const db = await openDatabase();
     try {

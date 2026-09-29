@@ -335,7 +335,8 @@ export default function TaskScreen() {
       if (!user || !project || !task || !canUpdateChecklistProgress || item.is_archived || item.task_id !== taskId || project.status !== 'active' || task.status === 'archived') {
         throw new Error('Нет доступа к изменению пункта.');
       }
-      const result = await performSupportedEdit({ userId: user.id, projectId: id, taskId, itemId: item.id, offline: offlineForEdits, edit, onlineAction });
+      const result = await performSupportedEdit({ userId: user.id, projectId: id, taskId, itemId: item.id,
+        itemVersion: item.sync_version, offline: offlineForEdits, edit, onlineAction });
       if (result.kind === 'server') {
         afterSave?.();
         await load();

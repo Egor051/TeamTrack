@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CacheEntry, OfflineOperationInput } from '@/lib/local-cache/types';
+import type { CacheEntry, OfflineOperationInput, SyncConflict } from '@/lib/local-cache/types';
 
 const state = vi.hoisted(() => ({ database: null as DatabaseSync | null }));
 
@@ -20,7 +20,11 @@ vi.mock('expo-sqlite', () => ({
         try {
           await callback({
             getFirstAsync: async <T>(sql: string, params: (string | number | null)[] = []) => db.prepare(sql).get(...params) as T | null,
-            runAsync: async (sql: string, params: (string | number | null)[] = []) => db.prepare(sql).run(...params),
+            getAllAsync: async <T>(sql: string, params: (string | number | null)[] = []) => db.prepare(sql).all(...params) as T[],
+            runAsync: async (sql: string, params: (string | number | null)[] = []) => {
+              const result = db.prepare(sql).run(...params);
+              return { lastInsertRowId: Number(result.lastInsertRowid) };
+            },
           });
           db.exec('COMMIT');
         } catch (error) {
@@ -44,6 +48,41 @@ beforeEach(() => {
 });
 
 describe('SQLite outbox migration', () => {
+  it('persists conflict and cursor through module restart with account isolation', async () => {
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
+    await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',
+      data: JSON.stringify([{ id: 'item-1', percentage: 20, is_completed: false, comment: null, sync_version: 10 }]),
+      last_synced_at: '2026-09-28', schema_version: 1 });
+    const saved = await localCacheDriver.enqueue(input('native-conflict'));
+    const server = { id: 'item-1', percentage: 100, is_completed: true, comment: null, sync_version: 11 };
+    const conflict: SyncConflict = { conflict_id: `user-a:item-1:${saved.operation_id}`, user_id: 'user-a',
+      project_id: 'project-1', task_id: 'task-1', task_item_id: 'item-1', operation_ids: [saved.operation_id],
+      local_effective_state: { ...server, percentage: 20, is_completed: false }, server_state: server,
+      server_version: 11, conflicting_fields: ['progress'], project_name: 'Project', task_name: 'Task', item_name: 'Item',
+      created_at: '2026-09-29T00:00:00Z', updated_at: '2026-09-29T00:00:00Z', status: 'unresolved' };
+    await localCacheDriver.createConflict(conflict);
+    expect(await localCacheDriver.initializePullCursor('user-a', 5)).toBe(true);
+    expect(await localCacheDriver.applyPullPage('user-a', 5, 6, [{ cursor: 6, task_id: 'task-1',
+      task_item_id: 'item-1', change_type: 'upsert', item: server }])).toBe(true);
+    vi.resetModules();
+    const reopened = (await import('@/lib/local-cache/driver.native')).localCacheDriver;
+    expect(await reopened.listConflicts('user-a')).toEqual([conflict]);
+    expect(await reopened.listConflicts('user-b')).toEqual([]);
+    expect((await reopened.get('user-a', 'sync:task-items:cursor'))?.data).toBe('6');
+    expect((await reopened.listPending('user-a'))[0].expected_version).toBe(10);
+    await reopened.resolveServerConflict('user-a', conflict.conflict_id);
+    expect(await reopened.listConflicts('user-a')).toEqual([]);
+    expect(await reopened.listPending('user-a')).toEqual([]);
+    expect((await reopened.get('user-a', 'items:task-1:active'))?.data).toContain('"percentage":100');
+  });
+
+  it('refuses an unversioned confirmed cache for new offline writes', async () => {
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
+    await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',
+      data: JSON.stringify([{ id: 'item-1', percentage: 20 }]), last_synced_at: '2026-09-28', schema_version: 1 });
+    await expect(localCacheDriver.enqueue(input('unknown-base'))).rejects.toThrow('синхронизируйте');
+    expect(await localCacheDriver.listPending('user-a')).toEqual([]);
+  });
   it('upgrades a version 1 database and preserves confirmed cache', async () => {
     const db = state.database!;
     db.exec(`CREATE TABLE cache_entries (user_id TEXT NOT NULL, cache_key TEXT NOT NULL, data TEXT NOT NULL,
@@ -53,11 +92,13 @@ describe('SQLite outbox migration', () => {
     const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
     expect(await localCacheDriver.get('user-a', entry.key)).toEqual(entry);
     expect(await localCacheDriver.listPending('user-a')).toEqual([]);
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(4);
   });
 
   it('keeps operations after module reinitialization in SQLite order', async () => {
     const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
+    await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',
+      data: JSON.stringify([{ id: 'item-1', sync_version: 10 }]), last_synced_at: '2026-09-28', schema_version: 1 });
     const [first, second] = await Promise.all([localCacheDriver.enqueue(input('one')), localCacheDriver.enqueue(input('two'))]);
     expect([first.sequence, second.sequence]).toEqual([1, 2]);
     vi.resetModules();

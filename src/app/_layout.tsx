@@ -11,6 +11,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '@/features/auth/AuthProvider';
 import { SyncProvider } from '@/lib/local-cache/SyncProvider';
+import { ConflictGate } from '@/lib/local-cache/ConflictGate';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/components/ui/theme-provider';
 import { PwaUpdateBanner } from '@/components/pwa-update-banner';
@@ -38,8 +39,8 @@ function RootStack() {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider><ThemeProvider><AuthProvider><SyncProvider>
+    <SafeAreaProvider><ThemeProvider><AuthProvider><SyncProvider><ConflictGate>
       <RootStack />
-    </SyncProvider></AuthProvider></ThemeProvider></SafeAreaProvider>
+    </ConflictGate></SyncProvider></AuthProvider></ThemeProvider></SafeAreaProvider>
   );
 }
