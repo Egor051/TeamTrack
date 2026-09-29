@@ -16,7 +16,7 @@ vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
   enqueue: storage.enqueue, listPending: storage.listPending,
 } }));
 
-import { applyPendingOperations, enqueueOperation, listPendingOperations, offlineWriteEnabled } from '@/lib/local-cache/outbox';
+import { applyPendingOperations, enqueueOperation, listPendingOperations, offlineSyncEnabled, offlineWriteEnabled } from '@/lib/local-cache/outbox';
 import { performSupportedEdit } from '@/lib/local-cache/edit';
 
 const context = { userId: 'user-a', projectId: 'project-1', taskId: 'task-1', itemId: 'item-1' };
@@ -27,6 +27,7 @@ const comment = (value: string) => ({ type: 'set_task_item_comment' as const, pa
 
 beforeEach(() => {
   vi.stubEnv('EXPO_PUBLIC_OFFLINE_WRITE_ENABLED', 'true');
+  vi.stubEnv('EXPO_PUBLIC_OFFLINE_SYNC_ENABLED', 'false');
   storage.userId = 'user-a';
   storage.operations = [];
   storage.fail = false;
@@ -89,7 +90,9 @@ describe('pending operations', () => {
 describe('mutation routing', () => {
   it('leaves the flag off by default and routes clean online edits to RPC', async () => {
     vi.stubEnv('EXPO_PUBLIC_OFFLINE_WRITE_ENABLED', 'false');
+    vi.stubEnv('EXPO_PUBLIC_OFFLINE_SYNC_ENABLED', 'false');
     expect(offlineWriteEnabled()).toBe(false);
+    expect(offlineSyncEnabled()).toBe(false);
     const rpc = vi.fn(async () => undefined);
     expect(await performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).toEqual({ kind: 'server' });
     expect(rpc).toHaveBeenCalledOnce();
@@ -119,6 +122,17 @@ describe('mutation routing', () => {
     expect((await performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).kind).toBe('local');
     expect(await performSupportedEdit({ ...context, itemId: 'item-2', offline: false, edit: percentage(70), onlineAction: rpc })).toEqual({ kind: 'server' });
     expect(rpc).toHaveBeenCalledOnce();
+  });
+
+  it('preserves old pending overlay when new offline writes are disabled', async () => {
+    await enqueueOperation('user-a', 'project-1', 'task-1', 'item-1', percentage(40));
+    vi.stubEnv('EXPO_PUBLIC_OFFLINE_WRITE_ENABLED', 'false');
+    vi.stubEnv('EXPO_PUBLIC_OFFLINE_SYNC_ENABLED', 'true');
+    const pending = await listPendingOperations('user-a', 'task-1');
+    expect(applyPendingOperations(base, pending, 'user-a', 'task-1')[0].percentage).toBe(40);
+    const rpc = vi.fn(async () => undefined);
+    await expect(performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).rejects.toThrow('Сначала синхронизируйте');
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it('does not run RPC when known offline and does not claim a failed local save', async () => {

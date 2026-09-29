@@ -64,6 +64,17 @@ export async function putCached<T>(userId: string, key: string, value: T): Promi
   }
 }
 
+async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, expectedData: string | null): Promise<void> {
+  try {
+    await localCacheDriver.putIfUnchanged({
+      user_id: userId, key, data: JSON.stringify(value),
+      last_synced_at: new Date().toISOString(), schema_version: LOCAL_CACHE_SCHEMA_VERSION,
+    }, expectedData);
+  } catch (error) {
+    logCacheError('conditional write', error);
+  }
+}
+
 async function removeCached(userId: string, key: string): Promise<void> {
   try {
     await localCacheDriver.remove(userId, key);
@@ -83,8 +94,8 @@ export function isExplicitAccessError(error: unknown): boolean {
 export function isTransportFailure(error: unknown): boolean {
   if (isExplicitAccessError(error)) return false;
   const value = error as { status?: number; code?: string; message?: string } | null;
-  if (value?.code && value.code !== 'PGRST000') return false;
   if (value?.status === 502 || value?.status === 503 || value?.status === 504) return true;
+  if (value?.code && value.code !== 'PGRST000') return false;
   if (value?.status && value.status !== 0) return false;
   const message = value?.message?.toLowerCase() ?? '';
   return /failed to fetch|fetch failed|network request failed|networkerror|network error|err_network|load failed|timed? out|timeout/.test(message);
@@ -99,10 +110,15 @@ type ReadOptions<T> = {
 
 export async function readThroughCache<T>(key: string, online: () => Promise<T>, options: ReadOptions<T> = {}): Promise<T> {
   const userId = await sessionUserId();
+  let baseline: string | null | undefined;
+  if (userId) {
+    try { baseline = (await localCacheDriver.get(userId, key))?.data ?? null; }
+    catch { baseline = undefined; }
+  }
   try {
     const value = await online();
     if (userId && await sessionUserId() === userId) {
-      await putCached(userId, key, value);
+      if (baseline !== undefined) await putCachedIfUnchanged(userId, key, value, baseline);
       if (options.projectId && options.clearProjectBlockOnSuccess) await removeCached(userId, `blocked:${options.projectId}`);
       if (options.taskId) await removeCached(userId, `blocked-task:${options.taskId}`);
     }

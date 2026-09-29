@@ -4,7 +4,7 @@ import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/client';
 import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
 import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, putCached, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
-import { applyPendingOperations, listPendingOperations, offlineWriteEnabled } from '@/lib/local-cache/outbox';
+import { applyPendingOperations, listPendingOperations } from '@/lib/local-cache/outbox';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
 export type TaskChecklistRole = Exclude<ProjectRole, 'owner'>;
@@ -197,7 +197,6 @@ export async function listProjectTasks(projectId: string): Promise<Task[]> {
 export async function listTasksWithStats(projectId: string, archivedOnly = false): Promise<TaskWithStats[]> {
   assertUuid(projectId, 'project id');
   const confirmed = await readThroughCache(`task-stats:${projectId}:${archivedOnly ? 'archived' : 'active'}`, () => listTasksWithStatsOnline(projectId, archivedOnly), { projectId, filterCached: filterBlockedTasks });
-  if (!offlineWriteEnabled()) return confirmed;
   const userId = await activeCacheUserId();
   if (!userId) return confirmed;
   const pending = await listPendingOperations(userId);
@@ -278,7 +277,6 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
     if (mode === 'all' || mode === true) return query;
     return query.eq('is_archived', false);
   }));
-  if (!offlineWriteEnabled()) return confirmed;
   const userId = await activeCacheUserId();
   if (!userId) return [];
   const operations = await listPendingOperations(userId, taskId);

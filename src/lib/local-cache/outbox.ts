@@ -8,6 +8,10 @@ export function offlineWriteEnabled(): boolean {
   return process.env.EXPO_PUBLIC_OFFLINE_WRITE_ENABLED === 'true';
 }
 
+export function offlineSyncEnabled(): boolean {
+  return process.env.EXPO_PUBLIC_OFFLINE_SYNC_ENABLED === 'true';
+}
+
 export type SupportedEdit =
   | { type: 'set_task_item_state'; payload: { completed: boolean } }
   | { type: 'set_task_item_percentage'; payload: { percentage: number } }
@@ -49,7 +53,6 @@ export async function enqueueOperation(
 }
 
 export async function listPendingOperations(userId: string, taskId?: string): Promise<OfflineOperation[]> {
-  if (!offlineWriteEnabled()) return [];
   if (!userId || await activeCacheUserId() !== userId) return [];
   const operations = await localCacheDriver.listPending(userId, taskId);
   if (await activeCacheUserId() !== userId) return [];
@@ -70,7 +73,7 @@ export function applyPendingOperations<T extends Pick<TaskItem, 'id' | 'percenta
 ): T[] {
   const latest = new Map(confirmed.map((item) => [item.id, { ...item }]));
   for (const operation of [...operations].sort((a, b) => a.sequence - b.sequence)) {
-    if (operation.status !== 'pending' || operation.user_id !== userId || operation.task_id !== taskId) continue;
+    if (operation.user_id !== userId || operation.task_id !== taskId) continue;
     const item = latest.get(operation.task_item_id);
     if (!item) continue;
     if (operation.type === 'set_task_item_state') {

@@ -63,6 +63,7 @@ import { filterChecklistItems, formatChecklistComment, parsePercentageInput } fr
 import { formatLastEditorSummary } from "@/features/projects/history-format";
 import { applyPendingOperations, listPendingOperations, offlineWriteEnabled, type SupportedEdit } from "@/lib/local-cache/outbox";
 import { performSupportedEdit } from "@/lib/local-cache/edit";
+import { subscribeSyncChanges } from "@/lib/local-cache/sync";
 
 const projectRoleLabels: Record<ProjectMember["role"], string> = {
   owner: "Владелец",
@@ -107,6 +108,7 @@ export default function TaskScreen() {
   const [offline, setOffline] = useState(false);
   const [offlineForEdits, setOfflineForEdits] = useState(false);
   const [pendingItemIds, setPendingItemIds] = useState<Set<string>>(new Set());
+  const [failedItemIds, setFailedItemIds] = useState<Set<string>>(new Set());
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<{ message: string; target: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -169,6 +171,7 @@ export default function TaskScreen() {
       setItems(nextItems);
       setSummaryItems(nextActiveItems ?? nextItems);
       setPendingItemIds(new Set(pending.map((operation) => operation.task_item_id)));
+      setFailedItemIds(new Set(pending.filter((operation) => operation.status === 'failed').map((operation) => operation.task_item_id)));
       setLoadedView(showArchivedItems ? "archived" : "active");
       setProjectMembers(nextProjectMembers);
       setEffectiveTaskRole(nextTaskRole);
@@ -205,10 +208,14 @@ export default function TaskScreen() {
     useCallback(() => {
       void permissionVersion;
       void load();
+      const unsubscribe = subscribeSyncChanges((changedUserId) => {
+        if (changedUserId === user?.id) void load();
+      });
       return () => {
+        unsubscribe();
         requestRef.current += 1;
       };
-    }, [load, permissionVersion]),
+    }, [load, permissionVersion, user?.id]),
   );
 
   useFocusEffect(
@@ -499,7 +506,7 @@ export default function TaskScreen() {
                         {formattedComment ? <ThemedText type="small" style={styles.itemComment}>{formattedComment}</ThemedText> : null}
                         <View style={styles.itemMeta}>
                            <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
-                           {pendingItemIds.has(item.id) ? <ThemedText type="caption" accessibilityLiveRegion="polite">Сохранено на устройстве</ThemedText> : null}
+                           {pendingItemIds.has(item.id) ? <ThemedText type="caption" accessibilityLiveRegion="polite" style={failedItemIds.has(item.id) ? { color: theme.warning } : undefined}>{failedItemIds.has(item.id) ? 'Не удалось синхронизировать' : 'Ожидает синхронизации'}</ThemedText> : null}
                           {busyAction === item.id ? <ThemedText type="caption" accessibilityLiveRegion="polite">Сохраняем…</ThemedText> : null}
                         </View>
                          {!pendingItemIds.has(item.id) && formatLastEditorSummary(lastEditors.get(item.id)) ? <ThemedText type="caption">Последнее изменение: {formatLastEditorSummary(lastEditors.get(item.id))}</ThemedText> : null}

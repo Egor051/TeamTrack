@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
 
 const local = getLocalSupabaseStatus();
@@ -106,6 +107,38 @@ try {
   await rpc(owner, 'add_project_member', { p_project_id: projectId, p_user_id: identities.viewer.id, p_role: 'viewer' });
   taskId = await rpc(owner, 'create_task', { p_project_id: projectId, p_title: 'Backend stage', p_description: 'Before' });
   itemId = await rpc(owner, 'create_task_item', { p_task_id: taskId, p_title: 'Before' });
+
+  // Real PostgREST calls, including the pinned-token client used by replay.
+  const offlineItemId = await rpc(owner, 'create_task_item', { p_task_id: taskId, p_title: 'Offline replay item' });
+  const operationId = randomUUID();
+  const ownerSession = (await owner.auth.getSession()).data.session;
+  assert.ok(ownerSession?.access_token);
+  const replayClient = createClient(local.API_URL, local.ANON_KEY, {
+    accessToken: async () => ownerSession.access_token,
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  });
+  assert.equal(await rpc(replayClient, 'apply_task_item_percentage_operation', {
+    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 30,
+  }), 30);
+  const auditAfterFirst = await owner.from('audit_log').select('id').eq('entity_type', 'task_item').eq('entity_id', offlineItemId);
+  assert.equal(auditAfterFirst.error, null);
+  assert.equal(await rpc(replayClient, 'apply_task_item_percentage_operation', {
+    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 30,
+  }), 30);
+  const auditAfterRetry = await owner.from('audit_log').select('id').eq('entity_type', 'task_item').eq('entity_id', offlineItemId);
+  assert.equal(auditAfterRetry.error, null);
+  assert.equal(auditAfterRetry.data.length, auditAfterFirst.data.length);
+  const mismatch = await replayClient.rpc('apply_task_item_percentage_operation', {
+    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 20,
+  });
+  assert.equal(mismatch.error?.code, '22023');
+  const anonClient = createClient(local.API_URL, local.ANON_KEY, clientOptions);
+  const anonReplay = await anonClient.rpc('apply_task_item_percentage_operation', {
+    p_operation_id: randomUUID(), p_task_item_id: offlineItemId, p_percentage: 10,
+  });
+  assert.ok(anonReplay.error, 'anon called offline replay RPC');
+  const privateRead = await owner.schema('private').from('client_operation_receipts').select('operation_id');
+  assert.ok(privateRead.error, 'authenticated accessed private receipts through Data API');
 
   // TT-H01: the exact app-shaped RPC resolves, while the removed overload does not.
   const appShape = await owner.rpc('update_task_item', { p_task_item_id: itemId, p_title: 'App-shaped update' });

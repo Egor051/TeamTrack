@@ -86,7 +86,7 @@ function main() {
   }
 
   mkdirSync(dirname(outFile), { recursive: true });
-  writeFileSync(outFile, stdout);
+  writeFileSync(outFile, `${stdout.trimEnd()}\n`);
   console.log(`✔ Wrote ${outFile} (${stdout.split('\n').length} lines)`);
 }
 

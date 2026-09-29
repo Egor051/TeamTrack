@@ -481,6 +481,30 @@ export type Database = {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
       }
+      apply_task_item_comment_operation: {
+        Args: {
+          p_comment: string
+          p_operation_id: string
+          p_task_item_id: string
+        }
+        Returns: string
+      }
+      apply_task_item_percentage_operation: {
+        Args: {
+          p_operation_id: string
+          p_percentage: number
+          p_task_item_id: string
+        }
+        Returns: number
+      }
+      apply_task_item_state_operation: {
+        Args: {
+          p_completed: boolean
+          p_operation_id: string
+          p_task_item_id: string
+        }
+        Returns: boolean
+      }
       archive_project: { Args: { p_project_id: string }; Returns: undefined }
       archive_task: { Args: { p_task_id: string }; Returns: undefined }
       archive_task_item: {

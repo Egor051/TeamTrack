@@ -116,6 +116,10 @@ Copy-Item .env.example .env
 EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR_PUBLIC_ANON_OR_PUBLISHABLE_KEY
 
+# Phase 4 opt-in; keep both false in production until Phase 5.
+EXPO_PUBLIC_OFFLINE_WRITE_ENABLED=false
+EXPO_PUBLIC_OFFLINE_SYNC_ENABLED=false
+
 # Только локальные/server-side инструменты. В bundle они не попадают.
 SUPABASE_DB_URL=<set only in ignored .env>
 SUPABASE_PROJECT_ID=YOUR_PROJECT_REF
@@ -500,9 +504,14 @@ npx --yes supabase@2.116.0 stop
 
 ## Ограничения текущего scope
 
-В текущей версии нет comments, subtasks и offline sync. Исторический baseline
-также перечисляет их как будущие направления; не следует путать этот список с
-поддерживаемым production API.
+Phase 4 содержит локальный outbox и последовательную отправку через idempotent
+RPC. Обе offline feature flags по умолчанию выключены: обнаружение конфликтов
+между изменениями разных пользователей запланировано на Phase 5. Перед
+включением sync на тестовом окружении примените миграцию
+`20260929060607_offline_operation_receipts.sql` к соответствующей базе.
+`EXPO_PUBLIC_OFFLINE_SYNC_ENABLED=true` может отправить уже сохранённые операции,
+даже если новые offline edits выключены через `EXPO_PUBLIC_OFFLINE_WRITE_ENABLED=false`.
+Full sync center и background Service Worker sync пока не реализованы.
 
 ## Лицензия
 

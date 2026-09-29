@@ -11,6 +11,7 @@ const fixtures = vi.hoisted(() => {
     from: vi.fn(),
     get: vi.fn(),
     put: vi.fn(),
+    putIfUnchanged: vi.fn(),
     remove: vi.fn(),
   };
 });
@@ -20,7 +21,7 @@ vi.mock('@/lib/supabase/client', () => ({
 }));
 vi.mock('@/features/auth/auth', () => ({ getCurrentUser: vi.fn() }));
 vi.mock('@/lib/local-cache/driver', () => ({
-  localCacheDriver: { get: fixtures.get, put: fixtures.put, remove: fixtures.remove },
+  localCacheDriver: { get: fixtures.get, put: fixtures.put, putIfUnchanged: fixtures.putIfUnchanged, remove: fixtures.remove },
 }));
 
 import { filterBlockedProjects, isCachedResult, readThroughCache } from '@/lib/local-cache/cache';
@@ -41,6 +42,11 @@ beforeEach(() => {
   fixtures.put.mockImplementation(async (entry: CacheEntry) => {
     if (fixtures.writeFails) throw new Error('storage unavailable');
     fixtures.records.set(`${entry.user_id}:${entry.key}`, entry);
+  });
+  fixtures.putIfUnchanged.mockImplementation(async (entry: CacheEntry, expectedData: string | null) => {
+    if (fixtures.writeFails) throw new Error('storage unavailable');
+    const key = `${entry.user_id}:${entry.key}`;
+    if (((fixtures.records.get(key) as CacheEntry | undefined)?.data ?? null) === expectedData) fixtures.records.set(key, entry);
   });
   fixtures.remove.mockImplementation(async (userId: string, key: string) => {
     fixtures.records.delete(`${userId}:${key}`);
@@ -64,6 +70,20 @@ describe('read-through cache', () => {
     await expect(readThroughCache('projects:active', async () => project)).resolves.toBe(project);
     expect(warning).toHaveBeenCalled();
     warning.mockRestore();
+  });
+
+  it('does not overwrite a reconciled cache entry with a late old read', async () => {
+    await readThroughCache('items:task:active', async () => [{ id: 'item', percentage: 20 }]);
+    let finish!: (value: { id: string; percentage: number }[]) => void;
+    const staleRead = readThroughCache('items:task:active', () => new Promise((resolve) => { finish = resolve; }));
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    fixtures.records.set('user-a:items:task:active', {
+      user_id: 'user-a', key: 'items:task:active', data: JSON.stringify([{ id: 'item', percentage: 70 }]),
+      last_synced_at: '2026-09-29', schema_version: 1,
+    });
+    finish([{ id: 'item', percentage: 20 }]);
+    await staleRead;
+    expect(JSON.parse((fixtures.records.get('user-a:items:task:active') as CacheEntry).data)).toEqual([{ id: 'item', percentage: 70 }]);
   });
 
   it('returns saved data on transport failure', async () => {

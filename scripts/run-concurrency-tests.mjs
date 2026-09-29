@@ -109,6 +109,41 @@ try {
   assert.equal((await observer.query('select percentage from public.task_items where id=$1', [itemId])).rows[0].percentage, 0);
   await asUser(observer, ownerId, () => observer.query('select public.restore_project($1)', [projectId]));
 
+  // Two simultaneous claims of the same receipt must serialize at the unique
+  // key. Both callers get the stored result, with one canonical side effect.
+  const operationId = randomUUID();
+  const beforeAudit = Number((await observer.query(
+    "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
+  )).rows[0].n);
+  const beforeNotifications = Number((await observer.query(
+    "select count(*) n from public.notifications where data->>'entity_id'=$1", [itemId],
+  )).rows[0].n);
+  const duplicates = await Promise.all([
+    asUser(memberWriter, memberId, () => memberWriter.query(
+      'select public.apply_task_item_percentage_operation($1,$2,$3) result', [operationId, itemId, 42],
+    )),
+    asUser(archiveWriter, memberId, () => archiveWriter.query(
+      'select public.apply_task_item_percentage_operation($1,$2,$3) result', [operationId, itemId, 42],
+    )),
+  ]);
+  assert.deepEqual(duplicates.map((result) => result.rows[0].result), [42, 42]);
+  assert.equal(Number((await observer.query(
+    "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
+  )).rows[0].n), beforeAudit + 1);
+  const afterNotifications = Number((await observer.query(
+    "select count(*) n from public.notifications where data->>'entity_id'=$1", [itemId],
+  )).rows[0].n);
+  assert.ok(afterNotifications >= beforeNotifications);
+  await asUser(memberWriter, memberId, () => memberWriter.query(
+    'select public.apply_task_item_percentage_operation($1,$2,$3)', [operationId, itemId, 42],
+  ));
+  assert.equal(Number((await observer.query(
+    "select count(*) n from public.notifications where data->>'entity_id'=$1", [itemId],
+  )).rows[0].n), afterNotifications);
+  assert.equal(Number((await observer.query(
+    "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
+  )).rows[0].n), beforeAudit + 1);
+
   // Force hard-delete to pause while holding project -> task locks. A parallel
   // restore follows the same order, waits, and finishes without a deadlock.
   await asUser(observer, ownerId, async () => {

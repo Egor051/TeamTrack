@@ -44,7 +44,7 @@ describe('IndexedDB outbox', () => {
     expect(await localCacheDriver.get('user-a', 'items:task-1:active')).toEqual(entry);
     expect(await localCacheDriver.listPending('user-a')).toEqual([]);
     const upgraded = await requestDone(indexedDB.open(name));
-    expect(upgraded.version).toBe(2);
+    expect(upgraded.version).toBe(3);
     expect([...upgraded.objectStoreNames]).toContain('pending_operations');
     upgraded.close();
   });
@@ -68,5 +68,55 @@ describe('IndexedDB outbox', () => {
     await localCacheDriver.enqueue(input('same-id'));
     await expect(localCacheDriver.enqueue(input('same-id'))).rejects.toBeTruthy();
     expect((await localCacheDriver.listPending('user-a')).map((op) => op.operation_id)).toEqual(['same-id']);
+  });
+
+  it('upgrades a Phase 3 outbox without changing sequence or operation ID', async () => {
+    const request = indexedDB.open(name, 2);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore('entries');
+      const outbox = request.result.createObjectStore('pending_operations', { keyPath: 'sequence', autoIncrement: true });
+      outbox.createIndex('by_operation_id', 'operation_id', { unique: true });
+      outbox.createIndex('by_user', 'user_id');
+      outbox.createIndex('by_user_task', ['user_id', 'task_id']);
+    };
+    const db = await requestDone(request);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('pending_operations', 'readwrite');
+      tx.objectStore('pending_operations').put({ ...input('phase-3-id'), sequence: 8 });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.web');
+    expect(await localCacheDriver.listPending('user-a')).toMatchObject([{ operation_id: 'phase-3-id', sequence: 8, status: 'pending' }]);
+  });
+
+  it('keeps ACK overlay until cache replacement and deletion commit together', async () => {
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.web');
+    await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',
+      data: JSON.stringify([{ id: 'item-1', percentage: 20, is_completed: false, comment: null }]),
+      last_synced_at: '2026-09-28', schema_version: 1 });
+    await localCacheDriver.put({ user_id: 'user-a', key: 'task-stats:project-1:active',
+      data: JSON.stringify([{ id: 'task-1', itemCount: 1, completedCount: 0, progressPercent: 20 }]),
+      last_synced_at: '2026-09-28', schema_version: 1 });
+    const saved = await localCacheDriver.enqueue(input('ack-id'));
+    await localCacheDriver.markOperation('user-a', saved.operation_id, 'synced_unreconciled', 70);
+    expect((await localCacheDriver.listPending('user-a'))[0].status).toBe('synced_unreconciled');
+    expect((await localCacheDriver.get('user-a', 'items:task-1:active'))?.data).toContain('"percentage":20');
+    const confirmed = { id: 'item-1', percentage: 70, is_completed: false, comment: null };
+    await localCacheDriver.reconcileOperation('user-a', saved.operation_id, confirmed, [confirmed]);
+    expect(await localCacheDriver.listPending('user-a')).toEqual([]);
+    expect((await localCacheDriver.get('user-a', 'items:task-1:active'))?.data).toContain('"percentage":70');
+    expect((await localCacheDriver.get('user-a', 'task-stats:project-1:active'))?.data).toContain('"progressPercent":70');
+  });
+
+  it('creates a confirmed active snapshot before clearing an ACK when cache was absent', async () => {
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.web');
+    const saved = await localCacheDriver.enqueue(input('no-cache'));
+    await localCacheDriver.markOperation('user-a', saved.operation_id, 'synced_unreconciled', 70);
+    const confirmed = { id: 'item-1', percentage: 70, is_completed: false, comment: null };
+    await localCacheDriver.reconcileOperation('user-a', saved.operation_id, confirmed, [confirmed]);
+    expect(await localCacheDriver.listPending('user-a')).toEqual([]);
+    expect((await localCacheDriver.get('user-a', 'items:task-1:active'))?.data).toContain('"percentage":70');
   });
 });

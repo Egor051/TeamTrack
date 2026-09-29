@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationInput } from './types';
+import { reconcileEntries, reconciledKeys } from './reconcile';
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -34,6 +35,11 @@ function database(): Promise<SQLite.SQLiteDatabase> {
         CREATE INDEX IF NOT EXISTS pending_operations_user_task ON pending_operations (user_id, task_id, sequence);
         PRAGMA user_version = 2;`);
       }
+      if ((version?.user_version ?? 0) < 3) {
+        await db.execAsync(`ALTER TABLE pending_operations ADD COLUMN server_result TEXT;
+          ALTER TABLE pending_operations ADD COLUMN last_error TEXT;
+          PRAGMA user_version = 3;`);
+      }
       return db;
     })().catch((error) => {
       databasePromise = null;
@@ -59,6 +65,17 @@ export const localCacheDriver: LocalCacheDriver = {
       [entry.user_id, entry.key, entry.data, entry.last_synced_at, entry.schema_version],
     );
   },
+  async putIfUnchanged(entry, expectedData) {
+    const db = await database();
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const current = await tx.getFirstAsync<{ data: string }>(
+        'SELECT data FROM cache_entries WHERE user_id = ? AND cache_key = ?', [entry.user_id, entry.key],
+      );
+      if ((current?.data ?? null) !== expectedData) return;
+      await tx.runAsync('INSERT OR REPLACE INTO cache_entries (user_id, cache_key, data, last_synced_at, schema_version) VALUES (?, ?, ?, ?, ?)',
+        [entry.user_id, entry.key, entry.data, entry.last_synced_at, entry.schema_version]);
+    });
+  },
   async remove(userId, key) {
     const db = await database();
     await db.runAsync('DELETE FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, key]);
@@ -79,6 +96,42 @@ export const localCacheDriver: LocalCacheDriver = {
         : 'SELECT * FROM pending_operations WHERE user_id = ? ORDER BY sequence',
       taskId ? [userId, taskId] : [userId],
     );
-    return rows.map((row) => ({ ...row, payload: JSON.parse(row.payload) as OfflineOperation['payload'] }));
+    return rows.map((row) => ({ ...row, payload: JSON.parse(row.payload) as OfflineOperation['payload'],
+      server_result: row.server_result == null ? undefined : JSON.parse(row.server_result as string) as OfflineOperation['server_result'] }));
+  },
+  async markOperation(userId, operationId, status, result, error) {
+    const db = await database();
+    await db.runAsync(
+      'UPDATE pending_operations SET status = ?, server_result = ?, last_error = ? WHERE user_id = ? AND operation_id = ?',
+      [status, result === undefined ? null : JSON.stringify(result), error ?? null, userId, operationId],
+    );
+  },
+  async reconcileOperation(userId, operationId, item, activeSnapshot) {
+    const db = await database();
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const row = await tx.getFirstAsync<Omit<OfflineOperation, 'payload' | 'server_result'> & { payload: string; server_result: string | null }>(
+        'SELECT * FROM pending_operations WHERE user_id = ? AND operation_id = ?', [userId, operationId],
+      );
+      if (!row) return;
+      const operation: OfflineOperation = { ...row, payload: JSON.parse(row.payload) as OfflineOperation['payload'] };
+      if (operation.status !== 'synced_unreconciled' || operation.task_item_id !== item.id) throw new Error('Invalid reconciliation');
+      const keys = reconciledKeys(operation);
+      const entries = await Promise.all(keys.map(async (key) =>
+        await tx.getFirstAsync<CacheEntry>(
+          'SELECT user_id, cache_key AS key, data, last_synced_at, schema_version FROM cache_entries WHERE user_id = ? AND cache_key = ?',
+          [userId, key],
+        )));
+      const updated = reconcileEntries(entries, operation, item, activeSnapshot);
+      for (let i = 0; i < keys.length; i += 1) {
+        if (updated[i]) {
+          const entry = updated[i]!;
+          await tx.runAsync('INSERT OR REPLACE INTO cache_entries (user_id, cache_key, data, last_synced_at, schema_version) VALUES (?, ?, ?, ?, ?)',
+            [entry.user_id, entry.key, entry.data, entry.last_synced_at, entry.schema_version]);
+        } else {
+          await tx.runAsync('DELETE FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, keys[i]]);
+        }
+      }
+      await tx.runAsync('DELETE FROM pending_operations WHERE user_id = ? AND operation_id = ?', [userId, operationId]);
+    });
   },
 };

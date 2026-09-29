@@ -13,7 +13,8 @@ export async function performSupportedEdit(input: {
 }): Promise<{ kind: 'server' } | { kind: 'local'; operation: OfflineOperation }> {
   if (await activeCacheUserId() !== input.userId) throw new Error('Требуется авторизация.');
   const enabled = offlineWriteEnabled();
-  const dirty = enabled && await hasPendingOperations(input.userId, input.taskId, input.itemId);
+  const dirty = await hasPendingOperations(input.userId, input.taskId, input.itemId);
+  if (dirty && !enabled) throw new Error('Сначала синхронизируйте сохранённые изменения пункта.');
   if (!enabled || (!input.offline && !dirty)) {
     try {
       await input.onlineAction();
