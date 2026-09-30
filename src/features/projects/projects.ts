@@ -5,6 +5,8 @@ import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/
 import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
 import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, putCached, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
 import { applyPendingOperations, listPendingOperations } from '@/lib/local-cache/outbox';
+import { buildSyncEnabled } from '@/lib/local-cache/runtime-config';
+import { ChecklistLocalRepository } from '@/lib/local-cache/repository';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
 export type TaskChecklistRole = Exclude<ProjectRole, 'owner'>;
@@ -270,7 +272,18 @@ export async function getTask(taskId: string, projectId?: string): Promise<Task>
 export type TaskItemListMode = 'active' | 'archived' | 'all';
 export async function listTaskItems(taskId: string, mode: TaskItemListMode | boolean = 'active'): Promise<TaskItem[]> {
   assertUuid(taskId, 'task id');
-  const normalizedMode = mode === true ? 'all' : mode;
+  const normalizedMode = mode === true ? 'all' : mode === false ? 'active' : mode;
+  const localUserId = await activeCacheUserId();
+  if (buildSyncEnabled() && localUserId) {
+    if (await getCached<boolean>(localUserId, `blocked-task:${taskId}`))
+      return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode);
+    const local = await ChecklistLocalRepository.getEffectiveTaskItems(localUserId, taskId, normalizedMode);
+    if (local) {
+      void ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode).catch(() => undefined);
+      return local;
+    }
+    return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode);
+  }
   const confirmed = await readThroughCache(`items:${taskId}:${normalizedMode}`, () => fetchAll<TaskItem>((from, to) => {
     let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, to);
     if (mode === 'archived') return query.eq('is_archived', true);

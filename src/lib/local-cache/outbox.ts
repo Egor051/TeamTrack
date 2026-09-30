@@ -4,13 +4,14 @@ import { localCacheDriver } from './driver';
 import type { OfflineOperation, OfflineOperationInput } from './types';
 import { newOperationId } from './uuid';
 import { validSyncVersion } from './pull-cache';
+import { buildSyncEnabled, buildWriteEnabled, runtimeCapabilities } from './runtime-config';
 
 export function offlineWriteEnabled(): boolean {
-  return process.env.EXPO_PUBLIC_OFFLINE_WRITE_ENABLED === 'true';
+  return buildWriteEnabled();
 }
 
 export function offlineSyncEnabled(): boolean {
-  return process.env.EXPO_PUBLIC_OFFLINE_SYNC_ENABLED === 'true';
+  return buildSyncEnabled();
 }
 
 export type SupportedEdit =
@@ -41,7 +42,7 @@ export async function enqueueOperation(
   edit: SupportedEdit,
   displayedVersion?: number,
 ): Promise<OfflineOperation> {
-  if (!offlineWriteEnabled()) throw new Error('Офлайн-редактирование отключено.');
+  if (!(await runtimeCapabilities(userId)).write) throw new Error('Офлайн-редактирование временно отключено.');
   if (!userId || await activeCacheUserId() !== userId) throw new Error('Требуется авторизация.');
   const checked = validateEdit(edit);
   const operation: OfflineOperationInput = {
@@ -49,6 +50,7 @@ export async function enqueueOperation(
     task_id: taskId, task_item_id: itemId, ...checked,
     created_at: new Date().toISOString(), status: 'pending',
     expected_version: validSyncVersion(displayedVersion) ? displayedVersion : null,
+    protocol_version: 2,
   };
   const saved = await localCacheDriver.enqueue(operation);
   if (await activeCacheUserId() !== userId) throw new Error('Сеанс изменился. Обновите страницу.');
@@ -87,7 +89,7 @@ export function applyPendingOperations<T extends Pick<TaskItem, 'id' | 'percenta
       const percentage = (operation.payload as { percentage: number }).percentage;
       item.percentage = percentage;
       item.is_completed = percentage === 100;
-    } else {
+    } else if (operation.type === 'set_task_item_comment') {
       item.comment = (operation.payload as { comment: string | null }).comment;
     }
   }

@@ -49,7 +49,7 @@ export const localCacheDriver: LocalCacheDriver = {
     if (!operation) return;
     operation.status = 'synced_unreconciled'; operation.server_version = version;
     for (const row of pending) if (row.user_id === userId && row.depends_on_operation_id === operationId)
-      row.expected_version = version;
+      { row.expected_version = version; row.depends_on_operation_id = null; }
     if (conflictId && item) {
       const conflict = conflicts.get(conflictId);
       if (conflict?.user_id === userId && conflict.operation_ids.includes(operationId))
@@ -87,6 +87,16 @@ export const localCacheDriver: LocalCacheDriver = {
     conflicts.delete(conflictId);
   },
   async finishMineConflict(userId, conflictId) { if (conflicts.get(conflictId)?.user_id === userId) conflicts.delete(conflictId); },
+  async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
+    const chain = pending.filter((row) => row.user_id === userId && row.task_id === taskId && row.task_item_id === itemId);
+    if (!chain.some((row) => row.status === 'failed')) throw new Error('Failed operation unavailable');
+    const before = [...entries.values()].filter((entry) => entry.user_id === userId);
+    const after = applyPullToEntries(before, [{ cursor: 0, task_id: taskId, task_item_id: itemId,
+      change_type: serverState ? 'upsert' : 'delete', item: serverState }], projectId);
+    for (const entry of before) entries.delete(entryKey(userId, entry.key));
+    for (const entry of after) entries.set(entryKey(userId, entry.key), entry);
+    for (let i = pending.length - 1; i >= 0; i--) if (chain.includes(pending[i])) pending.splice(i, 1);
+  },
   async initializePullCursor(userId, cursor) {
     if (entries.has(entryKey(userId, 'sync:task-items:cursor'))) return false;
     entries.set(entryKey(userId, 'sync:task-items:cursor'), { user_id: userId, key: 'sync:task-items:cursor',

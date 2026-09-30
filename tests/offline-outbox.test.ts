@@ -3,7 +3,7 @@ import type { OfflineOperation, OfflineOperationInput } from '@/lib/local-cache/
 
 const storage = vi.hoisted(() => ({
   userId: 'user-a', operations: [] as OfflineOperation[], fail: false,
-  enqueue: vi.fn(), listPending: vi.fn(),
+  enqueue: vi.fn(), listPending: vi.fn(), remoteWrite: true, remoteSync: true,
 }));
 
 vi.mock('@/lib/local-cache/cache', () => ({
@@ -15,6 +15,17 @@ vi.mock('@/lib/local-cache/cache', () => ({
 vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
   enqueue: storage.enqueue, listPending: storage.listPending,
 } }));
+vi.mock('@/lib/local-cache/runtime-config', () => ({
+  buildWriteEnabled: () => process.env.EXPO_PUBLIC_OFFLINE_WRITE_ENABLED === 'true',
+  buildSyncEnabled: () => process.env.EXPO_PUBLIC_OFFLINE_SYNC_ENABLED === 'true',
+  runtimeCapabilities: async () => ({
+    write: process.env.EXPO_PUBLIC_OFFLINE_WRITE_ENABLED === 'true'
+      && process.env.EXPO_PUBLIC_OFFLINE_SYNC_ENABLED === 'true' && storage.remoteWrite && storage.remoteSync,
+    sync: process.env.EXPO_PUBLIC_OFFLINE_SYNC_ENABLED === 'true' && storage.remoteSync,
+    available: true,
+  }),
+}));
+vi.mock('@/lib/local-cache/sync', () => ({ syncPendingOperations: vi.fn(async () => undefined), announceSyncChange: vi.fn() }));
 
 import { applyPendingOperations, enqueueOperation, listPendingOperations, offlineSyncEnabled, offlineWriteEnabled } from '@/lib/local-cache/outbox';
 import { performSupportedEdit } from '@/lib/local-cache/edit';
@@ -27,10 +38,12 @@ const comment = (value: string) => ({ type: 'set_task_item_comment' as const, pa
 
 beforeEach(() => {
   vi.stubEnv('EXPO_PUBLIC_OFFLINE_WRITE_ENABLED', 'true');
-  vi.stubEnv('EXPO_PUBLIC_OFFLINE_SYNC_ENABLED', 'false');
+  vi.stubEnv('EXPO_PUBLIC_OFFLINE_SYNC_ENABLED', 'true');
   storage.userId = 'user-a';
   storage.operations = [];
   storage.fail = false;
+  storage.remoteWrite = true;
+  storage.remoteSync = true;
   storage.enqueue.mockImplementation(async (operation: OfflineOperationInput) => {
     if (storage.fail) throw new Error('storage unavailable');
     const saved = { ...operation, sequence: storage.operations.length + 1 };
@@ -100,28 +113,27 @@ describe('mutation routing', () => {
     expect(storage.operations).toEqual([]);
   });
 
-  it('keeps clean online edits on RPC and queues only transport failures', async () => {
+  it('durably queues clean online edits before attempting sync', async () => {
     const rpc = vi.fn(async () => undefined);
-    expect(await performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).toEqual({ kind: 'server' });
-    expect(storage.operations).toEqual([]);
-    const failure = vi.fn(async () => { throw { message: 'Failed to fetch', status: 0 }; });
-    expect((await performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: failure })).kind).toBe('local');
-    expect(failure).toHaveBeenCalledOnce();
+    expect((await performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).kind).toBe('local');
+    expect(storage.operations).toHaveLength(1);
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it('never queues authorization or business errors', async () => {
+    vi.stubEnv('EXPO_PUBLIC_OFFLINE_WRITE_ENABLED', 'false');
     for (const error of [{ message: 'Failed to fetch', status: 403 }, { message: 'invalid value', code: 'P0001' }]) {
       await expect(performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: async () => { throw error; } })).rejects.toBe(error);
     }
     expect(storage.operations).toEqual([]);
   });
 
-  it('keeps a dirty item local after reconnect while a clean item uses RPC', async () => {
+  it('uses the same local path for dirty and clean items', async () => {
     await enqueueOperation('user-a', 'project-1', 'task-1', 'item-1', percentage(40));
     const rpc = vi.fn(async () => undefined);
     expect((await performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).kind).toBe('local');
-    expect(await performSupportedEdit({ ...context, itemId: 'item-2', offline: false, edit: percentage(70), onlineAction: rpc })).toEqual({ kind: 'server' });
-    expect(rpc).toHaveBeenCalledOnce();
+    expect((await performSupportedEdit({ ...context, itemId: 'item-2', offline: false, edit: percentage(70), onlineAction: rpc })).kind).toBe('local');
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it('preserves old pending overlay when new offline writes are disabled', async () => {
@@ -131,7 +143,7 @@ describe('mutation routing', () => {
     const pending = await listPendingOperations('user-a', 'task-1');
     expect(applyPendingOperations(base, pending, 'user-a', 'task-1')[0].percentage).toBe(40);
     const rpc = vi.fn(async () => undefined);
-    await expect(performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).rejects.toThrow('Сначала синхронизируйте');
+    await expect(performSupportedEdit({ ...context, offline: false, edit: percentage(70), onlineAction: rpc })).rejects.toThrow('временно отключены');
     expect(rpc).not.toHaveBeenCalled();
   });
 

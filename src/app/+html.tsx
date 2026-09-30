@@ -11,6 +11,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
         <meta name="theme-color" content="#0B1220" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.ico" />
+        <script dangerouslySetInnerHTML={{ __html: 'window.__TASKTRACE_INITIAL_PATH__=location.pathname;' }} />
         <ScrollViewStyleReset />
       </head>
       <body>{children}</body>

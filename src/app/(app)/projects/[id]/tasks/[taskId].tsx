@@ -58,12 +58,14 @@ import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
-import { activeCacheUserId, isCachedResult, isExplicitAccessError, isTransportFailure } from "@/lib/local-cache/cache";
+import { activeCacheUserId, getCached, isCachedResult, isExplicitAccessError, isTransportFailure } from "@/lib/local-cache/cache";
 import { filterChecklistItems, formatChecklistComment, parsePercentageInput } from "@/features/projects/checklist";
 import { formatLastEditorSummary } from "@/features/projects/history-format";
 import { applyPendingOperations, listPendingOperations, offlineWriteEnabled, type SupportedEdit } from "@/lib/local-cache/outbox";
 import { performSupportedEdit } from "@/lib/local-cache/edit";
 import { subscribeSyncChanges } from "@/lib/local-cache/sync";
+import { ChecklistLocalRepository } from "@/lib/local-cache/repository";
+import { buildSyncEnabled } from "@/lib/local-cache/runtime-config";
 
 const projectRoleLabels: Record<ProjectMember["role"], string> = {
   owner: "Владелец",
@@ -204,10 +206,39 @@ export default function TaskScreen() {
     }
   }, [id, taskId, showArchivedItems, user]);
 
+  const primeLocal = useCallback(async () => {
+    if (!buildSyncEnabled() || !user || !id || !taskId) return;
+    const generation = requestRef.current;
+    if (await getCached<boolean>(user.id, `blocked:${id}`)
+      || await getCached<boolean>(user.id, `blocked-task:${taskId}`)) return;
+    const [cachedTask, cachedProject, cachedRole, cachedItems, cachedActive] = await Promise.all([
+      getCached<Task>(user.id, `task:${taskId}`),
+      getCached<ProjectWithRole>(user.id, `project:${id}`),
+      getCached<ProjectRole>(user.id, `task-role:${taskId}`),
+      ChecklistLocalRepository.getEffectiveTaskItems(user.id, taskId, showArchivedItems ? 'archived' : 'active'),
+      showArchivedItems ? ChecklistLocalRepository.getEffectiveTaskItems(user.id, taskId, 'active') : Promise.resolve(null),
+    ]);
+    if (!cachedTask || !cachedProject || !cachedItems || cachedTask.project_id !== id
+      || cachedProject.id !== id || requestRef.current !== generation || await activeCacheUserId() !== user.id) return;
+    const pending = await listPendingOperations(user.id, taskId);
+    if (requestRef.current !== generation || await activeCacheUserId() !== user.id) return;
+    setTask(cachedTask);
+    setProject(cachedProject);
+    setItems(cachedItems);
+    setSummaryItems(cachedActive ?? cachedItems);
+    setEffectiveTaskRole(cachedRole ?? 'viewer');
+    setPendingItemIds(new Set(pending.map((row) => row.task_item_id)));
+    setFailedItemIds(new Set(pending.filter((row) => row.status === 'failed').map((row) => row.task_item_id)));
+    setLoadedView(showArchivedItems ? 'archived' : 'active');
+    setLoadedUserId(user.id);
+    setOffline(true);
+    setOfflineForEdits(true);
+  }, [id, taskId, user, showArchivedItems]);
+
   useFocusEffect(
     useCallback(() => {
       void permissionVersion;
-      void load();
+      void (async () => { try { await primeLocal(); } catch { /* fall through to the server read */ } await load(); })();
       const unsubscribe = subscribeSyncChanges((changedUserId) => {
         if (changedUserId === user?.id) void load();
       });
@@ -215,7 +246,7 @@ export default function TaskScreen() {
         unsubscribe();
         requestRef.current += 1;
       };
-    }, [load, permissionVersion, user?.id]),
+    }, [load, primeLocal, permissionVersion, user?.id]),
   );
 
   useFocusEffect(

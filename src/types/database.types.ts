@@ -686,6 +686,11 @@ export type Database = {
         Args: { p_after_cursor: number; p_limit?: number }
         Returns: Json
       }
+      pull_task_item_changes_v2: {
+        Args: { p_after_cursor: number; p_limit?: number }
+        Returns: Json
+      }
+      get_offline_runtime_config: { Args: never; Returns: Json }
       remove_project_member: {
         Args: { p_project_id: string; p_user_id: string }
         Returns: undefined

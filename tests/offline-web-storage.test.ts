@@ -50,6 +50,21 @@ describe('IndexedDB outbox', () => {
     vi.resetModules();
     const restarted = (await import('@/lib/local-cache/driver.web')).localCacheDriver;
     expect((await restarted.listPending('user-a')).map((row) => row.expected_version)).toEqual([10, 12]);
+    expect((await restarted.listPending('user-a'))[1].depends_on_operation_id).toBeNull();
+  });
+
+  it('atomically discards a failed item chain and restores confirmed data', async () => {
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.web');
+    const confirmed = { id: 'item-1', task_id: 'task-1', sync_version: 10,
+      percentage: 20, is_completed: false, comment: null, is_archived: false };
+    await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',
+      data: JSON.stringify([confirmed]), last_synced_at: '2026-09-28', schema_version: 1 });
+    const first = await localCacheDriver.enqueue(input('discard-first'));
+    await localCacheDriver.enqueue(input('discard-second'));
+    await localCacheDriver.markOperation('user-a', first.operation_id, 'failed', undefined, 'Rejected');
+    await localCacheDriver.discardFailedChain('user-a', 'task-1', 'item-1', 'project-1', confirmed);
+    expect(await localCacheDriver.listPending('user-a')).toEqual([]);
+    expect(JSON.parse((await localCacheDriver.get('user-a', 'items:task-1:active'))!.data)).toEqual([confirmed]);
   });
 
   it('uses the version shown to the editor when a background refresh advanced the cache', async () => {

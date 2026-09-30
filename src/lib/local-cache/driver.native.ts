@@ -36,17 +36,17 @@ function database(): Promise<SQLite.SQLiteDatabase> {
       const db = await SQLite.openDatabaseAsync('tasktrace-local-cache.db');
       const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
       if ((version?.user_version ?? 0) < 1) {
-        await db.execAsync(`CREATE TABLE IF NOT EXISTS cache_entries (
+        await db.withExclusiveTransactionAsync(async (tx) => { await tx.execAsync(`CREATE TABLE IF NOT EXISTS cache_entries (
           user_id TEXT NOT NULL,
           cache_key TEXT NOT NULL,
           data TEXT NOT NULL,
           last_synced_at TEXT NOT NULL,
           schema_version INTEGER NOT NULL,
           PRIMARY KEY (user_id, cache_key)
-        ); PRAGMA user_version = 1;`);
+        ); PRAGMA user_version = 1;`); });
       }
       if ((version?.user_version ?? 0) < 2) {
-        await db.execAsync(`CREATE TABLE IF NOT EXISTS pending_operations (
+        await db.withExclusiveTransactionAsync(async (tx) => { await tx.execAsync(`CREATE TABLE IF NOT EXISTS pending_operations (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
           operation_id TEXT NOT NULL UNIQUE,
           user_id TEXT NOT NULL,
@@ -59,15 +59,15 @@ function database(): Promise<SQLite.SQLiteDatabase> {
           status TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS pending_operations_user_task ON pending_operations (user_id, task_id, sequence);
-        PRAGMA user_version = 2;`);
+        PRAGMA user_version = 2;`); });
       }
       if ((version?.user_version ?? 0) < 3) {
-        await db.execAsync(`ALTER TABLE pending_operations ADD COLUMN server_result TEXT;
+        await db.withExclusiveTransactionAsync(async (tx) => { await tx.execAsync(`ALTER TABLE pending_operations ADD COLUMN server_result TEXT;
           ALTER TABLE pending_operations ADD COLUMN last_error TEXT;
-          PRAGMA user_version = 3;`);
+          PRAGMA user_version = 3;`); });
       }
       if ((version?.user_version ?? 0) < 4) {
-        await db.execAsync(`ALTER TABLE pending_operations ADD COLUMN expected_version INTEGER;
+        await db.withExclusiveTransactionAsync(async (tx) => { await tx.execAsync(`ALTER TABLE pending_operations ADD COLUMN expected_version INTEGER;
           ALTER TABLE pending_operations ADD COLUMN depends_on_operation_id TEXT;
           ALTER TABLE pending_operations ADD COLUMN server_version INTEGER;
           CREATE TABLE sync_conflicts (
@@ -75,7 +75,12 @@ function database(): Promise<SQLite.SQLiteDatabase> {
             task_item_id TEXT NOT NULL, data TEXT NOT NULL
           );
           CREATE INDEX sync_conflicts_user ON sync_conflicts(user_id, conflict_id);
-          PRAGMA user_version = 4;`);
+          PRAGMA user_version = 4;`); });
+      }
+      if ((version?.user_version ?? 0) < 5) {
+        await db.withExclusiveTransactionAsync(async (tx) => {
+          await tx.execAsync('ALTER TABLE pending_operations ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 1; PRAGMA user_version = 5;');
+        });
       }
       return db;
     })().catch((error) => {
@@ -145,9 +150,10 @@ export const localCacheDriver: LocalCacheDriver = {
         : validSyncVersion(operation.expected_version) ? operation.expected_version : item!.sync_version!;
       const dependency = predecessor?.operation_id ?? null;
       const result = await tx.runAsync(
-        'INSERT INTO pending_operations (operation_id, user_id, project_id, task_id, task_item_id, type, payload, created_at, status, expected_version, depends_on_operation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO pending_operations (operation_id, user_id, project_id, task_id, task_item_id, type, payload, created_at, status, expected_version, depends_on_operation_id, protocol_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [operation.operation_id, operation.user_id, operation.project_id, operation.task_id, operation.task_item_id,
-          operation.type, JSON.stringify(operation.payload), operation.created_at, operation.status, expected, dependency]);
+          operation.type, JSON.stringify(operation.payload), operation.created_at, operation.status, expected, dependency,
+          operation.protocol_version ?? 1]);
       saved = { ...operation, sequence: result.lastInsertRowId, expected_version: expected, depends_on_operation_id: dependency };
     });
     return saved;
@@ -175,7 +181,7 @@ export const localCacheDriver: LocalCacheDriver = {
     await exclusive(db, async (tx) => {
       await tx.runAsync('UPDATE pending_operations SET status = ?, server_version = ? WHERE user_id = ? AND operation_id = ?',
         ['synced_unreconciled', version, userId, operationId]);
-      await tx.runAsync('UPDATE pending_operations SET expected_version = ? WHERE user_id = ? AND depends_on_operation_id = ?',
+      await tx.runAsync('UPDATE pending_operations SET expected_version = ?, depends_on_operation_id = NULL WHERE user_id = ? AND depends_on_operation_id = ?',
         [version, userId, operationId]);
       if (conflictId && item) {
         const row = await tx.getFirstAsync<{ data: string }>(
@@ -249,6 +255,21 @@ export const localCacheDriver: LocalCacheDriver = {
   async finishMineConflict(userId, conflictId) {
     const db = await database();
     await db.runAsync('DELETE FROM sync_conflicts WHERE conflict_id = ? AND user_id = ?', [conflictId, userId]);
+  },
+  async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
+    const db = await database();
+    await exclusive(db, async (tx) => {
+      const chain = await tx.getAllAsync<{ status: string }>(
+        'SELECT status FROM pending_operations WHERE user_id = ? AND task_id = ? AND task_item_id = ?',
+        [userId, taskId, itemId]);
+      if (!chain.some((row) => row.status === 'failed')) throw new Error('Failed operation unavailable');
+      const before = await readEntries(tx, userId);
+      const after = applyPullToEntries(before, [{ cursor: 0, task_id: taskId, task_item_id: itemId,
+        change_type: serverState ? 'upsert' : 'delete', item: serverState }], projectId);
+      await writeEntries(tx, userId, before, after);
+      await tx.runAsync('DELETE FROM pending_operations WHERE user_id = ? AND task_id = ? AND task_item_id = ?',
+        [userId, taskId, itemId]);
+    });
   },
   async initializePullCursor(userId, cursor) {
     const db = await database();

@@ -19,6 +19,7 @@ vi.mock('expo-sqlite', () => ({
         db.exec('BEGIN IMMEDIATE');
         try {
           await callback({
+            execAsync: async (sql: string) => { db.exec(sql); },
             getFirstAsync: async <T>(sql: string, params: (string | number | null)[] = []) => db.prepare(sql).get(...params) as T | null,
             getAllAsync: async <T>(sql: string, params: (string | number | null)[] = []) => db.prepare(sql).all(...params) as T[],
             runAsync: async (sql: string, params: (string | number | null)[] = []) => {
@@ -92,7 +93,24 @@ describe('SQLite outbox migration', () => {
     const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
     expect(await localCacheDriver.get('user-a', entry.key)).toEqual(entry);
     expect(await localCacheDriver.listPending('user-a')).toEqual([]);
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(4);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
+  });
+
+  it('rolls back a failed SQLite migration and preserves existing cache', async () => {
+    const db = state.database!;
+    db.exec(`CREATE TABLE cache_entries (user_id TEXT NOT NULL, cache_key TEXT NOT NULL, data TEXT NOT NULL,
+      last_synced_at TEXT NOT NULL, schema_version INTEGER NOT NULL, PRIMARY KEY (user_id, cache_key));
+      CREATE TABLE pending_operations (sequence INTEGER PRIMARY KEY, operation_id TEXT NOT NULL);
+      CREATE TABLE sync_conflicts (placeholder INTEGER);
+      PRAGMA user_version = 3;`);
+    db.prepare('INSERT INTO cache_entries VALUES (?, ?, ?, ?, ?)')
+      .run('user-a', 'items:task-1:active', '[{"id":"item-1"}]', '2026-09-28', 1);
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
+    await expect(localCacheDriver.get('user-a', 'items:task-1:active')).rejects.toThrow();
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
+    expect(db.prepare('SELECT data FROM cache_entries WHERE user_id = ?').get('user-a')).toEqual({ data: '[{"id":"item-1"}]' });
+    expect((db.prepare('PRAGMA table_info(pending_operations)').all() as { name: string }[])
+      .some((column) => column.name === 'expected_version')).toBe(false);
   });
 
   it('keeps operations after module reinitialization in SQLite order', async () => {
@@ -105,6 +123,24 @@ describe('SQLite outbox migration', () => {
     const reopened = (await import('@/lib/local-cache/driver.native')).localCacheDriver;
     expect((await reopened.listPending('user-a', 'task-1')).map((op) => op.operation_id)).toEqual(['one', 'two']);
     expect(await reopened.listPending('user-b')).toEqual([]);
+    await reopened.acknowledgeOperation('user-a', first.operation_id, 11);
+    expect((await reopened.listPending('user-a', 'task-1'))[1]).toMatchObject({
+      expected_version: 11, depends_on_operation_id: null,
+    });
+  });
+
+  it('atomically discards a failed chain and restores confirmed data', async () => {
+    const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
+    const confirmed = { id: 'item-1', task_id: 'task-1', sync_version: 10,
+      percentage: 20, is_completed: false, comment: null, is_archived: false };
+    await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',
+      data: JSON.stringify([confirmed]), last_synced_at: '2026-09-28', schema_version: 1 });
+    const first = await localCacheDriver.enqueue(input('native-discard-first'));
+    await localCacheDriver.enqueue(input('native-discard-second'));
+    await localCacheDriver.markOperation('user-a', first.operation_id, 'failed', undefined, 'Rejected');
+    await localCacheDriver.discardFailedChain('user-a', 'task-1', 'item-1', 'project-1', confirmed);
+    expect(await localCacheDriver.listPending('user-a')).toEqual([]);
+    expect(JSON.parse((await localCacheDriver.get('user-a', 'items:task-1:active'))!.data)).toEqual([confirmed]);
   });
 
   it('upgrades Phase 3 operations and atomically reconciles a confirmed item', async () => {

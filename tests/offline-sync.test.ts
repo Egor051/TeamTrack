@@ -9,6 +9,8 @@ const state = vi.hoisted(() => ({
   sideEffects: 0, loseAck: false, failAck: false, failReconcile: false, tokens: [] as string[],
   localCursor: 0 as number | null, entries: [] as CacheEntry[], pulled: [] as PullChange[],
   bootstrapChange: false, pullRequests: [] as number[],
+  configSync: true, configAvailable: true,
+  switchAfterSend: false,
 }));
 
 const builder = () => {
@@ -36,7 +38,7 @@ vi.mock('@/lib/supabase/client', () => ({ supabase: {
 vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: string, options: { accessToken: () => Promise<string> }) => ({
   rpc: async (name: string, args: { p_operation_id?: string; p_expected_version?: number; p_percentage?: number; p_completed?: boolean; p_comment?: string; p_after_cursor?: number }) => {
     state.tokens.push(await options.accessToken());
-    if (name === 'pull_task_item_changes') {
+    if (name === 'pull_task_item_changes_v2') {
       const cursor = args.p_after_cursor!;
       state.pullRequests.push(cursor);
       const changes = state.pulled.filter((change) => change.cursor > cursor);
@@ -58,6 +60,7 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: str
     state.sideEffects += 1;
     const result = { status: 'applied', version: state.server.sync_version, item: { ...state.server } };
     state.receipts.set(args.p_operation_id!, result);
+    if (state.switchAfterSend) { state.switchAfterSend = false; state.userId = 'user-b'; }
     if (state.loseAck) { state.loseAck = false; throw new Error('Failed to fetch'); }
     return { data: result, error: null };
   },
@@ -67,6 +70,14 @@ vi.mock('@/lib/env', () => ({ supabaseEnv: () => ({ url: 'http://local.test', an
 vi.mock('@/lib/local-cache/cache', () => ({
   activeCacheUserId: async () => state.userId,
   isTransportFailure: (error: { message?: string }) => /failed to fetch/i.test(error.message ?? ''),
+}));
+vi.mock('@/lib/local-cache/runtime-config', () => ({
+  RUNTIME_CONFIG_TTL_MS: 60_000,
+  runtimeCapabilities: async () => ({ write: state.configSync, sync: state.configSync, available: state.configAvailable }),
+}));
+vi.mock('@/lib/local-cache/status', () => ({
+  updateSyncState: () => undefined, notifySyncState: () => undefined,
+  markSuccessfulSync: async () => undefined,
 }));
 vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
   get: async () => state.localCursor === null ? null : { data: JSON.stringify(state.localCursor) },
@@ -122,7 +133,10 @@ vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
     if (state.failAck) throw new Error('storage unavailable');
     const row = state.operations.find((operation) => operation.user_id === userId && operation.operation_id === operationId)!;
     row.status = 'synced_unreconciled'; row.server_version = version;
-    for (const following of state.operations) if (following.depends_on_operation_id === operationId) following.expected_version = version;
+    for (const following of state.operations) if (following.depends_on_operation_id === operationId) {
+      following.expected_version = version;
+      following.depends_on_operation_id = null;
+    }
     const conflict = state.conflicts.find((entry) => entry.conflict_id === conflictId);
     if (conflict && item) { conflict.server_state = item as SyncConflict['server_state']; conflict.server_version = version; }
   },
@@ -154,15 +168,47 @@ beforeEach(() => {
   state.calls = []; state.receipts.clear(); state.sideEffects = 0;
   state.loseAck = false; state.failAck = false; state.failReconcile = false; state.tokens = [];
   state.localCursor = 0; state.entries = []; state.pulled = []; state.bootstrapChange = false; state.pullRequests = [];
+  state.configSync = true; state.configAvailable = true;
+  state.switchAfterSend = false;
 });
 
 describe('Phase 5 offline replay', () => {
+  it('automatically retries queued work after a config-fetch backoff expires', async () => {
+    vi.useFakeTimers();
+    try {
+      state.operations = [operation(1, 'set_task_item_percentage', { percentage: 40 })];
+      state.configSync = false; state.configAvailable = false;
+      await syncPendingOperations('user-a');
+      expect(state.calls).toEqual([]);
+      state.configSync = true; state.configAvailable = true;
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(state.operations).toEqual([]);
+      expect(state.server.percentage).toBe(40);
+    } finally { vi.useRealTimers(); }
+  });
+  it('replays 500 ordered operations with one idempotent mutation per ID', async () => {
+    state.operations = Array.from({ length: 500 }, (_, index) =>
+      operation(index + 1, 'set_task_item_percentage', { percentage: (index + 1) % 101 }));
+    await syncPendingOperations('user-a', true);
+    expect(state.calls).toHaveLength(500);
+    expect(state.calls.map((call) => call.expected)).toEqual(Array.from({ length: 500 }, (_, index) => index + 10));
+    expect(state.sideEffects).toBe(500);
+    expect(state.operations).toEqual([]);
+  });
+
+  it('quarantines an unknown operation type without sending it', async () => {
+    state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'Local' }),
+      type: 'future_operation' as OfflineOperation['type'], protocol_version: 3 }];
+    await syncPendingOperations('user-a', true);
+    expect(state.calls).toEqual([]);
+    expect(state.operations[0].status).toBe('failed');
+  });
   it('replays a server change committed during initial cache bootstrap', async () => {
     state.localCursor = null;
     state.entries = [{ user_id: 'user-a', key: 'items:task:active',
       data: JSON.stringify([{ ...state.server }]), last_synced_at: '2026-09-29', schema_version: 1 }];
     state.bootstrapChange = true;
-    await syncPendingOperations('user-a');
+    await syncPendingOperations('user-a', true);
     expect(state.pullRequests[0]).toBe(0);
     expect(state.localCursor).toBe(1);
     expect(JSON.parse(state.entries[0].data)[0]).toMatchObject({ percentage: 80, sync_version: 11 });
@@ -269,7 +315,7 @@ describe('Phase 5 offline replay', () => {
     await expect(syncPendingOperations('user-a')).rejects.toThrow('storage unavailable');
     expect(state.operations[0].status).toBe('pending');
     state.failAck = false;
-    await syncPendingOperations('user-a');
+    await syncPendingOperations('user-a', true);
     expect(state.sideEffects).toBe(1);
     expect(state.operations).toEqual([]);
   });
@@ -280,5 +326,18 @@ describe('Phase 5 offline replay', () => {
     await syncPendingOperations('user-a');
     expect(state.calls).toEqual([]);
     expect(state.operations[0].status).toBe('pending');
+  });
+
+  it('keeps the old account operation after a mid-send account switch and dedupes on return', async () => {
+    state.operations = [operation(1, 'set_task_item_percentage', { percentage: 70 })];
+    state.switchAfterSend = true;
+    await syncPendingOperations('user-a');
+    expect(state.sideEffects).toBe(1);
+    expect(state.operations[0].status).toBe('pending');
+    expect(state.tokens.every((token) => token === 'token-user-a')).toBe(true);
+    state.userId = 'user-a';
+    await syncPendingOperations('user-a', true);
+    expect(state.sideEffects).toBe(1);
+    expect(state.operations).toEqual([]);
   });
 });

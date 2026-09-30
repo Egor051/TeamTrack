@@ -22,6 +22,7 @@ export type OfflineOperationInput = {
   // for their predecessor's acknowledged version instead of guessing one.
   expected_version?: number | null;
   depends_on_operation_id?: string | null;
+  protocol_version?: number;
 };
 
 export type OperationStatus = 'pending' | 'synced_unreconciled' | 'failed' | 'conflict';
@@ -86,6 +87,7 @@ export interface LocalCacheDriver {
   rebaseConflict(userId: string, conflictId: string, version: number): Promise<void>;
   resolveServerConflict(userId: string, conflictId: string): Promise<void>;
   finishMineConflict(userId: string, conflictId: string): Promise<void>;
+  discardFailedChain(userId: string, taskId: string, itemId: string, projectId: string, serverState: ReconciledItem | null): Promise<void>;
   initializePullCursor(userId: string, cursor: number): Promise<boolean>;
   applyPullPage(userId: string, afterCursor: number, nextCursor: number, changes: PullChange[]): Promise<boolean>;
   reconcileOperation(userId: string, operationId: string, item: ReconciledItem, activeSnapshot: ReconciledItem[]): Promise<void>;

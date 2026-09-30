@@ -11,6 +11,7 @@ const pullKey = 'sync:task-items:cursor';
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 4);
+    let blocked = false;
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
@@ -25,9 +26,16 @@ function openDatabase(): Promise<IDBDatabase> {
         conflicts.createIndex('by_user', 'user_id');
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      if (blocked) { request.result.close(); return; }
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error);
-    request.onblocked = () => reject(new Error('IndexedDB upgrade is blocked'));
+    request.onblocked = () => {
+      blocked = true;
+      reject(new Error('Обновление локального хранилища заблокировано другой вкладкой. Закройте другие вкладки TaskTrace и повторите.'));
+    };
   });
 }
 
@@ -163,7 +171,7 @@ export const localCacheDriver: LocalCacheDriver = {
           following.onsuccess = () => {
             for (const row of following.result as OfflineOperation[]) {
               if (row.depends_on_operation_id === operationId && row.task_item_id === operation.task_item_id)
-                store.put({ ...row, expected_version: version });
+                store.put({ ...row, expected_version: version, depends_on_operation_id: null });
             }
             if (conflictId && item) {
               const conflicts = tx.objectStore(CONFLICTS);
@@ -276,6 +284,34 @@ export const localCacheDriver: LocalCacheDriver = {
     const request = store.get(conflictId);
     request.onsuccess = () => { if ((request.result as SyncConflict | undefined)?.user_id === userId) store.delete(conflictId); resolve(); };
   }, CONFLICTS),
+  async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
+    const db = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([OUTBOX, STORE], 'readwrite');
+        const outbox = tx.objectStore(OUTBOX), cache = tx.objectStore(STORE);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+        const chainRequest = outbox.index('by_user_task').getAll([userId, taskId]);
+        chainRequest.onsuccess = () => {
+          const chain = (chainRequest.result as OfflineOperation[]).filter((row) => row.task_item_id === itemId);
+          if (!chain.some((row) => row.status === 'failed')) { tx.abort(); return; }
+          const entriesRequest = cache.getAll();
+          entriesRequest.onsuccess = () => {
+            try {
+              const before = (entriesRequest.result as CacheEntry[]).filter((entry) => entry.user_id === userId);
+              const after = applyPullToEntries(before, [{ cursor: 0, task_id: taskId, task_item_id: itemId,
+                change_type: serverState ? 'upsert' : 'delete', item: serverState }], projectId);
+              for (const entry of after) cache.put(entry, entryKey(userId, entry.key));
+              for (const entry of before) if (!after.some((row) => row.key === entry.key)) cache.delete(entryKey(userId, entry.key));
+              for (const row of chain) outbox.delete(row.sequence);
+            } catch { tx.abort(); }
+          };
+        };
+      });
+    } finally { db.close(); }
+  },
   initializePullCursor: (userId, cursor) => transact<boolean>('readwrite', (store, resolve) => {
     const key = entryKey(userId, pullKey);
     const request = store.get(key);
