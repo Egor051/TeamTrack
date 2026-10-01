@@ -1,8 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BackHandler, ScrollView, StyleSheet, View } from 'react-native';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
-import { LoadingScreen } from '@/components/ui/loading-screen';
 import { ThemedText } from '@/components/ui/text';
 import { useTheme } from '@/components/ui/theme-provider';
 import { chooseServer, subscribeConflictChanges, unresolvedConflicts } from './conflicts';
@@ -52,37 +51,47 @@ export function ConflictGate({ children }: { children: ReactNode }) {
   const { state } = useAuth();
   const { colors } = useTheme();
   const userId = state.isLoading ? null : state.user?.id ?? null;
-  const [loadedUser, setLoadedUser] = useState<string | null>(null);
-  const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
+  const [loaded, setLoaded] = useState<{ userId: string; conflicts: SyncConflict[] } | null>(null);
+  const conflicts = loaded?.userId === userId ? loaded.conflicts : [];
+  const readGeneration = useRef(0);
+  const activeUser = useRef<string | null>(null);
+  const refreshConflicts = useRef<(() => void) | null>(null);
+  const appRef = useRef<View>(null);
   const [progress, setProgress] = useState<{ userId: string | null; resolvedCount: number }>({ userId: null, resolvedCount: 0 });
   const resolvedCount = progress.userId === userId ? progress.resolvedCount : 0;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [busyUser, setBusyUser] = useState<string | null>(null);
+  const busy = busyUser === userId && userId !== null;
+  const [actionError, setActionError] = useState<{ userId: string; text: string } | null>(null);
+  const error = actionError?.userId === userId ? actionError.text : null;
 
   useEffect(() => {
+    activeUser.current = userId;
     if (!userId) return;
     let cancelled = false;
-    let generation = 0;
     const refresh = () => {
-      const current = ++generation;
+      const current = ++readGeneration.current;
       void unresolvedConflicts(userId).then((rows) => {
-        if (!cancelled && generation === current) {
-          setConflicts(rows); setLoadedUser(userId); setError(null);
+        if (!cancelled && readGeneration.current === current) {
+          setLoaded({ userId, conflicts: rows });
           if (!rows.length) setProgress({ userId, resolvedCount: 0 });
         }
-      }).catch((cause: unknown) => {
-        if (!cancelled && generation === current) {
-          setError((cause as Error).message || 'Не удалось прочитать локальные конфликты.');
-          setLoadedUser(userId);
-        }
+      }).catch(() => {
+        if (!cancelled && readGeneration.current === current && process.env.NODE_ENV !== 'production')
+          console.warn('[TaskTrace] Не удалось прочитать локальные конфликты.');
       });
     };
+    refreshConflicts.current = refresh;
     refresh();
     const unsubscribe = subscribeConflictChanges((changedUserId) => { if (changedUserId === userId) refresh(); });
-    return () => { cancelled = true; unsubscribe(); };
+    return () => { cancelled = true; activeUser.current = null; refreshConflicts.current = null; readGeneration.current += 1; unsubscribe(); };
   }, [userId]);
 
-  const blocked = Boolean(userId && (loadedUser !== userId || conflicts.length || error));
+  const blocked = Boolean(userId && conflicts.length > 0);
+  useEffect(() => {
+    // Keep the mounted app out of the web keyboard focus order during a real conflict.
+    if (typeof HTMLElement !== 'undefined' && appRef.current instanceof HTMLElement)
+      appRef.current.inert = blocked;
+  }, [blocked]);
   useEffect(() => {
     if (!blocked) return;
     const back = BackHandler.addEventListener('hardwareBackPress', () => true);
@@ -93,40 +102,37 @@ export function ConflictGate({ children }: { children: ReactNode }) {
     return () => { back.remove(); if (typeof window !== 'undefined') window.removeEventListener('keydown', escape, true); };
   }, [blocked]);
 
-  if (!userId) return children;
-  if (loadedUser !== userId) return <>{children}<View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.background }]}>
-    <LoadingScreen text="Проверка синхронизации..." />
-  </View></>;
-  if (error && !conflicts.length) return <>{children}<View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.background }]}>
-    <View style={styles.screen}><ThemedText>{error}</ThemedText>
-    <Button onPress={() => { setError(null); setLoadedUser(null); void unresolvedConflicts(userId).then((rows) => {
-      setConflicts(rows); setLoadedUser(userId);
-    }).catch((cause: unknown) => { setError((cause as Error).message); setLoadedUser(userId); }); }}>Повторить</Button></View>
-  </View></>;
-  if (!conflicts.length) return children;
+  const app = <View ref={appRef} style={styles.app} pointerEvents={blocked ? 'none' : 'auto'}
+    accessibilityElementsHidden={blocked} importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}>{children}</View>;
+  if (!userId || !conflicts.length) return app;
   const conflict = conflicts[0];
   const act = async (choice: 'mine' | 'server') => {
     if (busy || conflict.user_id !== userId) return;
-    setBusy(true); setError(null);
+    setBusyUser(userId); setActionError(null);
     try {
       if (choice === 'mine') await chooseMine(userId, conflict.conflict_id);
       else {
         await chooseServer(userId, conflict.conflict_id);
         void syncPendingOperations(userId, true).catch(() => undefined);
       }
-      const remaining = await unresolvedConflicts(userId);
-      setConflicts(remaining);
-      setProgress({ userId, resolvedCount: remaining.length ? resolvedCount + 1 : 0 });
-    } catch (cause) { setError((cause as Error).message || 'Не удалось разрешить конфликт.'); }
-    finally { setBusy(false); }
+      if (activeUser.current !== userId) return;
+      // Resolution is already durable. Do not keep this conflict on screen if a subsequent read fails.
+      readGeneration.current += 1;
+      setLoaded((previous) => previous?.userId === userId
+        ? { userId, conflicts: previous.conflicts.filter((row) => row.conflict_id !== conflict.conflict_id) } : previous);
+      setProgress({ userId, resolvedCount: conflicts.length > 1 ? resolvedCount + 1 : 0 });
+      refreshConflicts.current?.();
+    } catch (cause) { setActionError({ userId, text: (cause as Error).message || 'Не удалось разрешить конфликт.' }); }
+    finally { setBusyUser((previous) => previous === userId ? null : previous); }
   };
-  return <>{children}<View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.background }]}>
+  return <>{app}<View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.background }]}>
     <Gate conflict={conflict} index={resolvedCount} total={resolvedCount + conflicts.length} busy={busy} error={error}
       onMine={() => void act('mine')} onServer={() => void act('server')} />
   </View></>;
 }
 
 const styles = StyleSheet.create({
+  app: { flex: 1 },
   overlay: { zIndex: 1000 },
   screen: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   card: { width: '100%', maxWidth: 720, borderWidth: 1, borderRadius: 16, padding: 24, gap: 16 },

@@ -16,7 +16,6 @@ import { ConflictGate } from '@/lib/local-cache/ConflictGate';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/components/ui/theme-provider';
 import { PwaUpdateBanner } from '@/components/pwa-update-banner';
-import { SyncStatusBanner } from '@/lib/local-cache/SyncStatusBanner';
 
 /**
  * RootStack lives inside ThemeProvider so the navigation container always
@@ -45,7 +44,6 @@ function RootStack() {
       />
       <StatusBar style={resolved === 'dark' ? 'light' : 'dark'} />
       <PwaUpdateBanner />
-      <SyncStatusBanner />
     </>
   );
 }

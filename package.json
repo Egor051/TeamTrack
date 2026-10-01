@@ -30,10 +30,12 @@
   "devDependencies": {
     "@types/node": "^22.20.4",
     "@types/react": "~19.2.2",
+    "@types/react-test-renderer": "19.1.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
     "fake-indexeddb": "^6.2.4",
     "pg": "8.23.0",
+    "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3",
     "vitest": "^5.0.2",
     "workbox-build": "7.4.1"

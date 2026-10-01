@@ -20,11 +20,13 @@ const db = new pg.Client({ connectionString: local.DB_URL });
 const base = 'http://127.0.0.1:4174';
 const session = `phase6-smoke-${Date.now()}`;
 const memberSession = `${session}-member`;
+const uxOnly = process.argv.includes('--ux-only');
 const swPath = resolve(root, 'dist/sw.js');
 let server;
 let originalSw;
 let browserStarted = false;
 let memberBrowserStarted = false;
+let originalConfig;
 
 function command(executable, args, { quiet = false } = {}) {
   const wrapNpx = process.platform === 'win32' && executable === 'npx';
@@ -132,6 +134,7 @@ function clickCheckbox() {
 
 try {
   await db.connect();
+  originalConfig = (await db.query('select write_enabled, sync_enabled, updated_at::text as updated_at from private.offline_runtime_config')).rows[0];
   await setConfig(true, true);
   console.log('Building production web export against local Supabase...');
   command(process.execPath, ['scripts/build-phase6-local-smoke.mjs']);
@@ -147,21 +150,41 @@ try {
   browser('click', ref(login, 'button "Войти"'));
   await bodyEventually('Проекты');
   const taskUrl = await openTask(fixture);
+  await bodyEventually('Синхронизация: подключено');
+  check(!await bodyHas('Проверка синхронизации'), 'Conflict-store loading blocked the checklist');
+  check(!await bodyHas('Проверяем синхронизацию'), 'Floating sync banner is still rendered');
+  for (const route of [taskUrl + '/progress', taskUrl + '/history', `${base}/projects/${fixture.projectId}/progress`]) {
+    browser('open', route);
+    await bodyEventually('Синхронизация: подключено');
+  }
+  await openTask(fixture);
+  browser('screenshot', resolve(root, '.expo/sync-ux-online.png'));
+  console.log('PASS one compact indicator on task, task progress, history and project progress');
 
   clickCheckbox();
-  await eventually(async () => await percentage(fixture.itemId) === 100 && await bodyHas('Все изменения синхронизированы'),
+  await eventually(async () => await percentage(fixture.itemId) === 100 && await bodyHas('Синхронизация: подключено'),
     'local-first online edit');
   console.log('PASS local-first online edit');
 
   browser('set', 'offline', 'on');
+  await bodyEventually('Синхронизация: офлайн');
   clickCheckbox();
-  await bodyEventually('Ожидает синхронизации');
+  await bodyEventually('Синхронизация: офлайн · 1 несинхр.');
+  clickCheckbox();
+  await bodyEventually('Синхронизация: офлайн · 2 несинхр.');
+  check(!await bodyHas('Обнаружен конфликт синхронизации'), 'Offline edits opened a false conflict');
   browser('reload');
   check(browser('get', 'url') === taskUrl, 'Offline F5 lost the task URL');
-  await bodyEventually('Ожидает синхронизации');
+  await bodyEventually('Синхронизация: офлайн · 2 несинхр.');
+  // Keep eval on one line: the Windows npx wrapper otherwise truncates it at the first newline.
+  check(browser('eval', 'window.__syncUxStates = []; window.__syncUxObserver = new MutationObserver(function() { window.__syncUxStates.push(document.body.innerText); }); window.__syncUxObserver.observe(document.body, { subtree: true, childList: true, characterData: true }); true') === 'true',
+    'Could not attach the sync-state observer');
   browser('set', 'offline', 'off');
-  await eventually(async () => await percentage(fixture.itemId) === 0 && await bodyHas('Все изменения синхронизированы'),
+  await eventually(async () => await percentage(fixture.itemId) === 100 && await bodyHas('Синхронизация: подключено'),
     'offline edit reconciliation', 40_000);
+  const observedSync = browser('eval', 'window.__syncUxStates.some(function(text) { return text.includes("Синхронизация: в процессе"); })');
+  check(observedSync === 'true', `Reconnect never displayed the active sync pass (${observedSync}); observed: ${browser('eval',
+    'JSON.stringify(window.__syncUxStates.map(function(text) { return text.match(/Синхронизация: [^\\n]+/g); }))')}`);
   console.log('PASS offline edit, F5, reconnect, status');
 
   browser('reload'); // Refresh runtime capability before entering offline mode.
@@ -173,79 +196,86 @@ try {
   await remoteChange(fixture.bEmail, fixture.itemId, 65);
   browser('set', 'offline', 'off');
   await bodyEventually('Обнаружен конфликт синхронизации');
+  await bodyEventually('Синхронизация: конфликт');
+  browser('press', 'Escape');
+  check(await bodyHas('Обнаружен конфликт синхронизации'), 'Escape dismissed the real conflict');
+  check(browser('eval', 'Boolean(document.querySelector("[inert]"))') === 'true', 'Underlying app is keyboard-accessible');
   browser('reload');
   check(browser('get', 'url') === taskUrl, 'Conflict F5 lost the task URL');
   const conflict = browser('snapshot', '-i');
   browser('click', ref(conflict, 'button "Оставить серверное"'));
-  await eventually(async () => await percentage(fixture.itemId) === 65 && await bodyHas('Все изменения синхронизированы'),
+  await eventually(async () => await percentage(fixture.itemId) === 65 && await bodyHas('Синхронизация: подключено')
+    && !await bodyHas('Обнаружен конфликт синхронизации'),
     'conflict resolution');
   console.log('PASS conflict persistence and server resolution');
 
-  await setConfig(false, true);
-  browser('reload');
-  await bodyEventually('Оконные блоки установлены');
-  browser('set', 'offline', 'on');
-  clickCheckbox();
-  check(!await bodyHas('Ожидает синхронизации'), 'Kill switch allowed a new offline operation');
-  browser('set', 'offline', 'off');
-  check(await percentage(fixture.itemId) === 65, 'Kill switch changed the server item');
-  await setConfig(true, true);
-  console.log('PASS remote write kill switch');
-
-  browser('reload');
-  await bodyEventually('Оконные блоки установлены');
-  await bodyEventually('Все изменения синхронизированы');
-  browser('wait', '1800');
-  const beforeReceipts = await receiptCount(fixture.aEmail);
-  browser('set', 'offline', 'on');
-  clickCheckbox();
-  await bodyEventually('Ожидает синхронизации');
-  browser('tab', 'new');
-  browser('open', taskUrl);
-  await bodyEventually('Ожидает синхронизации');
-  browser('set', 'offline', 'off');
-  await eventually(async () => await percentage(fixture.itemId) === 100 && await receiptCount(fixture.aEmail) === beforeReceipts + 1,
-    'cross-tab single application', 40_000);
-  await bodyEventually('Все изменения синхронизированы');
-  console.log('PASS multi-tab queue and one receipt');
-
-  // The remote capability has a 60-second TTL. Browser CLI calls can exceed
-  // that interval on Windows, so refresh it before this offline-only probe.
-  let queuedForUpdate = false;
-  for (let attempt = 0; attempt < 3 && !queuedForUpdate; attempt += 1) {
+  if (!uxOnly) {
+    await setConfig(false, true);
     browser('reload');
     await bodyEventually('Оконные блоки установлены');
-    await bodyEventually('Все изменения синхронизированы');
     browser('set', 'offline', 'on');
     clickCheckbox();
-    try {
-      await eventually(() => bodyHas('Ожидает синхронизации'), 'offline pending operation', 8_000);
-      queuedForUpdate = true;
-    } catch (error) {
-      browser('set', 'offline', 'off');
-      if (attempt === 2) throw error;
+    check(!await bodyHas('Ожидает синхронизации'), 'Kill switch allowed a new offline operation');
+    browser('set', 'offline', 'off');
+    check(await percentage(fixture.itemId) === 65, 'Kill switch changed the server item');
+    await setConfig(true, true);
+    console.log('PASS remote write kill switch');
+
+    browser('reload');
+    await bodyEventually('Оконные блоки установлены');
+    await bodyEventually('Синхронизация: подключено');
+    browser('wait', '1800');
+    const beforeReceipts = await receiptCount(fixture.aEmail);
+    browser('set', 'offline', 'on');
+    clickCheckbox();
+    await bodyEventually('Ожидает синхронизации');
+    browser('tab', 'new');
+    browser('open', taskUrl);
+    await bodyEventually('Ожидает синхронизации');
+    browser('set', 'offline', 'off');
+    await eventually(async () => await percentage(fixture.itemId) === 100 && await receiptCount(fixture.aEmail) === beforeReceipts + 1,
+      'cross-tab single application', 40_000);
+    await bodyEventually('Синхронизация: подключено');
+    console.log('PASS multi-tab queue and one receipt');
+
+    // The remote capability has a 60-second TTL. Browser CLI calls can exceed
+    // that interval on Windows, so refresh it before this offline-only probe.
+    let queuedForUpdate = false;
+    for (let attempt = 0; attempt < 3 && !queuedForUpdate; attempt += 1) {
+      browser('reload');
+      await bodyEventually('Оконные блоки установлены');
+      await bodyEventually('Синхронизация: подключено');
+      browser('set', 'offline', 'on');
+      clickCheckbox();
+      try {
+        await eventually(() => bodyHas('Ожидает синхронизации'), 'offline pending operation', 8_000);
+        queuedForUpdate = true;
+      } catch (error) {
+        browser('set', 'offline', 'off');
+        if (attempt === 2) throw error;
+      }
     }
+    await setConfig(false, false);
+    browser('set', 'offline', 'off');
+    await bodyEventually('Синхронизация: ожидает');
+    browser('reload');
+    await bodyEventually('Ожидает синхронизации');
+    await eventually(() => browser('eval', 'Boolean(navigator.serviceWorker.controller)') === 'true',
+      'service-worker control');
+    browser('wait', '800');
+    originalSw = await readFile(swPath);
+    await writeFile(swPath, Buffer.concat([originalSw, Buffer.from(`\n// phase6-smoke-${Date.now()}\n`)]));
+    browser('eval', 'navigator.serviceWorker.ready.then(function(reg){return reg.update()})');
+    await bodyEventually('Доступна новая версия TaskTrace.');
+    const update = browser('snapshot', '-i');
+    browser('click', ref(update, 'button "Обновить"'));
+    await eventually(() => browser('get', 'url') === taskUrl && bodyHas('Ожидает синхронизации'), 'SW update preserves pending operation');
+    await setConfig(true, true);
+    browser('reload');
+    await eventually(async () => await percentage(fixture.itemId) === 0 && await bodyHas('Синхронизация: подключено'),
+      'pending operation after SW update', 40_000);
+    console.log('PASS service-worker update with pending operation');
   }
-  await setConfig(false, false);
-  browser('set', 'offline', 'off');
-  await bodyEventually('Синхронизация временно отключена');
-  browser('reload');
-  await bodyEventually('Ожидает синхронизации');
-  await eventually(() => browser('eval', 'Boolean(navigator.serviceWorker.controller)') === 'true',
-    'service-worker control');
-  browser('wait', '800');
-  originalSw = await readFile(swPath);
-  await writeFile(swPath, Buffer.concat([originalSw, Buffer.from(`\n// phase6-smoke-${Date.now()}\n`)]));
-  browser('eval', 'navigator.serviceWorker.ready.then(function(reg){return reg.update()})');
-  await bodyEventually('Доступна новая версия TaskTrace.');
-  const update = browser('snapshot', '-i');
-  browser('click', ref(update, 'button "Обновить"'));
-  await eventually(() => browser('get', 'url') === taskUrl && bodyHas('Ожидает синхронизации'), 'SW update preserves pending operation');
-  await setConfig(true, true);
-  browser('reload');
-  await eventually(async () => await percentage(fixture.itemId) === 0 && await bodyHas('Все изменения синхронизированы'),
-    'pending operation after SW update', 40_000);
-  console.log('PASS service-worker update with pending operation');
 
   memberBrowser('open', `${base}/login`);
   const memberLogin = memberBrowser('snapshot', '-i');
@@ -265,16 +295,25 @@ try {
   const revoked = await owner.rpc('remove_project_member', { p_project_id: fixture.projectId, p_user_id: memberId });
   if (revoked.error) throw revoked.error;
   memberBrowser('set', 'offline', 'off');
-  await eventually(() => memberBrowser('get', 'text', 'body').includes('Не удалось синхронизировать'),
+  await eventually(() => memberBrowser('get', 'text', 'body').includes('Синхронизация: ошибка'),
     'deterministic failed operation', 40_000);
   memberBrowser('reload');
-  await eventually(() => memberBrowser('get', 'text', 'body').includes('Не удалось синхронизировать'),
+  await eventually(() => memberBrowser('get', 'text', 'body').includes('Синхронизация: ошибка'),
     'failed operation after F5');
   const restored = await owner.rpc('add_project_member', { p_project_id: fixture.projectId, p_user_id: memberId, p_role: 'member' });
   if (restored.error) throw restored.error;
+  memberBrowser('click', ref(memberBrowser('snapshot', '-i'), 'button "Синхронизация: ошибка'));
+  check(memberBrowser('get', 'text', 'body').includes('Отменить локальное изменение'), 'Failed discard action is missing');
+  check(!memberBrowser('get', 'text', 'body').includes('Обнаружен конфликт синхронизации'), 'Failed operation opened a false conflict');
+  if (uxOnly) {
+    memberBrowser('set', 'viewport', '390', '844');
+    check(memberBrowser('eval', 'Array.from(document.querySelectorAll(\'[role="button"]\')).filter(function(el) { return ["Повторить", "Отменить локальное изменение"].includes(el.textContent); }).every(function(el) { var rect = el.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; })') === 'true',
+      'Failed actions overflow the narrow viewport');
+    memberBrowser('screenshot', resolve(root, '.expo/sync-ux-failed.png'));
+  }
   memberBrowser('click', ref(memberBrowser('snapshot', '-i'), 'button "Повторить"'));
   await eventually(async () => await percentage(fixture.itemId) === 100
-    && memberBrowser('get', 'text', 'body').includes('Все изменения синхронизированы'), 'failed operation retry', 40_000);
+    && memberBrowser('get', 'text', 'body').includes('Синхронизация: подключено'), 'failed operation retry', 40_000);
   memberBrowser('open', taskUrl);
   let restoredBody = '';
   try {
@@ -286,6 +325,10 @@ try {
     throw new Error(`${error.message}\nURL: ${memberBrowser('get', 'url')}\nLast body: ${restoredBody.slice(-1800)}`);
   }
   console.log('PASS failed operation persistence and explicit retry');
+  if (uxOnly) {
+    console.log('Owner page errors:', browser('errors'));
+    console.log('Member page errors:', memberBrowser('errors'));
+  }
 
   console.log('Phase 6 production browser smoke PASS');
 } finally {
@@ -299,6 +342,9 @@ try {
     try { memberBrowser('close'); } catch { /* browser may have closed */ }
   }
   server?.kill();
-  try { await setConfig(false, false); } catch { /* local DB may have stopped */ }
+  if (originalConfig) {
+    try { await db.query('update private.offline_runtime_config set write_enabled = $1, sync_enabled = $2, updated_at = $3',
+      [originalConfig.write_enabled, originalConfig.sync_enabled, originalConfig.updated_at]); } catch { /* local DB may have stopped */ }
+  }
   await db.end().catch(() => undefined);
 }

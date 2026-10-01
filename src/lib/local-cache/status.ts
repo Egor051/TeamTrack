@@ -7,6 +7,7 @@ export type SyncState = {
   connectivity: 'unknown' | 'offline' | 'online';
   isSyncing: boolean;
   pendingCount: number;
+  unsyncedCount: number;
   failedCount: number;
   conflictCount: number;
   lastSuccessfulSyncAt: string | null;
@@ -61,6 +62,7 @@ export async function getSyncState(userId: string): Promise<SyncState> {
   const value = last ? JSON.parse(last.data) as unknown : null;
   return { ...local,
     pendingCount: operations.filter((row) => row.status === 'pending' || row.status === 'synced_unreconciled').length,
+    unsyncedCount: operations.filter((row) => ['pending', 'synced_unreconciled', 'failed', 'conflict'].includes(row.status)).length,
     failedCount: operations.filter((row) => row.status === 'failed').length,
     conflictCount: conflicts.length,
     lastSuccessfulSyncAt: typeof value === 'string' ? value : null,
