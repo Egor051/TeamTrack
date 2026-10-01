@@ -73,6 +73,8 @@ export type PullChange = {
 };
 
 export interface LocalCacheDriver {
+  // Confirmed cache/metadata only. Never touches pending operations/conflicts.
+  commitCacheBatch(userId: string, entries: CacheEntry[], removeKeys?: string[], guards?: { key: string; data: string | null }[]): Promise<boolean>;
   get(userId: string, key: string): Promise<CacheEntry | null>;
   put(entry: CacheEntry): Promise<void>;
   putIfUnchanged(entry: CacheEntry, expectedData: string | null): Promise<void>;

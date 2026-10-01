@@ -105,7 +105,10 @@ type ReadOptions<T> = {
   projectId?: string;
   clearProjectBlockOnSuccess?: boolean;
   taskId?: string;
+  clearTaskBlockOnSuccess?: boolean;
+  blockResourceOnAccessError?: boolean;
   filterCached?: (userId: string, value: T) => Promise<T>;
+  cacheValue?: (value: T) => T;
 };
 
 export async function readThroughCache<T>(key: string, online: () => Promise<T>, options: ReadOptions<T> = {}): Promise<T> {
@@ -118,20 +121,24 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
   try {
     const value = await online();
     if (userId && await sessionUserId() === userId) {
-      if (baseline !== undefined) await putCachedIfUnchanged(userId, key, value, baseline);
+      if (baseline !== undefined) await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline);
       if (options.projectId && options.clearProjectBlockOnSuccess) await removeCached(userId, `blocked:${options.projectId}`);
-      if (options.taskId) await removeCached(userId, `blocked-task:${options.taskId}`);
+      if (options.taskId && options.clearTaskBlockOnSuccess) await removeCached(userId, `blocked-task:${options.taskId}`);
     }
     return value;
   } catch (error) {
     if (userId && isExplicitAccessError(error) && await sessionUserId() === userId) {
       await removeCached(userId, key);
-      if (options.projectId) await putCached(userId, `blocked:${options.projectId}`, true);
-      if (options.taskId) await putCached(userId, `blocked-task:${options.taskId}`, true);
+      if (options.projectId && options.blockResourceOnAccessError !== false) await putCached(userId, `blocked:${options.projectId}`, true);
+      if (options.taskId && options.blockResourceOnAccessError !== false) await putCached(userId, `blocked-task:${options.taskId}`, true);
     }
     if (!userId || !isTransportFailure(error) || await sessionUserId() !== userId) throw error;
     if (options.projectId && await getCached<boolean>(userId, `blocked:${options.projectId}`)) throw error;
     if (options.taskId && await getCached<boolean>(userId, `blocked-task:${options.taskId}`)) throw error;
+    if (options.taskId) {
+      const task = await getCached<{ project_id: string }>(userId, `task:${options.taskId}`);
+      if (task && await getCached<boolean>(userId, `blocked:${task.project_id}`)) throw error;
+    }
     const cached = await getCached<T>(userId, key);
     if (cached === null) throw error;
     return markCached(options.filterCached ? await options.filterCached(userId, cached) : cached);

@@ -42,7 +42,7 @@ function runInLocalPostgres(file) {
 run(['--yes', SUPABASE_CLI, 'db', 'reset', '--local', '--yes']);
 const tempRoot = mkdtempSync(join(tmpdir(), 'tasktrace-sql-'));
 try {
-  for (const file of ['initial_schema_smoke_test.sql', 'stage_visibility_test.sql', 'rls_and_rpc_test.sql', 'notifications_test.sql', 'full_integration_test.sql', 'hard_delete_history_test.sql', 'task_enhancements_test.sql', 'offline_operation_receipts_test.sql', 'offline_pull_conflicts_test.sql', 'offline_phase6_runtime_retention_test.sql']) {
+  for (const file of ['initial_schema_smoke_test.sql', 'stage_visibility_test.sql', 'rls_and_rpc_test.sql', 'notifications_test.sql', 'full_integration_test.sql', 'hard_delete_history_test.sql', 'task_enhancements_test.sql', 'offline_operation_receipts_test.sql', 'offline_pull_conflicts_test.sql', 'offline_phase6_runtime_retention_test.sql', 'account_offline_bootstrap_test.sql']) {
     const source = readFileSync(resolve(root, 'supabase', 'tests', file), 'utf8');
     const tempFile = join(tempRoot, file);
     writeFileSync(tempFile, source);

@@ -10,6 +10,7 @@
 
 import { supabase } from '@/lib/supabase/client';
 import { createAuthRedirectUrl } from './auth-links';
+import { isTransportFailure } from '@/lib/local-cache/cache';
 
 export type SignUpInput = {
   email: string;
@@ -153,8 +154,19 @@ export function getCurrentSession() {
 /**
  * Get the current user synchronously.
  */
-export function getCurrentUser() {
-  return supabase.auth.getUser();
+export async function getCurrentUser() {
+  // Use the persisted authenticated identity only when transport is unavailable.
+  // Server authorization remains RLS/RPC; JWT/access failures never fall back.
+  try {
+    const result = await supabase.auth.getUser();
+    if (!result.error || !isTransportFailure(result.error)) return result;
+    throw result.error;
+  } catch (error) {
+    if (!isTransportFailure(error)) throw error;
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !data.session?.user || (data.session.expires_at && data.session.expires_at * 1000 <= Date.now())) throw error;
+    return { data: { user: data.session.user }, error: null };
+  }
 }
 
 export async function updateMyProfile(displayName: string) {

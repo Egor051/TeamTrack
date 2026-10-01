@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Screen } from '@/components/ui/screen';
 import { PageHeader } from '@/components/ui/page-header';
@@ -15,6 +15,9 @@ import { radii, spacing } from '@/components/ui/theme';
 import { listOwnedProjects, listProjectMembers, transferProjectOwnership, type ProjectWithRole, type ProjectMember } from '@/features/projects/projects';
 import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
 import { useTheme, type ThemeMode } from '@/components/ui/theme-provider';
+import { useOfflineBootstrap } from '@/lib/local-cache/use-offline-bootstrap';
+import { selectOfflineScheme } from '@/lib/local-cache/bootstrap';
+import type { OfflineScheme } from '@/lib/local-cache/bootstrap-types';
 
 const roleLabels = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
 
@@ -154,6 +157,7 @@ export default function ProfileScreen() {
       <View style={styles.heading}><ThemedText type="h2">Оформление</ThemedText><ThemedText type="small">Выберите тему или используйте настройки устройства.</ThemedText></View>
       <View style={styles.actions}>{(['light', 'dark', 'system'] as ThemeMode[]).map((mode) => <Button key={mode} size="sm" accessibilityState={{ selected: theme.mode === mode }} variant={theme.mode === mode ? 'primary' : 'outline'} onPress={() => theme.setMode(mode)}>{mode === 'light' ? 'Светлая' : mode === 'dark' ? 'Тёмная' : 'Как на устройстве'}</Button>)}</View>
     </Card>
+    {Platform.OS === 'web' ? <OfflinePreferences /> : null}
     <Card style={styles.section}>
       <View style={styles.heading}><ThemedText type="h2">Передача владения</ThemedText><ThemedText type="small">Передайте управление проектом другому участнику. После подтверждения вы перестанете быть владельцем.</ThemedText></View>
       {transferSuccess ? <ThemedText type="small" accessibilityLiveRegion="polite" style={{ color: theme.colors.success }}>{transferSuccess}</ThemedText> : null}
@@ -182,6 +186,27 @@ export default function ProfileScreen() {
     </Card>
     <ConfirmDialog visible={confirm} title="Передать владение проектом?" description={`Новым владельцем проекта «${selected?.name || ''}» станет ${target?.profile?.display_name || target?.user_id.slice(0, 8) || 'выбранный участник'}. Вы больше не будете владельцем.`} confirmLabel="Передать владение" busy={busyAction === 'transfer'} onCancel={() => setConfirm(false)} onConfirm={() => void transfer()} />
   </Screen>;
+}
+
+export function OfflinePreferences() {
+  const meta = useOfflineBootstrap();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const select = async (scheme: OfflineScheme) => {
+    if (!meta || saving) return;
+    setSaving(true); setError('');
+    try { await selectOfflineScheme(meta.user_id, scheme); }
+    catch (e) { setError(userMessage(e, 'Не удалось сохранить настройку.')); }
+    finally { setSaving(false); }
+  };
+  return <Card style={styles.section}>
+    <View style={styles.heading}><ThemedText type="h2">Офлайн-режим</ThemedText><ThemedText type="small">Данные сохраняются на этом устройстве. Подготовка идёт в фоне при подключении к сети.</ThemedText></View>
+    <View style={styles.choiceList} accessibilityRole="radiogroup" accessibilityLabel="Схема офлайн-режима">
+      <ChoiceRow title="Базовая" description="Проекты, этапы, чек-листы, участники, исполнители, архив, шаблоны и дневной прогресс. Использует меньше места." selected={(meta?.scheme ?? 'basic') === 'basic'} disabled={saving || !meta} onPress={() => void select('basic')} />
+      <ChoiceRow title="Расширенная" description="Все основные данные, история изменений за 90 дней, последние уведомления и авторы изменений. Использует больше места." selected={meta?.scheme === 'extended'} disabled={saving || !meta} onPress={() => void select('extended')} />
+    </View>
+    <ErrorMessage message={error} type="generic" />
+  </Card>;
 }
 
 function ChoiceRow({ title, description, selected, disabled, onPress }: { title: string; description: string; selected: boolean; disabled?: boolean; onPress: () => void }) {

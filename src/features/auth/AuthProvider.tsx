@@ -15,6 +15,7 @@ import {
 } from './auth';
 import { closeAllRealtimeChannels } from '@/lib/supabase/realtime';
 import { parseAuthCallbackUrl, stripAuthCallbackParams } from './auth-links';
+import { readThroughCache, activeCacheUserId, putCached } from '@/lib/local-cache/cache';
 
 type AuthContextType = {
   state: AuthState;
@@ -40,12 +41,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 async function fetchProfile(): Promise<Profile | null> {
   try {
-    const { data, error } = await supabase.rpc('get_my_profile');
-    if (error) {
-      if (process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] profile fetch error:', error.message);
-      return null;
-    }
-    return data as Profile;
+    return await readThroughCache('profile:self', async () => {
+      const { data, error } = await supabase.rpc('get_my_profile');
+      if (error) throw error;
+      return data as Profile;
+    });
   } catch {
     if (process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] profile fetch exception');
     return null;
@@ -197,9 +197,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updateProfile = async (displayName: string) => {
+    const userId = state.user?.id;
     const { updateMyProfile } = await import('./auth');
-    const profile = await updateMyProfile(displayName);
-    setState((prev) => ({ ...prev, profile: profile as unknown as Profile }));
+    if (!userId || await activeCacheUserId() !== userId) throw new Error('Сеанс изменился.');
+    const profile = await updateMyProfile(displayName) as unknown as Profile;
+    if (profile?.id !== userId || await activeCacheUserId() !== userId) return;
+    await putCached(userId, 'profile:self', profile);
+    setState((prev) => prev.user?.id === userId ? { ...prev, profile } : prev);
   };
 
   const clearError = () => setState((prev) => ({ ...prev, error: null }));

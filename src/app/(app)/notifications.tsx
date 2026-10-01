@@ -10,7 +10,8 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { ThemedText } from '@/components/ui/text';
 import { useUser } from '@/features/auth/AuthProvider';
-import { fetchNotifications, markAllAsRead, markAsRead, stageNotificationText, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
+import { fetchNotificationPage, markAllAsRead, markAsRead, stageNotificationText, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
+import { isExplicitAccessError } from '@/lib/local-cache/cache';
 import { userMessage } from '@/lib/errors/user-message';
 import { layout, spacing } from '@/components/ui/theme';
 import { useTheme } from '@/components/ui/theme-provider';
@@ -29,6 +30,7 @@ export default function NotificationsScreen() {
   const [actionError, setActionError] = useState('');
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const [markingIds, setMarkingIds] = useState<Set<string>>(new Set());
@@ -54,7 +56,8 @@ export default function NotificationsScreen() {
     }
     try {
       const offset = reset ? 0 : itemsRef.current.length;
-      const page = await fetchNotifications(PAGE_SIZE, offset);
+      const result = await fetchNotificationPage(PAGE_SIZE, offset);
+      const page = result.rows;
       if (request !== requestRef.current) return;
       if (reset) {
         itemsRef.current = page;
@@ -66,10 +69,14 @@ export default function NotificationsScreen() {
           return next;
         });
       }
-      setHasMore(page.length === PAGE_SIZE);
+      setHasMore(result.hasMore);
+      setOffline(result.offline);
       setLoadError('');
     } catch (e) {
-      if (request === requestRef.current) setLoadError(userMessage(e, 'Не удалось загрузить уведомления.'));
+      if (request === requestRef.current) {
+        setLoadError(userMessage(e, 'Не удалось загрузить уведомления.'));
+        if (isExplicitAccessError(e)) { setItems([]); itemsRef.current = []; setOffline(false); }
+      }
     } finally {
       if (request === requestRef.current) {
         if (reset) setLoading(false);
@@ -115,7 +122,7 @@ export default function NotificationsScreen() {
   }
 
   async function read(item: Notification) {
-    if (!await markItemRead(item)) return;
+    if (!offline && !await markItemRead(item)) return;
     if (item.project_id) {
       router.push(
         (item.task_id
@@ -147,7 +154,8 @@ export default function NotificationsScreen() {
 
   return <Screen padded={false} centerContent={false}>
     <ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll} onPress={() => void allRead()}>Прочитать все</Button> : null} />
+      <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={!offline && items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll} onPress={() => void allRead()}>Прочитать все</Button> : null} />
+      {offline ? <Card><ThemedText type="small">Показаны сохранённые уведомления: все непрочитанные и последние 100 прочитанных. Более старые уведомления и отметка прочтения требуют подключения.</ThemedText></Card> : null}
       {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к этапам и изменениях чек-листа." /> : <View style={styles.list}>
         {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить уведомления</Button></View> : null}
         {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
@@ -157,7 +165,7 @@ export default function NotificationsScreen() {
             <ThemedText>{notificationText(item, item.body)}</ThemedText>
             <ThemedText type="caption">{new Date(item.created_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}</ThemedText>
           </Pressable>
-          {!item.is_read ? <Button size="sm" variant="ghost" loading={markingIds.has(item.id)} disabled={markingAll || markingIds.has(item.id)} onPress={() => void markReadOnly(item)}>{markingIds.has(item.id) ? 'Отмечаем…' : 'Отметить прочитанным'}</Button> : null}
+          {!offline && !item.is_read ? <Button size="sm" variant="ghost" loading={markingIds.has(item.id)} disabled={markingAll || markingIds.has(item.id)} onPress={() => void markReadOnly(item)}>{markingIds.has(item.id) ? 'Отмечаем…' : 'Отметить прочитанным'}</Button> : null}
         </Card>)}
         {hasMore ? <Button size="sm" variant="outline" loading={loadingMore} onPress={() => void load(false)}>Загрузить ещё</Button> : null}
       </View>}

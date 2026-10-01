@@ -27,6 +27,7 @@ import { useTheme } from "@/components/ui/theme-provider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
 import { formatAuditChanges, selectChecklistHistory } from "@/features/projects/history-format";
+import { isCachedResult } from "@/lib/local-cache/cache";
 
 const auditActionLabels: Record<string, string> = {
   created: "Создание", updated: "Обновление", checked: "Выполнено", unchecked: "Отметка снята",
@@ -65,6 +66,7 @@ export default function History() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [details, setDetails] = useState<number | null>(null);
   const [actionLogExpanded, setActionLogExpanded] = useState(false);
@@ -85,6 +87,7 @@ export default function History() {
       ]);
       if (request !== requestRef.current) return;
       setAudit(au);
+      setOffline(isCachedResult(au));
       setItems(it);
       setMembers(ms);
       setTaskTitle(task.title);
@@ -190,6 +193,7 @@ export default function History() {
           breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "История" }]}
           actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void load()}>Обновить</Button></>}
         />
+        {offline ? <Card><ThemedText type="small">Показана сохранённая история за последние 90 дней. Более старая история требует подключения.</ThemedText></Card> : null}
         {error && loaded ? <Card><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить историю</Button></Card> : null}
         {error && !loaded ? (
           <ErrorState message={error} onRetry={load} />

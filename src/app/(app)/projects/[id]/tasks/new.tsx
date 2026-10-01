@@ -13,10 +13,33 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { layout, spacing } from '@/components/ui/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { createTask, createTaskFromTemplate, getProject, listTaskTemplates, type ProjectRole, type TaskTemplate } from '@/features/projects/projects';
+import { createTask, createTaskFromTemplate, getProject, listTaskTemplates, listTaskTemplateItems, type ProjectRole, type TaskTemplate, type TaskTemplateItem } from '@/features/projects/projects';
 import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
 
 type Draft = { title: string; description: string };
+
+function TemplateContents({ templateId }: { templateId: string }) {
+  const [items, setItems] = useState<TaskTemplateItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [request, setRequest] = useState({ templateId, retry: 0 });
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    void listTaskTemplateItems(request.templateId).then((rows) => {
+      if (active) { setItems(rows); setError(''); }
+    }).catch((e) => { if (active) setError(userMessage(e, 'Не удалось загрузить пункты шаблона.')); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [request]));
+  if (loading) return <LoadingState label="Загружаем пункты шаблона…" />;
+  if (error) return <ErrorState message={error} onRetry={() => { setLoading(true); setRequest((value) => ({ ...value, retry: value.retry + 1 })); }} />;
+  return <View style={styles.section}>
+    {items.map((item, index) => <View key={item.id}>
+      <ThemedText>{index + 1}. {item.title}</ThemedText>
+      {item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}
+    </View>)}
+  </View>;
+}
 
 export default function NewTask() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -143,6 +166,7 @@ export default function NewTask() {
                     ? `Пунктов в чек-листе: ${selectedTemplate.item_count}. Они будут скопированы в новый этап. Название и описание можно изменить ниже.`
                     : 'Выберите готовый чек-лист. Новый этап будет независим от исходного шаблона.'}
                 </ThemedText>
+                {selectedTemplate ? <TemplateContents key={templateId} templateId={templateId} /> : null}
               </>
             )}
           </View>

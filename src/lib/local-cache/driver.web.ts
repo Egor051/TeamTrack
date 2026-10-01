@@ -10,7 +10,7 @@ const pullKey = 'sync:task-items:cursor';
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 4);
+    const request = indexedDB.open(DB_NAME, 5);
     let blocked = false;
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -60,6 +60,28 @@ async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectSt
 }
 
 export const localCacheDriver: LocalCacheDriver = {
+  async commitCacheBatch(userId, entries, removeKeys = [], guards = []) {
+    if (entries.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
+    return transact<boolean>('readwrite', (store, resolve) => {
+      let remaining = guards.length;
+      let valid = true;
+      const commit = () => {
+        if (valid) {
+          for (const key of removeKeys) store.delete(entryKey(userId, key));
+          for (const entry of entries) store.put(entry, entryKey(userId, entry.key));
+        }
+        resolve(valid);
+      };
+      if (!remaining) { commit(); return; }
+      for (const guard of guards) {
+        const request = store.get(entryKey(userId, guard.key));
+        request.onsuccess = () => {
+          valid &&= ((request.result as CacheEntry | undefined)?.data ?? null) === guard.data;
+          if (--remaining === 0) commit();
+        };
+      }
+    });
+  },
   get: (userId, key) => transact<CacheEntry | null>('readonly', (store, resolve) => {
     const request = store.get(entryKey(userId, key));
     request.onsuccess = () => resolve((request.result as CacheEntry | undefined) ?? null);

@@ -92,6 +92,23 @@ function database(): Promise<SQLite.SQLiteDatabase> {
 }
 
 export const localCacheDriver: LocalCacheDriver = {
+  async commitCacheBatch(userId, batch, removeKeys = [], guards = []) {
+    if (batch.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
+    const db = await database();
+    let committed = false;
+    await exclusive(db, async (tx) => {
+      for (const guard of guards) {
+        const row = await tx.getFirstAsync<{ data: string }>('SELECT data FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, guard.key]);
+        if ((row?.data ?? null) !== guard.data) return;
+      }
+      for (const key of removeKeys) await tx.runAsync('DELETE FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, key]);
+      for (const entry of batch) await tx.runAsync(
+        'INSERT OR REPLACE INTO cache_entries (user_id, cache_key, data, last_synced_at, schema_version) VALUES (?, ?, ?, ?, ?)',
+        [userId, entry.key, entry.data, entry.last_synced_at, entry.schema_version]);
+      committed = true;
+    });
+    return committed;
+  },
   async get(userId, key) {
     const db = await database();
     const row = await db.getFirstAsync<CacheEntry>(

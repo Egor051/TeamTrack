@@ -10,6 +10,13 @@ const conflicts = new Map<string, SyncConflict>();
 const entryKey = (userId: string, key: string) => `${userId}:${key}`;
 
 export const localCacheDriver: LocalCacheDriver = {
+  async commitCacheBatch(userId, batch, removeKeys = [], guards = []) {
+    if (batch.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
+    if (guards.some((guard) => (entries.get(entryKey(userId, guard.key))?.data ?? null) !== guard.data)) return false;
+    for (const key of removeKeys) entries.delete(entryKey(userId, key));
+    for (const entry of batch) entries.set(entryKey(userId, entry.key), entry);
+    return true;
+  },
   async get(userId, key) { return entries.get(entryKey(userId, key)) ?? null; },
   async put(entry) { entries.set(entryKey(entry.user_id, entry.key), entry); },
   async putIfUnchanged(entry, expectedData) {

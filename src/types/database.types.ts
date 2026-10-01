@@ -620,6 +620,20 @@ export type Database = {
         Args: { p_task_id: string }
         Returns: Database["public"]["Enums"]["project_role"]
       }
+      get_offline_account_manifest: {
+        Args: { p_scheme?: string }
+        Returns: Json
+      }
+      get_offline_account_page: {
+        Args: {
+          p_dataset: string
+          p_limit?: number
+          p_offset?: number
+          p_revision: string
+        }
+        Returns: Json
+      }
+      get_offline_runtime_config: { Args: never; Returns: Json }
       get_task_item_sync_cursor: { Args: never; Returns: number }
       get_task_template: { Args: { p_template_id: string }; Returns: Json }
       hard_delete_project: {
@@ -690,7 +704,6 @@ export type Database = {
         Args: { p_after_cursor: number; p_limit?: number }
         Returns: Json
       }
-      get_offline_runtime_config: { Args: never; Returns: Json }
       remove_project_member: {
         Args: { p_project_id: string; p_user_id: string }
         Returns: undefined

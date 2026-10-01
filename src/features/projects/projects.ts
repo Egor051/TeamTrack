@@ -3,10 +3,12 @@ import { getCurrentUser } from '@/features/auth/auth';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/client';
 import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
-import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, putCached, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
+import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, isTransportFailure, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
 import { applyPendingOperations, listPendingOperations } from '@/lib/local-cache/outbox';
 import { buildSyncEnabled } from '@/lib/local-cache/runtime-config';
 import { ChecklistLocalRepository } from '@/lib/local-cache/repository';
+import { getUtcPlus3DayStart } from '@/lib/local-cache/day';
+export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
 export type TaskChecklistRole = Exclude<ProjectRole, 'owner'>;
@@ -95,44 +97,8 @@ export async function listProjects(status: 'active' | 'archived' = 'active'): Pr
   const projects = await readThroughCache(`projects:${status}`, () => listProjectsOnline(status), { filterCached: filterBlockedProjects });
   if (!isCachedResult(projects) && userId && await activeCacheUserId() === userId) {
     await reconcileVisibleProjects(userId, previous ?? [], projects);
-    if (status === 'active') void prefetchActiveProjects(userId, projects);
   }
   return projects;
-}
-
-const prefetchingProjects = new Set<string>();
-
-async function prefetchActiveProjects(userId: string, projects: ProjectWithRole[]): Promise<void> {
-  for (const project of projects) {
-    if (await activeCacheUserId() !== userId) return;
-    const prefetchKey = `${userId}:${project.id}`;
-    if (prefetchingProjects.has(prefetchKey)) continue;
-    prefetchingProjects.add(prefetchKey);
-    try {
-      await putCached(userId, `project:${project.id}`, project);
-      const [taskResult] = await Promise.allSettled([
-        listProjectTasks(project.id),
-        listTasksWithStats(project.id),
-        listProjectMembers(project.id),
-      ]);
-      if (taskResult.status === 'rejected') throw taskResult.reason;
-      for (const task of taskResult.value.filter((row) => row.status !== 'archived')) {
-        if (await activeCacheUserId() !== userId) return;
-        await putCached(userId, `task:${task.id}`, task);
-        await Promise.allSettled([
-          listTaskItems(task.id, 'active'),
-          listTaskAssignees(task.id),
-          listTaskItemLastEditors(task.id),
-          getMyTaskRole(task.id),
-          ...(project.role === 'owner' || project.role === 'admin' ? [listTaskMemberOverrides(task.id)] : []),
-        ]);
-      }
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') console.debug('[TaskTrace] cache prefetch skipped', project.id, error);
-    } finally {
-      prefetchingProjects.delete(prefetchKey);
-    }
-  }
 }
 
 /**
@@ -146,6 +112,18 @@ async function prefetchActiveProjects(userId: string, projects: ProjectWithRole[
  * an owned project disappear from this list.
  */
 export async function listOwnedProjects(): Promise<ProjectWithRole[]> {
+  try { return await listOwnedProjectsOnline(); }
+  catch (error) {
+    const userId = await activeCacheUserId();
+    if (!userId || !isTransportFailure(error)) throw error;
+    const active = await getCached<ProjectWithRole[]>(userId, 'projects:active');
+    const archived = await getCached<ProjectWithRole[]>(userId, 'projects:archived');
+    if (!active || !archived) throw error;
+    return inheritCachedResult(active, await filterBlockedProjects(userId, [...active, ...archived].filter((p) => p.role === 'owner')));
+  }
+}
+
+async function listOwnedProjectsOnline(): Promise<ProjectWithRole[]> {
   const { data: userData, error: userError } = await getCurrentUser();
   if (userError || !userData.user) throw new Error('Требуется авторизация.');
   const owned = await fetchAll<{ project_id: string }>((from, to) =>
@@ -267,7 +245,10 @@ export async function getTask(taskId: string, projectId?: string): Promise<Task>
     if (result.error) throw result.error;
     if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return result.data;
-  }, { taskId });
+  }, { taskId, projectId, clearTaskBlockOnSuccess: true, filterCached: async (_userId, task) => {
+    if (projectId && task.project_id !== projectId) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
+    return task;
+  } });
 }
 export type TaskItemListMode = 'active' | 'archived' | 'all';
 export async function listTaskItems(taskId: string, mode: TaskItemListMode | boolean = 'active'): Promise<TaskItem[]> {
@@ -289,7 +270,7 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
     if (mode === 'archived') return query.eq('is_archived', true);
     if (mode === 'all' || mode === true) return query;
     return query.eq('is_archived', false);
-  }));
+  }), { taskId });
   const userId = await activeCacheUserId();
   if (!userId) return [];
   const operations = await listPendingOperations(userId, taskId);
@@ -304,14 +285,14 @@ export async function setTaskItemState(itemId: string, completed: boolean) { ass
 export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await supabase.rpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
 export async function getMyTaskRole(taskId: string): Promise<ProjectRole> {
   assertUuid(taskId, 'task id');
-  return readThroughCache(`task-role:${taskId}`, async () => requireData(await supabase.rpc('get_my_task_role', { p_task_id: taskId })));
+  return readThroughCache(`task-role:${taskId}`, async () => requireData(await supabase.rpc('get_my_task_role', { p_task_id: taskId })), { taskId });
 }
 export async function listTaskMemberOverrides(taskId: string): Promise<TaskMemberOverride[]> {
   assertUuid(taskId, 'task id');
   return readThroughCache(`task-overrides:${taskId}`, async () => {
     const rows = await requireData(await supabase.rpc('list_task_member_overrides', { p_task_id: taskId }));
     return rows.map((row) => ({ ...row, role_override: row.role_override as TaskChecklistRole }));
-  });
+  }, { taskId, blockResourceOnAccessError: false });
 }
 export async function setTaskMemberOverride(taskId: string, userId: string, role: TaskChecklistRole) {
   assertUuid(taskId, 'task id'); assertUuid(userId, 'user id');
@@ -323,9 +304,15 @@ export async function clearTaskMemberOverride(taskId: string, userId: string) {
 }
 export async function addTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('add_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
 export async function removeTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('remove_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
-export async function listTaskAssignees(taskId: string): Promise<string[]> { assertUuid(taskId, 'task id'); return readThroughCache(`assignees:${taskId}`, async () => { const rows = await fetchAll<{ user_id: string }>((from, to) => supabase.from('task_assignees').select('user_id').eq('task_id', taskId).range(from, to)); return rows.map((r) => r.user_id); }); }
+export async function listTaskAssignees(taskId: string): Promise<string[]> { assertUuid(taskId, 'task id'); return readThroughCache(`assignees:${taskId}`, async () => { const rows = await fetchAll<{ user_id: string }>((from, to) => supabase.from('task_assignees').select('user_id').eq('task_id', taskId).range(from, to)); return rows.map((r) => r.user_id); }, { taskId }); }
 export async function listTaskHistory(taskId: string): Promise<ItemAction[]> { assertUuid(taskId, 'task id'); return fetchAll<ItemAction>((from, to) => supabase.from('item_actions').select('*').eq('task_id', taskId).order('created_at', { ascending: false }).range(from, to)); }
 export async function listTaskAudit(projectId: string, taskId: string): Promise<AuditEntry[]> {
+  const recent = (rows: AuditEntry[]) => rows.filter((r) => Date.parse(r.created_at) >= Date.now() - 90 * 86400000);
+  return readThroughCache(`audit:${taskId}:90days`, () => listTaskAuditOnline(projectId, taskId), {
+    projectId, taskId, cacheValue: recent, filterCached: async (_userId, rows) => recent(rows),
+  });
+}
+async function listTaskAuditOnline(projectId: string, taskId: string): Promise<AuditEntry[]> {
   assertUuid(projectId, 'project id'); assertUuid(taskId, 'task id');
   const items = await fetchAll<{ id: string }>((from, to) => supabase.from('task_items').select('id').eq('task_id', taskId).range(from, to));
   const entityIds = [taskId, ...items.map((item) => item.id)];
@@ -335,15 +322,12 @@ export async function listTaskAudit(projectId: string, taskId: string): Promise<
   return (await Promise.all(chunks(entityIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase.from('audit_log').select('*').eq('project_id', projectId).in('entity_id', ids).order('created_at', { ascending: false }).range(from, to))))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
-/** Returns the UTC instant corresponding to 00:00 of the current UTC+3 day. */
-export function getUtcPlus3DayStart(now = new Date()): string {
-  const utcPlus3Date = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-  const dayStartUtc = Date.UTC(
-    utcPlus3Date.getUTCFullYear(),
-    utcPlus3Date.getUTCMonth(),
-    utcPlus3Date.getUTCDate(),
-  ) - 3 * 60 * 60 * 1000;
-  return new Date(dayStartUtc).toISOString();
+async function listDailyAudit(projectId: string, now = new Date()): Promise<AuditEntry[]> {
+  const dayStart = getUtcPlus3DayStart(now);
+  return readThroughCache(`daily-audit:${projectId}:${dayStart}`, () => fetchAll<AuditEntry>((from, to) => supabase
+    .from('audit_log').select('*').eq('project_id', projectId).eq('entity_type', 'task_item')
+    .gte('created_at', dayStart).lte('created_at', now.toISOString())
+    .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)), { projectId });
 }
 
 /**
@@ -364,24 +348,13 @@ export async function listTaskDailyProgress(
   const items = taskItems ? [...taskItems] : await listTaskItems(taskId, 'all');
   if (!items.length) return [];
 
-  const now = new Date();
-  const rows = await fetchAll<AuditEntry>((from, to) => supabase
-    .from('audit_log')
-    .select('*')
-    .eq('project_id', projectId)
-    .eq('entity_type', 'task_item')
-    .in('entity_id', items.map((item) => item.id))
-    .gte('created_at', getUtcPlus3DayStart(now))
-    .lte('created_at', now.toISOString())
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true })
-    .range(from, to));
+  const rows = await listDailyAudit(projectId);
   const summaries = selectDailyProgress(rows, items);
   const itemById = new Map(items.map((item) => [item.id, item]));
-  return summaries.flatMap((summary) => {
+  return inheritCachedResult(rows, summaries.flatMap((summary) => {
     const item = itemById.get(summary.taskItemId);
     return item ? [{ ...summary, title: item.title, position: item.position }] : [];
-  });
+  }));
 }
 
 /**
@@ -397,29 +370,23 @@ export async function listProjectDailyProgress(projectId: string): Promise<Proje
   const tasks = await listProjectTasks(projectId);
   if (!tasks.length) return { stages: [], entries: [] };
 
-  const taskIds = tasks.map((task) => task.id);
-  const items = (await Promise.all(chunks(taskIds).map((ids) => fetchAll<TaskItem>((from, to) => supabase
-    .from('task_items')
-    .select('*')
-    .in('task_id', ids)
-    .order('position', { ascending: true })
-    .order('id', { ascending: true })
-    .range(from, to))))).flat();
+  let items: TaskItem[];
+  try {
+    // Preserve the existing bulk online query; offline uses the same confirmed
+    // per-task snapshots and pending overlays without per-task network calls.
+    items = (await Promise.all(chunks(tasks.map((task) => task.id)).map((ids) => fetchAll<TaskItem>((from, to) => supabase
+      .from('task_items').select('*').in('task_id', ids).order('position', { ascending: true })
+      .order('id', { ascending: true }).range(from, to))))).flat();
+  } catch (error) {
+    const userId = await activeCacheUserId();
+    if (!userId || !isTransportFailure(error)) throw error;
+    const saved = await Promise.all(tasks.map((task) => ChecklistLocalRepository.getEffectiveTaskItems(userId, task.id, 'all')));
+    if (saved.some((rows) => rows === null)) throw error;
+    items = saved.flatMap((rows) => rows!);
+  }
   if (!items.length) return { stages: [], entries: [] };
 
-  const now = new Date();
-  const itemIds = items.map((item) => item.id);
-  const auditRows = (await Promise.all(chunks(itemIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase
-    .from('audit_log')
-    .select('*')
-    .eq('project_id', projectId)
-    .eq('entity_type', 'task_item')
-    .in('entity_id', ids)
-    .gte('created_at', getUtcPlus3DayStart(now))
-    .lte('created_at', now.toISOString())
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true })
-    .range(from, to))))).flat();
+  const auditRows = await listDailyAudit(projectId);
 
   const itemsByTask = new Map<string, TaskItem[]>();
   for (const item of items) {
@@ -456,7 +423,7 @@ export async function listProjectDailyProgress(projectId: string): Promise<Proje
     }
   }
 
-  return { stages, entries };
+  return inheritCachedResult(auditRows, { stages, entries });
 }
 
 /**
@@ -466,7 +433,7 @@ export async function listProjectDailyProgress(projectId: string): Promise<Proje
  */
 export async function listTaskItemLastEditors(taskId: string): Promise<TaskItemLastEditor[]> {
   assertUuid(taskId, 'task id');
-  return readThroughCache(`last-editors:${taskId}`, async () => requireData(await supabase.rpc('list_task_item_last_editors', { p_task_id: taskId })));
+  return readThroughCache(`last-editors:${taskId}`, async () => requireData(await supabase.rpc('list_task_item_last_editors', { p_task_id: taskId })), { taskId });
 }
 
 export async function listProjectMembers(projectId: string): Promise<ProjectMember[]> {
@@ -524,9 +491,9 @@ export async function updateProject(projectId: string, name: string, description
   return requireSuccess(await supabase.rpc('update_project', { p_project_id: projectId, p_name: name, p_description: description }));
 }
 
-export async function listTaskTemplates(): Promise<TaskTemplate[]> { return requireData(await supabase.rpc('list_task_templates')); }
-export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> { assertUuid(templateId, 'template id'); const rows = await requireData(await supabase.rpc('list_task_template_items', { p_template_id: templateId })); return rows.map((row) => ({ ...row, position: row.template_position })); }
-export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('get_task_template', { p_template_id: templateId })); }
+export async function listTaskTemplates(): Promise<TaskTemplate[]> { return readThroughCache('templates', async () => requireData(await supabase.rpc('list_task_templates'))); }
+export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> { assertUuid(templateId, 'template id'); return readThroughCache(`template-items:${templateId}`, async () => { const rows = await requireData(await supabase.rpc('list_task_template_items', { p_template_id: templateId })); return rows.map((row) => ({ ...row, position: row.template_position })); }); }
+export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return readThroughCache(`template:${templateId}`, async () => requireData(await supabase.rpc('get_task_template', { p_template_id: templateId }))); }
 export async function createTaskTemplate(name: string, description?: string) { return requireData(await supabase.rpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
 export async function updateTaskTemplate(templateId: string, name: string, description: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description })); }
 /**

@@ -52,6 +52,7 @@
     "build:web": "expo export --platform web --clear && node scripts/generate-service-worker.mjs",
     "serve:web": "node scripts/serve-web.mjs",
     "smoke:phase6:browser": "node scripts/phase6-browser-smoke.mjs",
+    "smoke:offline:browser": "node scripts/account-offline-browser-smoke.mjs",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "check:db": "node scripts/check-db-connections.mjs",

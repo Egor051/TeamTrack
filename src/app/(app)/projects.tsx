@@ -18,6 +18,7 @@ import { useTheme } from '@/components/ui/theme-provider';
 import { layout, spacing } from '@/components/ui/theme';
 import { isCachedResult, isExplicitAccessError, isTransportFailure } from '@/lib/local-cache/cache';
 import { RealtimeIndicator } from '@/components/ui/realtime-indicator';
+import { OfflineReadyIndicator } from '@/components/ui/offline-ready-indicator';
 import { subscribeTable, type RealtimeStatus } from '@/lib/supabase/realtime';
 
 const roleLabels: Record<ProjectWithRole['role'], string> = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
@@ -93,6 +94,7 @@ export default function ProjectsScreen() {
     <View style={styles.topbar}><View style={styles.brand}><ThemedText type="h1">Проекты</ThemedText><ThemedText type="small">{state.profile?.display_name || state.user?.email}</ThemedText></View><View style={styles.nav}><Link href={'/templates' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline">Шаблоны</Button></Link><Link href={'/notifications' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline" accessibilityLabel="Уведомления">Уведомления{unread ? ` · ${unread}` : ''}</Button></Link><Link href={'/profile' as never} asChild><Button accessibilityRole="link" size="sm" variant="ghost">Профиль</Button></Link></View></View>
     <View style={styles.intro}><View><ThemedText type="h2">Рабочий обзор</ThemedText><ThemedText type="small">Команды и этапы в одном месте.</ThemedText></View><View style={styles.actions}><RealtimeIndicator status={status} /><Button size="sm" variant="ghost" loading={loading} onPress={() => void load()}>Обновить</Button><Button onPress={() => router.push('/projects/new' as never)}>Создать проект</Button></View></View>
     <SegmentedControl value={view} onChange={setView} accessibilityLabel="Фильтр проектов" options={[{ value: 'active', label: 'Активные' }, { value: 'archived', label: 'Архив' }]} />
+    <OfflineReadyIndicator />
     {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
     {!archived ? <View style={styles.section}><ThemedText type="h2">Мои этапы</ThemedText>{myTasks.length ? <View style={[styles.grid, wide && styles.gridWide]}>{myTasks.map((task) => <Card key={task.id} style={wide ? styles.gridCard : undefined} onPress={() => router.push(`/projects/${task.project_id}/tasks/${task.id}` as never)}><View style={styles.cardHeader}><ThemedText type="h3" style={styles.flex}>{task.title}</ThemedText><Badge tone="primary">Мой этап</Badge></View><ThemedText type="small">{task.project_name}</ThemedText></Card>)}</View> : <EmptyState title="Нет назначенных этапов" description="Здесь появятся активные этапы, где вы исполнитель." />}</View> : null}
     {!archived ? <View style={[styles.divider, { backgroundColor: theme.border }]} /> : null}

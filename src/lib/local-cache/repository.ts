@@ -20,6 +20,8 @@ export const ChecklistLocalRepository = {
   async getEffectiveTaskItems(userId: string, taskId: string, mode: ChecklistMode): Promise<TaskItem[] | null> {
     await ensureUser(userId);
     if (await getCached<boolean>(userId, `blocked-task:${taskId}`)) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
+    const task = await getCached<{ project_id: string }>(userId, `task:${taskId}`);
+    if (task && await getCached<boolean>(userId, `blocked:${task.project_id}`)) throw new ResourceAccessDeniedError('Нет доступа к проекту.');
     const confirmed = await getCached<TaskItem[]>(userId, key(taskId, mode));
     if (!confirmed) return null;
     const pending = await listPendingOperations(userId, taskId);

@@ -27,6 +27,19 @@ beforeEach(async () => {
 });
 
 describe('IndexedDB outbox', () => {
+  it('commits snapshot and resume metadata atomically, rejects a stale lease and never changes the outbox', async () => {
+    const { localCacheDriver: driver } = await import('@/lib/local-cache/driver.web');
+    const entry = (key: string, data: string): CacheEntry => ({ user_id: 'user-a', key, data, last_synced_at: '2026-10-01', schema_version: 1 });
+    await driver.put(entry('items:task-1:active', '[{"id":"item-1","sync_version":10}]'));
+    await driver.enqueue(input('retained-outbox'));
+    expect(await driver.commitCacheBatch('user-a', [entry('bootstrap:metadata', '"leader-a"'), entry('bootstrap:batch:items:rev:0', '[1]')], [], [{ key: 'bootstrap:metadata', data: null }])).toBe(true);
+    expect(await driver.commitCacheBatch('user-a', [entry('bootstrap:metadata', '"leader-b"'), entry('bootstrap:batch:items:rev:500', '[2]')], [], [{ key: 'bootstrap:metadata', data: null }])).toBe(false);
+    expect(await driver.get('user-a', 'bootstrap:batch:items:rev:500')).toBeNull();
+    expect((await driver.get('user-a', 'bootstrap:metadata'))?.data).toBe('"leader-a"');
+    expect((await driver.listPending('user-a'))[0].operation_id).toBe('retained-outbox');
+    await expect(driver.commitCacheBatch('user-a', [{ ...entry('wrong', 'true'), user_id: 'user-b' }])).rejects.toThrow('mismatch');
+    expect(await driver.get('user-b', 'bootstrap:metadata')).toBeNull();
+  });
   it('rejects an offline edit when the confirmed item has no server version', async () => {
     const { localCacheDriver } = await import('@/lib/local-cache/driver.web');
     await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',
@@ -141,7 +154,7 @@ describe('IndexedDB outbox', () => {
     expect(await localCacheDriver.get('user-a', 'items:task-1:active')).toEqual(entry);
     expect(await localCacheDriver.listPending('user-a')).toEqual([]);
     const upgraded = await requestDone(indexedDB.open(name));
-    expect(upgraded.version).toBe(4);
+    expect(upgraded.version).toBe(5);
     expect([...upgraded.objectStoreNames]).toContain('pending_operations');
     expect([...upgraded.objectStoreNames]).toContain('sync_conflicts');
     upgraded.close();
