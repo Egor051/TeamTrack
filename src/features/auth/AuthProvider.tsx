@@ -9,6 +9,7 @@ import {
   signIn as authSignIn,
   signOut as authSignOut,
   requestPasswordReset as authRequestPasswordReset,
+  resendConfirmation as authResendConfirmation,
   updatePassword as authUpdatePassword,
   refreshSession as authRefreshSession,
   getCurrentSession,
@@ -24,6 +25,7 @@ type AuthContextType = {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
+  resendConfirmation: (email: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
   refreshSession: () => Promise<void>;
   updateProfile: (displayName: string) => Promise<void>;
@@ -202,6 +204,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const resendConfirmation = async (email: string) => {
+    setState((prev) => ({ ...prev, error: null }));
+    try {
+      await authResendConfirmation(email);
+    } catch (e) {
+      handleError(e);
+      throw e;
+    }
+  };
+
   const updateProfile = async (displayName: string) => {
     const userId = state.user?.id;
     const { updateMyProfile } = await import('./auth');
@@ -220,6 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signOut,
     requestPasswordReset,
+    resendConfirmation,
     updatePassword,
     refreshSession,
     updateProfile,

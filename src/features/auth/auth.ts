@@ -11,6 +11,7 @@
 import { supabase } from '@/lib/supabase/client';
 import { createAuthRedirectUrl } from './auth-links';
 import { isTransportFailure } from '@/lib/local-cache/cache';
+import { sendAuthEmail } from './email-cooldown';
 
 export type SignUpInput = {
   email: string;
@@ -40,23 +41,30 @@ export type ResetPasswordInput = {
  */
 export async function signUp(input: SignUpInput) {
   const { email, password, displayName } = input;
-
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: createAuthRedirectUrl('signup'),
-      data: {
-        display_name: displayName,
+  return sendAuthEmail('signup', email, async () => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: createAuthRedirectUrl('signup'),
+        data: {
+          display_name: displayName,
+        },
       },
-    },
+    });
+    if (error) throw error;
+    return data;
+  }, (data) => !data.session);
+}
+
+export async function resendConfirmation(email: string) {
+  return sendAuthEmail('signup', email, async () => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup', email,
+      options: { emailRedirectTo: createAuthRedirectUrl('signup') },
+    });
+    if (error) throw error;
   });
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
 }
 
 /**
@@ -100,13 +108,12 @@ export async function signOut() {
  * The email contains a link that opens reset-password.tsx via deep link.
  */
 export async function requestPasswordReset(email: string) {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: createAuthRedirectUrl('recovery'),
+  return sendAuthEmail('recovery', email, async () => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: createAuthRedirectUrl('recovery'),
+    });
+    if (error) throw error;
   });
-
-  if (error) {
-    throw error;
-  }
 }
 
 /**

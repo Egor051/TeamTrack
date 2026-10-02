@@ -21,6 +21,10 @@ type SupabaseErrorCode =
   | 'network_error'
   | 'too_many_attempts'
   | 'invalid_reset_token'
+  | 'over_email_send_rate_limit'
+  | 'over_request_rate_limit'
+  | 'auth_email_cooldown'
+  | 'auth_email_request_pending'
   | 'unexpected';
 
 const errorMap: Record<SupabaseErrorCode, string> = {
@@ -34,8 +38,25 @@ const errorMap: Record<SupabaseErrorCode, string> = {
   network_error: 'Сетевая ошибка. Проверьте соединение',
   too_many_attempts: 'Слишком много попыток. Попробуйте позже',
   invalid_reset_token: 'Ссылка для сброса пароля недействительна или истекла',
+  over_email_send_rate_limit: 'Отправка писем временно ограничена. Попробуйте ещё раз позже.',
+  over_request_rate_limit: 'Слишком много запросов. Попробуйте позже.',
+  auth_email_cooldown: 'Письмо уже было отправлено. Дождитесь окончания отсчёта перед повторной отправкой.',
+  auth_email_request_pending: 'Письмо уже отправляется. Подождите, пожалуйста.',
   unexpected: 'Непредвиденная ошибка. Попробуйте снова',
 };
+
+/** GoTrue reports remaining time rounded DOWN to seconds. Include the omitted
+ * fractional second, including its final "0 seconds" response. Never infer a
+ * deadline from 429, the code alone, or "once every 60 seconds".
+ * Source: https://github.com/supabase/auth/blob/master/internal/api/errors.go */
+export function emailSendRetryDelay(error: unknown): number | null {
+  const err = error as { code?: unknown; message?: unknown } | null;
+  if (err?.code !== 'over_email_send_rate_limit' || typeof err.message !== 'string') return null;
+  const match = /^For security purposes, you can only request this after (\d+) seconds\.$/.exec(err.message);
+  if (!match) return null;
+  const seconds = Number(match[1]);
+  return Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 60 ? (seconds + 1) * 1000 : null;
+}
 
 /**
  * Map a Supabase auth error to a user-friendly message.
@@ -57,6 +78,9 @@ export function mapSupabaseAuthError(
   };
 
   // Primary path: error.code
+  if (emailSendRetryDelay(err) !== null) {
+    return 'Письмо уже было отправлено. Повторная отправка будет доступна через некоторое время.';
+  }
   if (err?.code && Object.values(errorMap).includes(errorMap[err.code as SupabaseErrorCode] ?? '')) {
     return errorMap[err.code as SupabaseErrorCode];
   }
