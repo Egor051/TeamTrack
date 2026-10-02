@@ -1,7 +1,9 @@
-import { supabase } from '@/lib/supabase/client';
-import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
+import { getReadSession } from '@/lib/supabase/session';
+import { usesLocalReads, reportConnectivityFailure, reportConnectivitySuccess } from '@/lib/connectivity/state';
+import { ConnectivityUnavailableError, isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 import { localCacheDriver } from './driver';
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
+export { isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 
 const cachedResults = new WeakSet<object>();
 
@@ -24,10 +26,10 @@ function logCacheError(operation: string, error: unknown): void {
 
 async function sessionUserId(): Promise<string | null> {
   try {
-    const { data, error } = await supabase.auth.getSession();
+    const { data, error } = await getReadSession();
     const session = data.session;
     if (error || !session?.user?.id) return null;
-    if (session.expires_at && session.expires_at * 1000 <= Date.now()) return null;
+    if (!usesLocalReads() && session.expires_at && session.expires_at * 1000 <= Date.now()) return null;
     return session.user.id;
   } catch {
     return null;
@@ -83,24 +85,6 @@ async function removeCached(userId: string, key: string): Promise<void> {
   }
 }
 
-export function isExplicitAccessError(error: unknown): boolean {
-  if (error instanceof ResourceAccessDeniedError) return true;
-  const value = error as { status?: number; code?: string; message?: string } | null;
-  const message = value?.message?.toLowerCase() ?? '';
-  return value?.status === 401 || value?.status === 403 || value?.code === '42501' || value?.code === 'PGRST301'
-    || /invalid jwt|jwt expired|session expired|auth session missing|access denied|permission denied|not authorized|unauthorized|forbidden/.test(message);
-}
-
-export function isTransportFailure(error: unknown): boolean {
-  if (isExplicitAccessError(error)) return false;
-  const value = error as { status?: number; code?: string; message?: string } | null;
-  if (value?.status === 502 || value?.status === 503 || value?.status === 504) return true;
-  if (value?.code && value.code !== 'PGRST000') return false;
-  if (value?.status && value.status !== 0) return false;
-  const message = value?.message?.toLowerCase() ?? '';
-  return /failed to fetch|fetch failed|network request failed|networkerror|network error|err_network|load failed|timed? out|timeout/.test(message);
-}
-
 type ReadOptions<T> = {
   projectId?: string;
   clearProjectBlockOnSuccess?: boolean;
@@ -113,26 +97,8 @@ type ReadOptions<T> = {
 
 export async function readThroughCache<T>(key: string, online: () => Promise<T>, options: ReadOptions<T> = {}): Promise<T> {
   const userId = await sessionUserId();
-  let baseline: string | null | undefined;
-  if (userId) {
-    try { baseline = (await localCacheDriver.get(userId, key))?.data ?? null; }
-    catch { baseline = undefined; }
-  }
-  try {
-    const value = await online();
-    if (userId && await sessionUserId() === userId) {
-      if (baseline !== undefined) await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline);
-      if (options.projectId && options.clearProjectBlockOnSuccess) await removeCached(userId, `blocked:${options.projectId}`);
-      if (options.taskId && options.clearTaskBlockOnSuccess) await removeCached(userId, `blocked-task:${options.taskId}`);
-    }
-    return value;
-  } catch (error) {
-    if (userId && isExplicitAccessError(error) && await sessionUserId() === userId) {
-      await removeCached(userId, key);
-      if (options.projectId && options.blockResourceOnAccessError !== false) await putCached(userId, `blocked:${options.projectId}`, true);
-      if (options.taskId && options.blockResourceOnAccessError !== false) await putCached(userId, `blocked-task:${options.taskId}`, true);
-    }
-    if (!userId || !isTransportFailure(error) || await sessionUserId() !== userId) throw error;
+  const local = async (error: unknown): Promise<T> => {
+    if (!userId || await sessionUserId() !== userId) throw error;
     if (options.projectId && await getCached<boolean>(userId, `blocked:${options.projectId}`)) throw error;
     if (options.taskId && await getCached<boolean>(userId, `blocked-task:${options.taskId}`)) throw error;
     if (options.taskId) {
@@ -141,7 +107,34 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     }
     const cached = await getCached<T>(userId, key);
     if (cached === null) throw error;
-    return markCached(options.filterCached ? await options.filterCached(userId, cached) : cached);
+    const value = options.filterCached ? await options.filterCached(userId, cached) : cached;
+    if (await sessionUserId() !== userId) throw error;
+    return markCached(value);
+  };
+  if (usesLocalReads()) return local(new ConnectivityUnavailableError());
+  let baseline: string | null | undefined;
+  if (userId) {
+    try { baseline = (await localCacheDriver.get(userId, key))?.data ?? null; }
+    catch { baseline = undefined; }
+  }
+  try {
+    const value = await online();
+    reportConnectivitySuccess();
+    if (userId && await sessionUserId() === userId) {
+      if (baseline !== undefined) await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline);
+      if (options.projectId && options.clearProjectBlockOnSuccess) await removeCached(userId, `blocked:${options.projectId}`);
+      if (options.taskId && options.clearTaskBlockOnSuccess) await removeCached(userId, `blocked-task:${options.taskId}`);
+    }
+    return value;
+  } catch (error) {
+    reportConnectivityFailure(error);
+    if (userId && isExplicitAccessError(error) && await sessionUserId() === userId) {
+      await removeCached(userId, key);
+      if (options.projectId && options.blockResourceOnAccessError !== false) await putCached(userId, `blocked:${options.projectId}`, true);
+      if (options.taskId && options.blockResourceOnAccessError !== false) await putCached(userId, `blocked-task:${options.taskId}`, true);
+    }
+    if (!isTransportFailure(error)) throw error;
+    return local(error);
   }
 }
 

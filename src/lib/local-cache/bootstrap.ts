@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
+import { usesLocalReads } from '@/lib/connectivity/state';
 import { activeCacheUserId, isExplicitAccessError, isTransportFailure } from './cache';
 import { localCacheDriver } from './driver';
 import { newOperationId } from './uuid';
@@ -85,7 +86,7 @@ export async function selectOfflineScheme(userId: string, scheme: OfflineScheme)
     meta.progress = bootstrapProgress(meta);
     if (await localCacheDriver.commitCacheBatch(userId, [cacheEntry(userId, BOOTSTRAP_KEY, meta)], [], [{ key: BOOTSTRAP_KEY, data: entry?.data ?? null }])) {
       cancelAccountBootstrap(userId); announce(userId);
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      if (usesLocalReads()) return;
       // Wait for the superseded runner to release its lock before starting.
       void (inFlight.get(userId) ?? Promise.resolve()).finally(() => runAccountBootstrap(userId, true)).catch(() => undefined);
       return;
@@ -164,7 +165,7 @@ async function visibilityEntries(userId: string, name: Dataset, rows: unknown[])
 }
 
 async function bootstrap(userId: string, force: boolean, assets: () => Promise<boolean>): Promise<void> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (usesLocalReads()) return;
   if (await activeCacheUserId() !== userId) return;
   storageFailures.delete(userId);
   const entry = await localCacheDriver.get(userId, BOOTSTRAP_KEY);

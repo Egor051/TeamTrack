@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToPermissionChanges, type RealtimeStatus } from '@/lib/supabase/realtime';
+import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 
 type PermissionContextValue = {
   version: number;
@@ -19,7 +20,7 @@ export function PermissionProvider({ userId, children }: { userId: string | null
   const [status, setStatus] = useState<RealtimeStatus>('disconnected');
 
   const revalidate = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || usesLocalReads()) return;
     const [projects, assignees] = await Promise.all([
       supabase.from('project_members').select('project_id,role').eq('user_id', userId),
       supabase.from('task_assignees').select('task_id').eq('user_id', userId),
@@ -42,12 +43,20 @@ export function PermissionProvider({ userId, children }: { userId: string | null
       }
     };
     const cleanup = subscribeToPermissionChanges(userId, () => { void revalidate(); }, onStatus);
+    const connectivity = subscribeConnectivity((next) => {
+      if (next === 'online') {
+        // Re-run route loaders even if permission revalidation itself returns
+        // 401/403: every screen must observe the authoritative server denial.
+        setVersion((current) => current + 1);
+        void revalidate();
+      }
+    });
     // Revalidate once after subscribing, and again when the channel reaches
     // SUBSCRIBED, closing the initial-fetch/subscription race window.
     setTimeout(() => { void revalidate(); }, 0);
     return () => {
       active = false;
-      cleanup();
+      cleanup(); connectivity();
     };
   }, [revalidate, userId]);
 

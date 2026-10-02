@@ -3,6 +3,8 @@ import { activeCacheUserId, getCached, isTransportFailure } from './cache';
 import { localCacheDriver } from './driver';
 import { notifySyncState } from './status';
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
+import { usesLocalReads } from '@/lib/connectivity/state';
+import { getReadSession } from '@/lib/supabase/session';
 
 // TTL schedules online refresh; it never expires an offline confirmation.
 export const RUNTIME_CONFIG_TTL_MS = 60_000;
@@ -88,15 +90,20 @@ async function persist(candidate: Snapshot, expectedGeneration: number): Promise
 export async function runtimeCapabilities(userId: string, forceRefresh = false,
   { requireServer = false }: { requireServer?: boolean } = {}): Promise<Capabilities> {
   const callGeneration = generation;
+  const joinedRefresh = inFlight.get(userId);
   if (!userId || await activeCacheUserId() !== userId || generation !== callGeneration) return unavailable;
+  const session = (await getReadSession()).data.session;
+  // Expired persisted sessions may read the device cache, but do not widen
+  // the existing offline mutation authorization policy.
+  if (!session || (session.expires_at && session.expires_at * 1000 <= Date.now())) return unavailable;
   if (!buildWriteEnabled() && !buildSyncEnabled()) return { write: false, sync: false, available: true };
   // Read on every evaluation: another tab's persisted false beats volatile true.
   // Changes use the existing sync-status BroadcastChannel, carrying only user ID.
   const current = snapshot(await getCached<unknown>(userId, RUNTIME_CONFIG_KEY), userId);
   if (await activeCacheUserId() !== userId || generation !== callGeneration) return unavailable;
-  if (typeof navigator !== 'undefined' && navigator.onLine === false)
+  if (usesLocalReads())
     return requireServer || blocked.has(userId) ? unavailable : effective(current);
-  let pending = inFlight.get(userId);
+  let pending = joinedRefresh ?? inFlight.get(userId);
   if (!pending && !forceRefresh && !requireServer && refreshed.has(userId) && !blocked.has(userId)
     && current && Date.now() - current.fetched_at < RUNTIME_CONFIG_TTL_MS) return effective(current);
 

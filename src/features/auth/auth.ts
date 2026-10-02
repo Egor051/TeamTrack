@@ -8,10 +8,12 @@
  * Server-side authorization is handled via RLS.
  */
 
-import { supabase } from '@/lib/supabase/client';
+import { supabase, clearPersistedSession } from '@/lib/supabase/client';
 import { createAuthRedirectUrl } from './auth-links';
 import { isTransportFailure } from '@/lib/local-cache/cache';
 import { sendAuthEmail } from './email-cooldown';
+import { getReadSession } from '@/lib/supabase/session';
+import { usesLocalReads, reportConnectivityFailure } from '@/lib/connectivity/state';
 
 export type SignUpInput = {
   email: string;
@@ -93,6 +95,13 @@ export async function signIn(input: SignInInput) {
  * Invalidates the local session and clears persisted tokens.
  */
 export async function signOut() {
+  if (usesLocalReads()) {
+    await clearPersistedSession();
+    // Explicit logout clears the namespace now, even if an SDK refresh is
+    // still retrying. Its commit guard cannot resurrect the removed session.
+    void supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    return;
+  }
   // Keep other devices signed in; this client explicitly clears its own
   // persisted session and AuthProvider tears down local realtime channels.
   const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -152,16 +161,21 @@ export async function refreshSession() {
  * Get the current session synchronously.
  *
  * Returns null if no session is persisted.
- * Does NOT refresh — use refreshSession() if you need a fresh token.
+ * Offline reads restore storage without SDK refresh/initialization waits.
+ * Online getSession may refresh an expiring token, as required by the SDK.
  */
 export function getCurrentSession() {
-  return supabase.auth.getSession();
+  return getReadSession();
 }
 
 /**
  * Get the current user synchronously.
  */
 export async function getCurrentUser() {
+  if (usesLocalReads()) {
+    const { data, error } = await getReadSession();
+    return { data: { user: data.session?.user ?? null }, error };
+  }
   // Use the persisted authenticated identity only when transport is unavailable.
   // Server authorization remains RLS/RPC; JWT/access failures never fall back.
   try {
@@ -170,7 +184,8 @@ export async function getCurrentUser() {
     throw result.error;
   } catch (error) {
     if (!isTransportFailure(error)) throw error;
-    const { data, error: sessionError } = await supabase.auth.getSession();
+    reportConnectivityFailure(error);
+    const { data, error: sessionError } = await getReadSession();
     if (sessionError || !data.session?.user || (data.session.expires_at && data.session.expires_at * 1000 <= Date.now())) throw error;
     return { data: { user: data.session.user }, error: null };
   }

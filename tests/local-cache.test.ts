@@ -26,6 +26,7 @@ vi.mock('@/lib/local-cache/driver', () => ({
 
 import { filterBlockedProjects, isCachedResult, readThroughCache } from '@/lib/local-cache/cache';
 import { getProject, getTask, listProjectTasks, listProjects } from '@/features/projects/projects';
+import { reportConnectivitySuccess } from '@/lib/connectivity/state';
 
 const networkError = { message: 'TypeError: Failed to fetch', status: 0, code: '' };
 const project = [{ id: 'project-1', name: 'Alpha' }];
@@ -113,6 +114,7 @@ describe('read-through cache', () => {
     await expect(readThroughCache('project:project-1', async () => { throw networkError; }, { projectId: 'project-1' })).rejects.toBe(networkError);
     const offlineList = await readThroughCache<typeof project>('projects:active', async () => { throw networkError; }, { filterCached: filterBlockedProjects });
     expect(offlineList).toEqual([]);
+    reportConnectivitySuccess();
     await readThroughCache('project:project-1', async () => project[0], { projectId: 'project-1', clearProjectBlockOnSuccess: true });
     const restored = await readThroughCache('project:project-1', async () => { throw networkError; }, { projectId: 'project-1' });
     expect(restored).toEqual(project[0]);
@@ -179,7 +181,7 @@ describe('read-through cache', () => {
     fixtures.userId = 'user-b';
     await expect(readThroughCache('projects:active', async () => { throw networkError; })).rejects.toBe(networkError);
     fixtures.getSession.mockResolvedValue({ data: { session: null }, error: null });
-    await expect(readThroughCache('projects:active', async () => { throw networkError; })).rejects.toBe(networkError);
+    await expect(readThroughCache('projects:active', async () => { throw networkError; })).rejects.toThrow('Network unavailable');
   });
 
   it('serves a cached stage through the existing project repository', async () => {
@@ -197,6 +199,7 @@ describe('read-through cache', () => {
     expect(offline).toEqual(task);
     expect(isCachedResult(offline)).toBe(true);
     response = { data: null, error: { message: 'permission denied', status: 403, code: '42501' } };
+    reportConnectivitySuccess();
     await expect(getTask(taskId, projectId)).rejects.toMatchObject({ status: 403 });
   });
 

@@ -288,6 +288,9 @@ describe('Phase 5 offline replay', () => {
     expect(state.operations[0].status).toBe('synced_unreconciled');
     state.failReconcile = false;
     await chooseMine('user-a', id);
+    // chooseMine schedules a background replay; settle it before the next
+    // fixture resets the same user's pending operations and conflict state.
+    await syncPendingOperations('user-a', true);
     expect(state.server.percentage).toBe(70);
     expect(state.conflicts).toEqual([]);
   });

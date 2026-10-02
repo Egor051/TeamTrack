@@ -8,6 +8,9 @@ import { applyPendingOperations, listPendingOperations } from '@/lib/local-cache
 import { buildSyncEnabled } from '@/lib/local-cache/runtime-config';
 import { ChecklistLocalRepository } from '@/lib/local-cache/repository';
 import { getUtcPlus3DayStart } from '@/lib/local-cache/day';
+import { usesLocalReads } from '@/lib/connectivity/state';
+import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
+import { uiRead } from '@/lib/supabase/ui-read';
 export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -56,7 +59,7 @@ async function fetchAll<T>(fetchPage: (from: number, to: number) => PromiseLike<
   const pageSize = 500;
   const rows: T[] = [];
   for (let page = 0; ; page += 1) {
-    const pageRows = await requireData(await fetchPage(page * pageSize, page * pageSize + pageSize - 1));
+    const pageRows = await requireData(await uiRead(fetchPage(page * pageSize, page * pageSize + pageSize - 1)));
     rows.push(...pageRows);
     if (pageRows.length < pageSize) return rows;
   }
@@ -78,11 +81,12 @@ async function listProjectsOnline(status: 'active' | 'archived'): Promise<Projec
   const { data: userData, error: userError } = await getCurrentUser();
   if (userError) throw userError;
   if (!userData.user) throw new ResourceAccessDeniedError('Требуется авторизация.');
+  const currentUserId = userData.user.id;
   // The role must ALWAYS be the current user's own membership row — never some
   // other member's role that happens to be returned first. Without this filter,
   // adding a second member flips the project role in the UI to that member's role.
   const memberships = (
-    await Promise.all(chunks(projects.map((p) => p.id)).map(async (ids) => requireData(await supabase.from('project_members').select('project_id, role').in('project_id', ids).eq('user_id', userData.user.id))))
+    await Promise.all(chunks(projects.map((p) => p.id)).map(async (ids) => requireData(await uiRead(supabase.from('project_members').select('project_id, role').in('project_id', ids).eq('user_id', currentUserId)))))
   ).flat();
   const roles = new Map(memberships.map((m) => [m.project_id, m.role]));
   return projects.flatMap((p) => {
@@ -112,7 +116,10 @@ export async function listProjects(status: 'active' | 'archived' = 'active'): Pr
  * an owned project disappear from this list.
  */
 export async function listOwnedProjects(): Promise<ProjectWithRole[]> {
-  try { return await listOwnedProjectsOnline(); }
+  try {
+    if (usesLocalReads()) throw new ConnectivityUnavailableError();
+    return await listOwnedProjectsOnline();
+  }
   catch (error) {
     const userId = await activeCacheUserId();
     if (!userId || !isTransportFailure(error)) throw error;
@@ -126,8 +133,9 @@ export async function listOwnedProjects(): Promise<ProjectWithRole[]> {
 async function listOwnedProjectsOnline(): Promise<ProjectWithRole[]> {
   const { data: userData, error: userError } = await getCurrentUser();
   if (userError || !userData.user) throw new Error('Требуется авторизация.');
+  const currentUserId = userData.user.id;
   const owned = await fetchAll<{ project_id: string }>((from, to) =>
-    supabase.from('project_members').select('project_id').eq('user_id', userData.user.id).eq('role', 'owner').range(from, to),
+    supabase.from('project_members').select('project_id').eq('user_id', currentUserId).eq('role', 'owner').range(from, to),
   );
   const ids = [...new Set(owned.map((row) => row.project_id))];
   if (!ids.length) return [];
@@ -152,14 +160,15 @@ export async function getProject(projectId: string): Promise<ProjectWithRole> {
 
 async function getProjectOnline(projectId: string): Promise<ProjectWithRole> {
   assertUuid(projectId, 'project id');
-  const projectResult = await supabase.from('projects').select('*').eq('id', projectId).maybeSingle();
+  const projectResult = await uiRead(supabase.from('projects').select('*').eq('id', projectId).maybeSingle());
   if (projectResult.error) throw projectResult.error;
   if (!projectResult.data) throw new ResourceAccessDeniedError('У вас нет доступа к этому проекту.');
   const project = projectResult.data;
   const { data: userData, error: userError } = await getCurrentUser();
   if (userError) throw userError;
   if (!userData.user) throw new ResourceAccessDeniedError('Требуется авторизация.');
-  const membershipResult = await supabase.from('project_members').select('role').eq('project_id', projectId).eq('user_id', userData.user.id).maybeSingle();
+  const currentUserId = userData.user.id;
+  const membershipResult = await uiRead(supabase.from('project_members').select('role').eq('project_id', projectId).eq('user_id', currentUserId).maybeSingle());
   if (membershipResult.error) throw membershipResult.error;
   if (!membershipResult.data) throw new ResourceAccessDeniedError('У вас нет доступа к этому проекту.');
   return { ...(project as Project), role: membershipResult.data.role as ProjectRole };
@@ -241,7 +250,7 @@ export async function getTask(taskId: string, projectId?: string): Promise<Task>
   return readThroughCache(`task:${taskId}`, async () => {
     let query = supabase.from('tasks').select('*').eq('id', taskId);
     if (projectId !== undefined) query = query.eq('project_id', projectId);
-    const result = await query.maybeSingle();
+    const result = await uiRead(query.maybeSingle());
     if (result.error) throw result.error;
     if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return result.data;
@@ -260,7 +269,7 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
       return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode);
     const local = await ChecklistLocalRepository.getEffectiveTaskItems(localUserId, taskId, normalizedMode);
     if (local) {
-      void ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode).catch(() => undefined);
+      if (!usesLocalReads()) void ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode).catch(() => undefined);
       return local;
     }
     return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode);
@@ -285,12 +294,12 @@ export async function setTaskItemState(itemId: string, completed: boolean) { ass
 export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await supabase.rpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
 export async function getMyTaskRole(taskId: string): Promise<ProjectRole> {
   assertUuid(taskId, 'task id');
-  return readThroughCache(`task-role:${taskId}`, async () => requireData(await supabase.rpc('get_my_task_role', { p_task_id: taskId })), { taskId });
+  return readThroughCache(`task-role:${taskId}`, async () => requireData(await uiRead(supabase.rpc('get_my_task_role', { p_task_id: taskId }))), { taskId });
 }
 export async function listTaskMemberOverrides(taskId: string): Promise<TaskMemberOverride[]> {
   assertUuid(taskId, 'task id');
   return readThroughCache(`task-overrides:${taskId}`, async () => {
-    const rows = await requireData(await supabase.rpc('list_task_member_overrides', { p_task_id: taskId }));
+    const rows = await requireData(await uiRead(supabase.rpc('list_task_member_overrides', { p_task_id: taskId })));
     return rows.map((row) => ({ ...row, role_override: row.role_override as TaskChecklistRole }));
   }, { taskId, blockResourceOnAccessError: false });
 }
@@ -316,7 +325,7 @@ async function listTaskAuditOnline(projectId: string, taskId: string): Promise<A
   assertUuid(projectId, 'project id'); assertUuid(taskId, 'task id');
   const items = await fetchAll<{ id: string }>((from, to) => supabase.from('task_items').select('id').eq('task_id', taskId).range(from, to));
   const entityIds = [taskId, ...items.map((item) => item.id)];
-  const taskResult = await supabase.from('tasks').select('id').eq('id', taskId).eq('project_id', projectId).maybeSingle();
+  const taskResult = await uiRead(supabase.from('tasks').select('id').eq('id', taskId).eq('project_id', projectId).maybeSingle());
   if (taskResult.error) throw taskResult.error;
   if (!taskResult.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
   return (await Promise.all(chunks(entityIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase.from('audit_log').select('*').eq('project_id', projectId).in('entity_id', ids).order('created_at', { ascending: false }).range(from, to))))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -372,6 +381,7 @@ export async function listProjectDailyProgress(projectId: string): Promise<Proje
 
   let items: TaskItem[];
   try {
+    if (usesLocalReads()) throw new ConnectivityUnavailableError();
     // Preserve the existing bulk online query; offline uses the same confirmed
     // per-task snapshots and pending overlays without per-task network calls.
     items = (await Promise.all(chunks(tasks.map((task) => task.id)).map((ids) => fetchAll<TaskItem>((from, to) => supabase
@@ -433,7 +443,7 @@ export async function listProjectDailyProgress(projectId: string): Promise<Proje
  */
 export async function listTaskItemLastEditors(taskId: string): Promise<TaskItemLastEditor[]> {
   assertUuid(taskId, 'task id');
-  return readThroughCache(`last-editors:${taskId}`, async () => requireData(await supabase.rpc('list_task_item_last_editors', { p_task_id: taskId })), { taskId });
+  return readThroughCache(`last-editors:${taskId}`, async () => requireData(await uiRead(supabase.rpc('list_task_item_last_editors', { p_task_id: taskId }))), { taskId });
 }
 
 export async function listProjectMembers(projectId: string): Promise<ProjectMember[]> {
@@ -491,9 +501,9 @@ export async function updateProject(projectId: string, name: string, description
   return requireSuccess(await supabase.rpc('update_project', { p_project_id: projectId, p_name: name, p_description: description }));
 }
 
-export async function listTaskTemplates(): Promise<TaskTemplate[]> { return readThroughCache('templates', async () => requireData(await supabase.rpc('list_task_templates'))); }
-export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> { assertUuid(templateId, 'template id'); return readThroughCache(`template-items:${templateId}`, async () => { const rows = await requireData(await supabase.rpc('list_task_template_items', { p_template_id: templateId })); return rows.map((row) => ({ ...row, position: row.template_position })); }); }
-export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return readThroughCache(`template:${templateId}`, async () => requireData(await supabase.rpc('get_task_template', { p_template_id: templateId }))); }
+export async function listTaskTemplates(): Promise<TaskTemplate[]> { return readThroughCache('templates', async () => requireData(await uiRead(supabase.rpc('list_task_templates')))); }
+export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> { assertUuid(templateId, 'template id'); return readThroughCache(`template-items:${templateId}`, async () => { const rows = await requireData(await uiRead(supabase.rpc('list_task_template_items', { p_template_id: templateId }))); return rows.map((row) => ({ ...row, position: row.template_position })); }); }
+export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return readThroughCache(`template:${templateId}`, async () => requireData(await uiRead(supabase.rpc('get_task_template', { p_template_id: templateId })))); }
 export async function createTaskTemplate(name: string, description?: string) { return requireData(await supabase.rpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
 export async function updateTaskTemplate(templateId: string, name: string, description: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description })); }
 /**

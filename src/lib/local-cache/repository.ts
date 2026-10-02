@@ -7,6 +7,9 @@ import { applyPendingOperations, listPendingOperations } from './outbox';
 import { announceSyncChange, subscribeSyncChanges } from './sync';
 import { getSyncState, subscribeSyncState } from './status';
 import { performSupportedEdit } from './edit';
+import { usesLocalReads } from '@/lib/connectivity/state';
+import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
+import { uiRead } from '@/lib/supabase/ui-read';
 
 export type ChecklistMode = 'active' | 'archived' | 'all';
 const refreshes = new Map<string, Promise<TaskItem[]>>();
@@ -34,7 +37,12 @@ export const ChecklistLocalRepository = {
     if (existing) return existing;
     const task = (async () => {
       await ensureUser(userId);
-      const access = await supabase.from('tasks').select('id').eq('id', taskId).maybeSingle();
+      if (usesLocalReads()) {
+        const local = await ChecklistLocalRepository.getEffectiveTaskItems(userId, taskId, mode);
+        if (!local) throw new ConnectivityUnavailableError();
+        return local;
+      }
+      const access = await uiRead(supabase.from('tasks').select('id').eq('id', taskId).maybeSingle());
       if (access.error) throw access.error;
       if (!access.data) {
         await localCacheDriver.put({ user_id: userId, key: `blocked-task:${taskId}`, data: 'true',
@@ -45,7 +53,7 @@ export const ChecklistLocalRepository = {
       for (let from = 0; ; from += 500) {
         let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').order('id').range(from, from + 499);
         if (mode !== 'all') query = query.eq('is_archived', mode === 'archived');
-        const { data, error } = await query;
+        const { data, error } = await uiRead(query);
         if (error) throw error;
         rows.push(...(data ?? []));
         if (!data || data.length < 500) break;

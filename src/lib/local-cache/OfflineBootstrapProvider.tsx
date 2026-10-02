@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 import { subscribeMany } from '@/lib/supabase/realtime';
 import { BOOTSTRAP_REFRESH_MS, bootstrapDelay, cancelAccountBootstrap, getBootstrapMetadata, runAccountBootstrap, subscribeBootstrap } from './bootstrap';
 
@@ -22,7 +23,7 @@ export function OfflineBootstrapProvider({ children }: { children: ReactNode }) 
       timer = setTimeout(() => { timer = null; void refresh(); }, delay);
     };
     const refresh = async () => {
-      if (disposed || running || navigator.onLine === false) return;
+      if (disposed || running || usesLocalReads()) return;
       running = true;
       try {
         const before = await getBootstrapMetadata(userId);
@@ -59,6 +60,7 @@ export function OfflineBootstrapProvider({ children }: { children: ReactNode }) 
     };
     trigger(true);
     const online = () => trigger(true);
+    const connectivity = subscribeConnectivity((next) => { if (next === 'online') trigger(true); });
     const visible = () => { if (document.visibilityState === 'visible') trigger(); };
     window.addEventListener('online', online);
     document.addEventListener('visibilitychange', visible);
@@ -79,7 +81,7 @@ export function OfflineBootstrapProvider({ children }: { children: ReactNode }) 
     return () => {
       disposed = true;
       if (timer) clearTimeout(timer);
-      clearInterval(interval); realtime(); foreground.remove(); metadata();
+      clearInterval(interval); realtime(); foreground.remove(); metadata(); connectivity();
       window.removeEventListener('online', online);
       document.removeEventListener('visibilitychange', visible);
       cancelAccountBootstrap(userId);

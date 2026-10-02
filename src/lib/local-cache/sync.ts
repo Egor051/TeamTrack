@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { usesLocalReads } from '@/lib/connectivity/state';
+import { connectivityFetch } from '@/lib/connectivity/fetch';
 import { supabase, type Database } from '@/lib/supabase/client';
 import { supabaseEnv } from '@/lib/env';
 import { activeCacheUserId, getCached, isTransportFailure } from './cache';
@@ -58,6 +60,7 @@ async function clientFor(userId: string): Promise<SupabaseClient<Database> | nul
   return createClient<Database>(url, anonKey, {
     accessToken: async () => session.access_token,
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: connectivityFetch },
   });
 }
 
@@ -297,7 +300,7 @@ async function run(userId: string, allowedConflict?: SyncConflict): Promise<bool
 }
 
 async function coordinatedRun(userId: string): Promise<boolean> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+  if (usesLocalReads()) {
     const until = Date.now() + 30_000;
     backoff.set(userId, { failures: 0, until });
     scheduleRetry(userId, until);

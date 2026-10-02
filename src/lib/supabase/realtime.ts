@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
+import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 export type RealtimeEvent = {
@@ -84,7 +85,7 @@ function createSharedChannel(topic: string): SharedChannel {
   return entry;
 }
 
-export function subscribeTable(table: string, options: SubscriptionOptions) {
+function subscribeOnlineTable(table: string, options: SubscriptionOptions) {
   const topic = scopeTopic(options);
   if (!topic) {
     options.onStatus?.('error', 'Exactly one valid realtime scope is required');
@@ -105,6 +106,22 @@ export function subscribeTable(table: string, options: SubscriptionOptions) {
     sharedChannels.delete(topic);
     void supabase.removeChannel(entry.channel);
   };
+}
+
+export function subscribeTable(table: string, options: SubscriptionOptions) {
+  if (!scopeTopic(options)) {
+    options.onStatus?.('error', 'Exactly one valid realtime scope is required');
+    return () => undefined;
+  }
+  let cleanup: () => void = () => undefined;
+  const connect = () => {
+    cleanup(); cleanup = () => undefined;
+    if (usesLocalReads()) options.onStatus?.('disconnected');
+    else cleanup = subscribeOnlineTable(table, options);
+  };
+  const unsubscribe = subscribeConnectivity(connect);
+  connect();
+  return () => { unsubscribe(); cleanup(); };
 }
 
 export function subscribeMany(specs: { table: string; options: SubscriptionOptions }[]) {

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import * as Linking from 'expo-linking';
-import { supabase } from '@/lib/supabase/client';
+import { supabase, probeSupabaseConnectivity } from '@/lib/supabase/client';
+import { monitorConnectivity, subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 import type { Profile } from '@/lib/supabase/client';
 import type { AuthState } from './types';
 import { mapSupabaseAuthError } from '@/lib/errors/auth-errors';
@@ -18,6 +19,7 @@ import { closeAllRealtimeChannels } from '@/lib/supabase/realtime';
 import { parseAuthCallbackUrl, stripAuthCallbackParams } from './auth-links';
 import { readThroughCache, activeCacheUserId, putCached } from '@/lib/local-cache/cache';
 import { clearRuntimeConfig } from '@/lib/local-cache/runtime-config';
+import { uiRead } from '@/lib/supabase/ui-read';
 
 type AuthContextType = {
   state: AuthState;
@@ -45,7 +47,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 async function fetchProfile(): Promise<Profile | null> {
   try {
     return await readThroughCache('profile:self', async () => {
-      const { data, error } = await supabase.rpc('get_my_profile');
+      const { data, error } = await uiRead(supabase.rpc('get_my_profile'));
       if (error) throw error;
       return data as Profile;
     });
@@ -93,7 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (activeUserId !== null && activeUserId !== session.user.id) closeAllRealtimeChannels();
       activeUserId = session.user.id;
 
-      setState((prev) => ({ ...prev, isLoading: false, session, user: session.user, profile: null, error: null }));
+      setState((prev) => ({ ...prev, isLoading: false, session, user: session.user,
+        profile: prev.user?.id === session.user.id ? prev.profile : null, error: null }));
       const profile = await fetchProfile();
       if (cancelled || currentGeneration !== generation) return;
       setState((prev) => prev.user?.id === session.user.id ? { ...prev, profile } : prev);
@@ -109,6 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION' && !session && usesLocalReads()) {
+        void getCurrentSession().then(({ data }) => { if (!cancelled) scheduleSessionApply(data.session); });
+        return;
+      }
       if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
         scheduleSessionApply(session);
       } else if (event === 'SIGNED_OUT') {
@@ -116,6 +123,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         scheduleSessionApply(null);
       }
     });
+
+    const monitoring = monitorConnectivity(() => probeSupabaseConnectivity());
+    const connectivity = subscribeConnectivity((next) => {
+      if (next !== 'online') return;
+      void getCurrentSession().then(({ data }) => {
+        if (!cancelled) scheduleSessionApply(data.session);
+      }).catch(() => undefined);
+    });
+    const storageChanged = () => {
+      if (!usesLocalReads()) return;
+      void getCurrentSession().then(({ data }) => { if (!cancelled) scheduleSessionApply(data.session); });
+    };
+    if (typeof window !== 'undefined') window.addEventListener('storage', storageChanged);
 
     void getCurrentSession().then(({ data: sessionData, error }) => {
       if (error && process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] session restore failed');
@@ -134,6 +154,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       clearRuntimeConfig();
+      connectivity(); monitoring();
+      if (typeof window !== 'undefined') window.removeEventListener('storage', storageChanged);
       data.subscription.unsubscribe();
       linkSubscription.remove();
     };
@@ -168,6 +190,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       closeAllRealtimeChannels();
       await authSignOut();
+      clearRuntimeConfig();
+      setState((prev) => ({ ...prev, isLoading: false, session: null, user: null, profile: null, error: null }));
     } catch (e) {
       handleError(e);
       throw e;

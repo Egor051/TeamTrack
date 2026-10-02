@@ -1,9 +1,11 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient, type Session } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { supabaseEnv } from '@/lib/env';
 import type { Database as DatabaseSchema } from '@/types/database.types';
+import { connectivityFetch } from '@/lib/connectivity/fetch';
+import { probeSupabase } from './connectivity-probe';
 
 /**
  * TaskTrace — centralized Supabase client.
@@ -39,12 +41,36 @@ class StorageAdapter {
   }
 }
 
+const environment = supabaseEnv();
+const sessionStorage = new StorageAdapter();
+// Match the SDK's default key, preserving existing installations' sessions.
+const sessionStorageKey = `sb-${new URL(environment.url).hostname.split('.')[0]}-auth-token`;
+export async function clearPersistedSession(): Promise<void> {
+  await sessionStorage.removeItem(sessionStorageKey);
+}
+export async function readPersistedSession(): Promise<Session | null> {
+  try {
+    const raw = await sessionStorage.getItem(sessionStorageKey);
+    if (!raw) return null;
+    const session = JSON.parse(raw) as Partial<Session>;
+    if (!session.user?.id || typeof session.access_token !== 'string' || !session.access_token
+      || typeof session.refresh_token !== 'string' || !session.refresh_token
+      || typeof session.expires_at !== 'number') return null;
+    return session as Session;
+  } catch { return null; }
+}
+
+export async function probeSupabaseConnectivity(): Promise<void> {
+  return probeSupabase(environment.url, environment.anonKey, supabase.auth);
+}
+
 export const supabase: SupabaseClient<DatabaseSchema> = createClient<DatabaseSchema>(
-  supabaseEnv().url,
-  supabaseEnv().anonKey,
+  environment.url,
+  environment.anonKey,
   {
     auth: {
-      storage: new StorageAdapter(),
+      storage: sessionStorage,
+      storageKey: sessionStorageKey,
       autoRefreshToken: true,
       persistSession: true,
       flowType: 'pkce',
@@ -53,6 +79,7 @@ export const supabase: SupabaseClient<DatabaseSchema> = createClient<DatabaseSch
         appendPkceFlowIdToRedirects: true,
       },
     },
+    global: { fetch: connectivityFetch },
   },
 );
 

@@ -7,6 +7,7 @@ import { syncPendingOperations } from './sync';
 import { subscribeTable } from '@/lib/supabase/realtime';
 import { updateSyncState, forgetSyncState } from './status';
 import { runtimeCapabilities } from './runtime-config';
+import { getConnectivityState, reportBrowserConnectivity, subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -32,12 +33,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     };
     trigger(true);
     // coordinatedRun skips network I/O offline; restore metadata independently.
-    if (typeof navigator !== 'undefined' && navigator.onLine === false)
+    if (usesLocalReads())
       void runtimeCapabilities(userId).catch(() => undefined);
     const network = NetInfo.addEventListener((state) => {
-      updateSyncState(userId, { connectivity: state.isConnected === false || state.isInternetReachable === false
-        ? 'offline' : state.isConnected === true ? 'online' : 'unknown' });
+      if (state.isConnected === false || state.isInternetReachable === false) reportBrowserConnectivity(false);
+      else if (state.isConnected === true) reportBrowserConnectivity(true);
+      updateSyncState(userId, { connectivity: getConnectivityState() === 'online' ? 'online' : 'offline' });
       if (state.isConnected === true && state.isInternetReachable !== false) trigger(true);
+    });
+    const connectivity = subscribeConnectivity((next) => {
+      updateSyncState(userId, { connectivity: next === 'online' ? 'online' : 'offline' });
+      if (next === 'online') trigger(true);
     });
     const foreground = AppState.addEventListener('change', (state) => {
       if (state === 'active') trigger();
@@ -47,7 +53,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined') window.addEventListener('online', online);
     return () => {
       if (timer) clearTimeout(timer);
-      network(); foreground.remove(); realtime();
+      network(); foreground.remove(); realtime(); connectivity();
       if (typeof window !== 'undefined') window.removeEventListener('online', online);
       forgetSyncState(userId);
     };
