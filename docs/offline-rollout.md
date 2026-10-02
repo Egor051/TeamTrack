@@ -1,6 +1,6 @@
 # Checklist offline rollout (Phase 6)
 
-Scope: checkbox, percentage, comment and checklist state. Project, stage, item structure, roles, members, assignees and templates remain online only. The normal production build keeps both `EXPO_PUBLIC_OFFLINE_WRITE_ENABLED=false` and `EXPO_PUBLIC_OFFLINE_SYNC_ENABLED=false` until a deliberate new build is released.
+Scope: checkbox, percentage, comment and checklist state. Project, stage, item structure, roles, members, assignees and templates remain online only. Build flags `EXPO_PUBLIC_OFFLINE_WRITE_ENABLED` and `EXPO_PUBLIC_OFFLINE_SYNC_ENABLED` are explicit release controls. Persistent runtime metadata does not change env files or deployment configuration. The production browser smoke enables both flags in its local test build.
 
 ## Before release
 
@@ -19,7 +19,7 @@ set write_enabled = false, sync_enabled = true, updated_at = now()
 where singleton = true;
 ```
 
-Client effective write is `build write AND build sync AND remote write AND remote sync`; effective sync is `build sync AND remote sync`. Remote settings cannot override a disabled build capability. Config is cached in memory for at most 60 seconds. On expiry or fetch failure, new local writes and sync fail closed. Cached reads, pending operations and conflict choices remain available. The sync engine refreshes config before replay and after every 20 acknowledged operations in a long queue.
+Client effective write is `build write AND build sync AND remote write AND remote sync`; effective sync is `build sync AND remote sync`. Remote settings cannot override a disabled build capability. Validated runtime config is persisted in the existing user-scoped `entries` metadata under `runtime:offline-capabilities` (IndexedDB v5 is unchanged; native uses the same cache driver). The snapshot contains `user_id`, `value` (server booleans, protocol version and `updated_at` revision) and numeric `fetched_at`. The 60-second TTL schedules online refresh; offline startup/reload and transport failure can use the last confirmation regardless of age. Online startup and reconnect refresh from the server. Authorization, business or invalid responses persist a blocking null-value snapshot, while server false persists false; neither can fall back to a former true after reload. Every evaluation rereads metadata, and updates notify the existing sync-status BroadcastChannel, so another tab cannot retain stale true. Session/user checks and existing resource/role checks still apply; this metadata grants no project/task permission. Logout/account changes invalidate in-flight responses and volatile state. The sync engine requires fresh server confirmation before replay and after every 20 acknowledged operations in a long queue. Disabled sync preserves the outbox and reports the existing disabled status; write-off/sync-on can drain pending operations.
 
 ## Emergency controls
 

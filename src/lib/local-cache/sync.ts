@@ -196,7 +196,7 @@ async function push(client: SupabaseClient<Database>, userId: string, allowedCon
     const operations = await listPendingOperations(userId);
     total ??= operations.length;
     updateSyncState(userId, { progress: { done: completed, total } });
-    if (completed % 20 === 0 && !(await runtimeCapabilities(userId, true)).sync) {
+    if (completed % 20 === 0 && !(await runtimeCapabilities(userId, true, { requireServer: true })).sync) {
       updateSyncState(userId, { lastErrorKind: 'disabled' });
       return false;
     }
@@ -260,7 +260,7 @@ async function push(client: SupabaseClient<Database>, userId: string, allowedCon
 
 async function run(userId: string, allowedConflict?: SyncConflict): Promise<boolean> {
   if (!offlineSyncEnabled() || !await sameUser(userId)) return false;
-  const capabilities = await runtimeCapabilities(userId, true);
+  const capabilities = await runtimeCapabilities(userId, true, { requireServer: true });
   if (!capabilities.sync) {
     updateSyncState(userId, { lastErrorKind: capabilities.available ? 'disabled' : 'config-unavailable' });
     const failures = capabilities.available ? 0 : Math.min((backoff.get(userId)?.failures ?? 0) + 1, 5);
@@ -349,7 +349,7 @@ export function syncPendingOperations(userId: string, manual = false): Promise<v
 }
 
 export async function chooseMine(userId: string, conflictId: string): Promise<void> {
-  if (!offlineSyncEnabled() || !(await runtimeCapabilities(userId, true)).sync || !await sameUser(userId))
+  if (!offlineSyncEnabled() || !(await runtimeCapabilities(userId, true, { requireServer: true })).sync || !await sameUser(userId))
     throw new Error('Синхронизация временно отключена. Ваш вариант сохранён на устройстве.');
   const conflict = (await unresolvedConflicts(userId)).find((row) => row.conflict_id === conflictId);
   if (!conflict) throw new Error('Конфликт недоступен.');
@@ -374,7 +374,7 @@ export async function chooseMine(userId: string, conflictId: string): Promise<vo
 }
 
 export async function retryFailedOperation(userId: string, operationId: string): Promise<void> {
-  if (!(await runtimeCapabilities(userId, true)).sync || !await sameUser(userId))
+  if (!(await runtimeCapabilities(userId, true, { requireServer: true })).sync || !await sameUser(userId))
     throw new Error('Синхронизация временно отключена.');
   const existing = inFlight.get(userId);
   if (existing) await existing;

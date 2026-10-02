@@ -2,22 +2,26 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { openSync, closeSync, readFileSync, unlinkSync } from 'node:fs';
+import { openSync, closeSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import pg from 'pg';
 import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
+import { closeSmokeBrowser, stopSmokeServer } from './smoke-process-cleanup.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const local = getLocalSupabaseStatus();
 if (new URL(local.API_URL).hostname !== '127.0.0.1' || new URL(local.DB_URL).hostname !== '127.0.0.1') throw new Error('Local stack required');
 const base = 'http://127.0.0.1:4175';
 const session = `offline-account-${Date.now()}`;
+const writerSession = `${session}-writer`;
 const db = new pg.Client({ connectionString: local.DB_URL });
-const admin = createClient(local.API_URL, local.SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-const owner = createClient(local.API_URL, local.ANON_KEY, { auth: { persistSession: false } });
+const admin = createClient(local.API_URL, local.SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+const owner = createClient(local.API_URL, local.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const password = 'AccountOffline#123';
 const email = `${session}@test.local`;
-let server, userId, projectId, archivedProjectId, templateId;
+let server, userId, projectId, archivedProjectId, templateId, originalConfig;
+let browserCliReady = false;
+let writerStarted = false;
 const check = (value, message) => { if (!value) throw new Error(message); };
 async function value(promise) { const { data, error } = await promise; if (error) throw error; return data; }
 function command(executable, args, env = process.env) {
@@ -34,7 +38,29 @@ function command(executable, args, env = process.env) {
   return result;
   } finally { closeSync(fd); try { unlinkSync(output); } catch { /* daemon can retain its log */ } }
 }
-function browser(...args) { return command('npx', ['--yes','agent-browser','--session',session,...args]); }
+function browserIn(targetSession, ...args) {
+  if (!browserCliReady) {
+    // Resolve/install before any interaction, then use the cached CLI. Repeated
+    // npm registry lookups must not interrupt an uncertain checkbox/save click.
+    try { command('npx', ['--offline','--yes','agent-browser','--help']); }
+    catch (error) {
+      if (!/ENOTCACHED|cache mode|offline mode|could not determine executable/i.test(error.message)) throw error;
+      command('npx', ['--yes','agent-browser','--help']);
+    }
+    browserCliReady = true;
+  }
+  const run = () => command('npx', ['--offline','--yes','agent-browser','--session',targetSession,...args]);
+  try { return run(); }
+  catch (error) {
+    // Match the existing Phase 6 smoke's Windows CLI recovery. Retry only reads
+    // and idempotent navigation/settings, never an uncertain click or fill.
+    if (/3221226505|ETIMEDOUT/.test(error.message)
+      && ['reload','open','get','snapshot','eval','wait','set'].includes(args[0])) return run();
+    throw error;
+  }
+}
+const browser = (...args) => browserIn(session, ...args);
+const writerBrowser = (...args) => { writerStarted = true; return browserIn(writerSession, ...args); };
 function ref(snapshot, text) {
   const match = snapshot.split('\n').find((line) => line.includes(text) && /ref=e\d+/.test(line))?.match(/ref=(e\d+)/);
   if (!match) throw new Error(`Missing control ${text}: ${snapshot}`); return `@${match[1]}`;
@@ -54,12 +80,118 @@ async function open(route, text, { readiness = false } = {}) {
 function metadata() {
   return JSON.parse(browser('eval', `(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{return await new Promise(function(ok,no){const r=db.transaction('entries').objectStore('entries').get('${userId}:bootstrap:metadata');r.onsuccess=function(){ok(r.result?JSON.parse(r.result.data):null)};r.onerror=function(){no(r.error)}})}finally{db.close()}})()`));
 }
+function runtimeSnapshot() {
+  return JSON.parse(browser('eval', `(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{return await new Promise(function(ok,no){const r=db.transaction('entries').objectStore('entries').get('${userId}:runtime:offline-capabilities');r.onsuccess=function(){ok(r.result?JSON.parse(r.result.data):null)};r.onerror=function(){no(r.error)}})}finally{db.close()}})()`));
+}
+function pendingOperations() {
+  return JSON.parse(browser('eval', `(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{return await new Promise(function(ok,no){const r=db.transaction('pending_operations').objectStore('pending_operations').index('by_user').getAll('${userId}');r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}})}finally{db.close()}})()`));
+}
+function activeTabTarget() {
+  const target = JSON.parse(browser('tab','list','--json')).data?.tabs?.find((tab) => tab.active)?.targetId;
+  check(typeof target === 'string', 'Active browser tab is unavailable');
+  return target;
+}
+async function setRuntime(write, sync) {
+  await db.query('update private.offline_runtime_config set write_enabled = $1, sync_enabled = $2, updated_at = now()', [write, sync]);
+}
+async function stormSoak(itemId) {
+  const tabs = [activeTabTarget()];
+  const counts = () => JSON.parse(browser('eval', `performance.getEntriesByType('resource').reduce(function(n,e){if(e.name.includes('/rpc/get_offline_account_manifest'))n.manifest++;if(e.name.includes('/rpc/get_offline_account_page'))n.page++;return n},{manifest:0,page:0})`));
+  const reset = () => browser('eval', 'performance.setResourceTimingBufferSize(10000);performance.clearResourceTimings();true');
+  const idle = async (label) => {
+    const start = Date.now();
+    while (Date.now() - start < 300_000) {
+      await new Promise((r) => setTimeout(r, Math.min(30_000, 300_000 - (Date.now() - start))));
+      console.log(`Idle ${label}: ${Math.round((Date.now() - start) / 1000)}s`);
+    }
+    let manifest = 0, page = 0;
+    for (const tab of tabs) { browser('tab', tab); const c = counts(); manifest += c.manifest; page += c.page; }
+    check(page === 0 && manifest <= 4, `Idle ${label} requests exceeded bound: ${manifest} manifests/${page} pages`);
+    return { duration_ms: Date.now() - start, tabs: tabs.length, manifest, page };
+  };
+  const burstOnly = process.argv.includes('--storm-burst');
+  reset(); const single = burstOnly ? null : await idle('single-tab');
+  for (let i = 0; i < 2; i++) {
+    browser('tab', 'new'); tabs.push(activeTabTarget());
+    browser('open', base + '/projects'); await has('Офлайн: готово');
+  }
+  for (const tab of tabs) { browser('tab', tab); reset(); }
+  const multi = burstOnly ? null : await idle('three-tabs');
+  if (!burstOnly) {
+    console.log('PASS bootstrap idle windows:', JSON.stringify({ single, multi }));
+    writeFileSync(resolve(root, '.expo/bootstrap-browser-idle.json'), JSON.stringify({ single, multi }, null, 2));
+  }
+  // Opening peers queues their initial connected revalidation. Drain it before
+  // measuring the mutation burst so startup requests cannot inflate its count.
+  await eventually(() => { const m = metadata(); return m?.status === 'ready' && Date.now() - (m.last_attempt_at ?? 0) > 31_000; }, 'settled tab startup', 100_000);
+  for (const tab of tabs) { browser('tab', tab); reset(); }
+  // Item changes use project/task topics. Account bootstrap's user topic gets
+  // notification invalidations. Keep unread/read membership unchanged.
+  const changed = await db.query(`update public.notifications set body = body || ' burst'
+    where id in (select id from public.notifications where user_id=$1 order by created_at desc,id desc limit 50)`, [userId]);
+  check(changed.rowCount === 50, 'Realtime burst did not update 50 fixture rows');
+  const finished = Date.now();
+  try { await eventually(() => Date.parse(metadata()?.last_successful_sync_at ?? '') >= finished, 'Realtime burst refresh', 60_000); }
+  catch (error) { console.error('Burst metadata:', JSON.stringify(metadata())); console.error('Burst counts:', JSON.stringify(counts())); throw error; }
+  await new Promise((r) => setTimeout(r, 2500));
+  let manifest = 0, page = 0;
+  for (const tab of tabs) { browser('tab', tab); const c = counts(); manifest += c.manifest; page += c.page; }
+  check(manifest === 2 && page <= 3, `50 mutations were not coalesced: ${manifest} manifests/${page} pages`);
+  const report = { single, multi, burst: { mutations: 50, manifest, page }, snapshot_at: metadata()?.manifest?.snapshot_at };
+  writeFileSync(resolve(root, `.expo/bootstrap-browser-${burstOnly ? 'burst' : 'soak'}.json`), JSON.stringify(report, null, 2));
+  console.log('PASS bootstrap storm soak:', JSON.stringify(report));
+  await controlledBrowserMutation(tabs, itemId);
+  browser('tab', tabs[0]);
+}
+async function controlledBrowserMutation(tabs, itemId) {
+  const task = (await db.query('select task_id from public.task_items where id=$1', [itemId])).rows[0].task_id;
+  // Make the upcoming manifest contain a changed items batch, ensuring this
+  // run fetches a page instead of reusing a previously confirmed batch.
+  await value(owner.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: 'Concurrent bootstrap setup' }));
+  writerBrowser('open', base + '/login');
+  const login = writerBrowser('snapshot', '-i');
+  writerBrowser('fill', ref(login, 'textbox "Email"'), email);
+  writerBrowser('fill', ref(login, 'textbox "Пароль"'), password);
+  writerBrowser('click', ref(login, 'button "Войти"'));
+  await eventually(() => writerBrowser('get', 'text', 'body').includes('Офлайн: готово'), 'separate session preload');
+  writerBrowser('open', `${base}/projects/${projectId}/tasks/${task}`);
+  await eventually(() => writerBrowser('get', 'text', 'body').includes('40% выполнено'), 'separate session checklist');
+  browser('tab', tabs[0]);
+  await eventually(() => { const m = metadata(); return m?.status === 'ready' && Date.now() - (m.last_attempt_at ?? 0) > 31_000; }, 'settled main startup', 100_000);
+  // Delay an unmodified real manifest Response. No response, revision, session
+  // or permission is fabricated. Other-tab UI performs the actual server write.
+  const arm = `(function(){const original=window.fetch;const probe=window.__bootstrapProbe={armed:true,waiting:false,records:[],release:null,restore:function(){window.fetch=original;delete window.__bootstrapProbe}};window.fetch=async function(input,init){const url=String(input.url||input);const response=await original.call(this,input,init);if(url.includes('/rpc/get_offline_account_')){const args=JSON.parse(init.body||'{}');const record={rpc:url.split('/').pop(),dataset:args.p_dataset,offset:args.p_offset,status:response.status};if(!response.ok){const error=await response.clone().json();record.code=error.code;record.details=error.details}probe.records.push(record);if(url.includes('/rpc/get_offline_account_manifest')&&probe.armed&&!args.p_snapshot_at){probe.armed=false;probe.waiting=true;await new Promise(function(ok){probe.release=function(){probe.waiting=false;ok()}})}}return response};return true})()`;
+  for (const tab of tabs) { browser('tab', tab); browser('eval', arm); if (tab !== tabs[0]) browser('eval', 'window.__bootstrapProbe.armed=false;true'); }
+  browser('tab', tabs[0]); browser('eval', "window.dispatchEvent(new Event('online'));true");
+  const ownerTab = tabs[0];
+  await eventually(() => browser('eval', 'Boolean(window.__bootstrapProbe.waiting)') === 'true', 'held real manifest', 60_000);
+  writerBrowser('click', ref(writerBrowser('snapshot', '-i'), 'checkbox "Основной пункт'));
+  await eventually(async () => (await db.query('select percentage from public.task_items where id=$1', [itemId])).rows[0].percentage === 100, 'other-tab server mutation');
+  const mutated = Date.now(); browser('tab', ownerTab); browser('eval', 'window.__bootstrapProbe.release();true');
+  await eventually(() => metadata()?.offline_ready && Date.parse(metadata()?.last_successful_sync_at ?? '') >= mutated, 'browser conflict recovery', 60_000);
+  const records = [];
+  for (const tab of tabs) { browser('tab', tab); records.push(...JSON.parse(browser('eval', 'window.__bootstrapProbe.records'))); browser('eval', 'window.__bootstrapProbe.restore();true'); }
+  const conflicts = records.filter((r) => r.code === 'PT409');
+  check(conflicts.length === 1 && conflicts[0].dataset === 'items', `Expected one items conflict: ${JSON.stringify(records)}`);
+  check(records.filter((r) => r.rpc === 'get_offline_account_manifest').length === 3, 'Browser retry did not consume exactly one restart');
+  writeFileSync(resolve(root, '.expo/bootstrap-browser-mutation.json'), JSON.stringify({ ownerTab, mutator: 'separate browser session', records }, null, 2));
+  console.log('PASS other-tab mutation during bootstrap: one PT409, three manifests, ready');
+  await value(owner.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 40 }));
+  await value(owner.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: 'Сохранённый комментарий' }));
+  const restored = Date.now();
+  await eventually(() => writerBrowser('get', 'text', 'body').includes('40% выполнено'), 'restored fixture');
+  closeSmokeBrowser(writerBrowser); writerStarted = false;
+  browser('tab', ownerTab); browser('eval', "window.dispatchEvent(new Event('online'));true");
+  await eventually(() => metadata()?.offline_ready && Date.parse(metadata()?.last_successful_sync_at ?? '') >= restored, 'restored bootstrap fixture', 60_000);
+}
 try {
-  console.log('Building production PWA with existing mutation flags OFF...');
+  console.log('Building production PWA with WRITE=true, SYNC=true against local Supabase...');
   // process env overrides .env; no file or feature-flag changes.
   command('npm', ['run','build:web'], { ...process.env, EXPO_PUBLIC_SUPABASE_URL: local.API_URL,
-    EXPO_PUBLIC_SUPABASE_ANON_KEY: local.ANON_KEY, EXPO_PUBLIC_OFFLINE_WRITE_ENABLED: 'false', EXPO_PUBLIC_OFFLINE_SYNC_ENABLED: 'false' });
+    EXPO_PUBLIC_SUPABASE_ANON_KEY: local.ANON_KEY, EXPO_PUBLIC_OFFLINE_WRITE_ENABLED: 'true', EXPO_PUBLIC_OFFLINE_SYNC_ENABLED: 'true' });
   await db.connect();
+  originalConfig = (await db.query('select write_enabled, sync_enabled, updated_at::text as updated_at from private.offline_runtime_config')).rows[0];
+  await setRuntime(true, true);
   userId = (await value(admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { display_name: 'Офлайн тест' } }))).user.id;
   await value(owner.auth.signInWithPassword({ email, password }));
   projectId = await value(owner.rpc('create_project', { p_name: 'Офлайн основной проект' }));
@@ -91,6 +223,8 @@ try {
   check(body().includes('Синхронизация:'), 'Sync/readiness indicators are not independent');
   browser('screenshot', resolve(root,'.expo/account-offline-basic.png'));
   console.log('PASS automatic basic bootstrap, independent projects indicators and PWA assets');
+  await eventually(() => runtimeSnapshot()?.value?.write_enabled === true && runtimeSnapshot()?.value?.sync_enabled === true, 'confirmed runtime capabilities');
+  if (process.argv.includes('--storm-soak') || process.argv.includes('--storm-burst')) await stormSoak(itemId);
 
   // None of these routes was opened before switching offline.
   browser('set','offline','on');
@@ -107,6 +241,7 @@ try {
   const templates = browser('snapshot','-i');
   browser('click', ref(templates, 'Офлайн шаблон')); await has('Пункт шаблона');
   await open(`/projects/${projectId}/tasks/new`, 'Новый этап');
+  await has('Из шаблона');
   browser('click', ref(browser('snapshot','-i'), 'Из шаблона'));
   await has('Выберите шаблон');
   browser('click', ref(browser('snapshot','-i'), 'Выбор шаблона этапа'));
@@ -117,6 +252,63 @@ try {
   const checklist = browser('snapshot','-i');
   browser('click', ref(checklist, 'Архив')); await has('Архивный пункт');
   console.log('PASS cached template expansion and archived checklist tab');
+
+  // Age the real persisted confirmation, then discard all JS memory by loading
+  // the route offline. No config value, session or permission is fabricated.
+  browser('eval', `(async function(){const db=await new Promise(function(ok){const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=function(){ok(r.result)}});try{await new Promise(function(ok,no){const tx=db.transaction('entries','readwrite');const s=tx.objectStore('entries');const key='${userId}:runtime:offline-capabilities';const r=s.get(key);r.onsuccess=function(){const e=r.result;const v=JSON.parse(e.data);v.fetched_at=Date.now()-61000;e.data=JSON.stringify(v);s.put(e,key)};tx.oncomplete=function(){ok(true)};tx.onerror=function(){no(tx.error)}})}finally{db.close()}return true})()`);
+  await open(`/projects/${projectId}/tasks/${taskId}`, 'Основной пункт');
+  check(Date.now() - runtimeSnapshot().fetched_at > 60_000, 'Snapshot did not expire before reload');
+  browser('click', ref(browser('snapshot','-i'), 'checkbox "Основной пункт'));
+  await has('Ожидает синхронизации');
+  await eventually(() => pendingOperations().length === 1, 'checkbox outbox');
+  browser('click', ref(browser('snapshot','-i'), 'Открыть детали пункта Основной пункт'));
+  browser('fill', ref(browser('snapshot','-i'), 'textbox "Прогресс, от 1 до 100%"'), '65');
+  browser('click', ref(browser('snapshot','-i'), 'Сохранить прогресс'));
+  await has('65% выполнено');
+  browser('click', ref(browser('snapshot','-i'), 'Изменить комментарий'));
+  browser('fill', ref(browser('snapshot','-i'), 'textbox "Комментарий к пункту"'), 'Комментарий после офлайн reload');
+  browser('click', ref(browser('snapshot','-i'), 'Сохранить комментарий'));
+  await has('Комментарий после офлайн reload');
+  const queued = pendingOperations();
+  check(JSON.stringify(queued.map((row) => row.type)) === JSON.stringify(['set_task_item_state','set_task_item_percentage','set_task_item_comment']), 'Three supported mutations did not enter the outbox');
+  browser('screenshot', resolve(root,'.expo/account-offline-writes-reload.png'));
+  browser('reload'); await has('Комментарий после офлайн reload'); await has('65% выполнено');
+  check(pendingOperations().length === 3, 'Offline reload lost pending data');
+  console.log('PASS expired runtime snapshot + offline hard reload + checkbox/percentage/comment + durable UI/outbox');
+
+  browser('set','offline','off');
+  await eventually(() => pendingOperations().length === 0, 'reconnect ACK and outbox cleanup');
+  const confirmed = (await db.query('select percentage, is_completed, comment from public.task_items where id = $1', [itemId])).rows[0];
+  check(confirmed.percentage === 65 && confirmed.is_completed === false && confirmed.comment === 'Комментарий после офлайн reload', 'Server did not retain all edits');
+  const receipts = (await db.query('select count(*)::int as count from private.client_operation_receipts where user_id = $1 and operation_id = any($2::uuid[])', [userId, queued.map((row) => row.operation_id)])).rows[0].count;
+  check(receipts === 3, 'Missing server acknowledgements');
+  browser('reload'); await has('Комментарий после офлайн reload'); await has('65% выполнено');
+  console.log('PASS reconnect revalidation, three server receipts, outbox cleared and final online reload');
+
+  browser('set','offline','on'); browser('reload'); await has('Основной пункт');
+  browser('click', ref(browser('snapshot','-i'), 'checkbox "Основной пункт'));
+  await eventually(() => pendingOperations().length === 1, 'operation before disable');
+  const retainedId = pendingOperations()[0].operation_id;
+  await setRuntime(false, false);
+  browser('set','offline','off');
+  // A second real tab revalidates and publishes through the existing status
+  // channel. The original tab must read its false snapshot before another edit.
+  const mainTab = activeTabTarget();
+  browser('tab','new');
+  const revalidationTab = activeTabTarget();
+  check(revalidationTab !== mainTab, 'Second tab was not created');
+  await open(`/projects/${projectId}/tasks/${taskId}`, 'Основной пункт');
+  await eventually(() => runtimeSnapshot()?.value?.write_enabled === false && runtimeSnapshot()?.value?.sync_enabled === false, 'server disable persisted in another tab');
+  browser('tab',mainTab); browser('set','offline','on');
+  browser('click', ref(browser('snapshot','-i'), 'checkbox "Основной пункт'));
+  await eventually(() => !body().includes('Сохраняем…'), 'disabled mutation finished');
+  check(pendingOperations().length === 1 && pendingOperations()[0].operation_id === retainedId, 'Disable added/deleted a pending operation');
+  check(body().includes('Операция не выполнена.'), 'Disabled write did not report an error');
+  console.log('PASS cross-tab server disable blocks new writes and retains the pending operation');
+  await setRuntime(true, true); browser('set','offline','off'); browser('reload');
+  await eventually(() => pendingOperations().length === 0, 'retained operation sync after re-enable');
+  // Keep the peer for the remaining checks; final browser.close closes the
+  // whole isolated session without relying on handles retired by emulation.
 
   browser('set','offline','off');
   await open('/profile', 'Офлайн-режим');
@@ -147,8 +339,10 @@ try {
   try { console.error('Failed page:', body()); browser('screenshot', resolve(root, '.expo/account-offline-failure.png')); } catch { /* browser failed */ }
   throw error;
 } finally {
-  try { browser('set','offline','off'); browser('close'); } catch { /* failed browser may already be closed */ }
-  server?.kill();
+  const cleanupErrors = [];
+  try { if (writerStarted) closeSmokeBrowser(writerBrowser); } catch (e) { cleanupErrors.push(e); }
+  try { if (browserCliReady) closeSmokeBrowser(browser); } catch (e) { cleanupErrors.push(e); }
+  try { await stopSmokeServer(server); } catch (e) { cleanupErrors.push(e); }
   if (userId) {
     // The administrative connection was explicitly checked as local above.
     try {
@@ -163,5 +357,11 @@ try {
       console.log('Local project/template fixtures removed; synthetic audit identity retained.');
     } catch (e) { console.warn('Local fixture cleanup:', e.message); }
   }
+  if (originalConfig) {
+    await db.query('update private.offline_runtime_config set write_enabled = $1, sync_enabled = $2, updated_at = $3',
+      [originalConfig.write_enabled, originalConfig.sync_enabled, originalConfig.updated_at]).catch((e) => console.warn('Local config restore:', e.message));
+  }
   await db.end().catch(() => undefined);
+  await Promise.all([admin.removeAllChannels(), owner.removeAllChannels()]);
+  if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Browser smoke process cleanup failed');
 }

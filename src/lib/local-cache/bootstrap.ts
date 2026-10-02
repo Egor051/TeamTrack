@@ -11,7 +11,10 @@ import { getUtcPlus3DayStart } from './day';
 const PAGE_SIZE = 500;
 const LEASE_MS = 45_000;
 export const BOOTSTRAP_REFRESH_MS = 5 * 60_000;
-const inFlight = new Map<string, Promise<void>>();
+export const BOOTSTRAP_COALESCE_MS = 30_000;
+const MAX_BACKOFF_MS = 5 * 60_000;
+type RunResult = 'settled' | 'busy';
+const inFlight = new Map<string, Promise<RunResult>>();
 const cancellations = new Map<string, number>();
 // If storage accepts reads but rejects the first write (for example quota),
 // keep a user-scoped UI error until retry. Never use this as a data snapshot.
@@ -36,6 +39,15 @@ export function subscribeBootstrap(listener: (userId: string) => void): () => vo
 }
 export function cancelAccountBootstrap(userId: string): void {
   cancellations.set(userId, (cancellations.get(userId) ?? 0) + 1);
+}
+export function bootstrapDelay(meta: BootstrapMetadata, now = Date.now()): number {
+  return Math.max(0, (meta.retry?.next_retry_at ?? 0) - now,
+    (meta.lease?.expires_at ?? 0) - now,
+    meta.last_attempt_at === undefined ? 0 : meta.last_attempt_at + BOOTSTRAP_COALESCE_MS - now);
+}
+function snapshotConflict(error: unknown): boolean {
+  const value = error as { code?: string; message?: string } | null;
+  return value?.code === '40001' || (value?.code === 'PT409' && /^offline snapshot (changed|expired)/.test(value.message ?? ''));
 }
 export async function getBootstrapMetadata(userId: string): Promise<BootstrapMetadata> {
   if (storageFailures.has(userId)) return storageFailures.get(userId)!;
@@ -87,6 +99,8 @@ function validateManifest(value: unknown, userId: string, scheme: OfflineScheme)
   if (!manifest || manifest.user_id !== userId || manifest.schema_version !== OFFLINE_BOOTSTRAP_VERSION
     || !Number.isFinite(Date.parse(manifest.day_start)) || !Number.isFinite(Date.parse(manifest.generated_at))
     || !Number.isFinite(Date.parse(manifest.history_start))) throw new Error('Некорректный snapshot аккаунта.');
+  if (manifest.snapshot_at !== undefined && (typeof manifest.snapshot_at !== 'string' || !Number.isFinite(Date.parse(manifest.snapshot_at))))
+    throw new Error('Некорректная граница snapshot.');
   for (const name of requiredDatasets(scheme)) {
     const dataset = manifest.datasets?.[name];
     if (!dataset || !Number.isSafeInteger(dataset.count) || dataset.count < 0 || !/^[a-f0-9]{32}$/.test(dataset.revision))
@@ -95,11 +109,14 @@ function validateManifest(value: unknown, userId: string, scheme: OfflineScheme)
       || dataset.pages.some((hash) => !/^[a-f0-9]{32}$/.test(hash))) throw new Error('Некорректные версии страниц snapshot.');
   }
   if (manifest.datasets.profile?.count !== 1) throw new Error('Не найден профиль пользователя.');
+  // Preserve snapshot_at verbatim: Date/toISOString would truncate Postgres
+  // microseconds and subtly change the server's membership window.
   return { ...manifest, day_start: new Date(manifest.day_start).toISOString(),
     generated_at: new Date(manifest.generated_at).toISOString(), history_start: new Date(manifest.history_start).toISOString() };
 }
-async function manifestFor(userId: string, scheme: OfflineScheme): Promise<AccountManifest> {
-  const { data, error } = await supabase.rpc('get_offline_account_manifest', { p_scheme: scheme }).abortSignal(AbortSignal.timeout(20_000));
+async function manifestFor(userId: string, scheme: OfflineScheme, snapshotAt?: string): Promise<AccountManifest> {
+  const { data, error } = await supabase.rpc('get_offline_account_manifest',
+    { p_scheme: scheme, ...(snapshotAt ? { p_snapshot_at: snapshotAt } : {}) }).abortSignal(AbortSignal.timeout(20_000));
   if (error) throw error;
   return validateManifest(data, userId, scheme);
 }
@@ -147,11 +164,14 @@ async function visibilityEntries(userId: string, name: Dataset, rows: unknown[])
 }
 
 async function bootstrap(userId: string, force: boolean, assets: () => Promise<boolean>): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   if (await activeCacheUserId() !== userId) return;
   storageFailures.delete(userId);
   const entry = await localCacheDriver.get(userId, BOOTSTRAP_KEY);
   let meta = await getBootstrapMetadata(userId);
-  if (meta.lease && meta.lease.expires_at > Date.now()) return;
+  // Shared durable gates apply to every trigger, including force/reconnect.
+  // A new tab or repeated connected status cannot reset a failed run's backoff.
+  if (bootstrapDelay(meta) > 0) return;
   if (!force && meta.status === 'ready' && meta.last_successful_sync_at
     && Date.now() - Date.parse(meta.last_successful_sync_at) < BOOTSTRAP_REFRESH_MS) return;
   const owner = newOperationId();
@@ -169,7 +189,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
     baseline = JSON.stringify(meta);
   };
   meta = { ...meta, status: meta.completed_at ? 'updating' : 'running', offline_ready: false, error: null,
-    started_at: new Date().toISOString(), lease: { owner, expires_at: Date.now() + LEASE_MS } };
+    started_at: new Date().toISOString(), last_attempt_at: Date.now(), lease: { owner, expires_at: Date.now() + LEASE_MS } };
   try { await writeMeta(meta, baseline); baseline = JSON.stringify(meta); }
   catch (error) {
     if (!(error instanceof Error && error.message === 'Bootstrap lease changed')) {
@@ -224,7 +244,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
               }
             }
             const { data, error } = await supabase.rpc('get_offline_account_page', { p_dataset: name, p_revision: state.revision,
-              p_offset: offset, p_limit: PAGE_SIZE }).abortSignal(AbortSignal.timeout(20_000));
+              p_offset: offset, p_limit: PAGE_SIZE, ...(manifest.snapshot_at ? { p_snapshot_at: manifest.snapshot_at } : {}) }).abortSignal(AbortSignal.timeout(20_000));
             if (error) throw error;
             const page = data as { revision: string; total: number; offset: number; rows: unknown[] } | null;
             if (!page || page.revision !== state.revision || page.total !== state.count || page.offset !== offset
@@ -252,7 +272,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
           meta.basic_ready = false; meta.extended_ready = false;
           throw new Error('Файлы приложения ещё не сохранены для офлайн-режима.');
         }
-        const verified = await manifestFor(userId, meta.scheme);
+        const verified = await manifestFor(userId, meta.scheme, manifest.snapshot_at);
         if (requiredDatasets(meta.scheme).some((name) => verified.datasets[name]!.revision !== meta.datasets[name]!.revision)) {
           throw { code: '40001', message: 'Snapshot changed during verification' };
         }
@@ -283,6 +303,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
         meta.offline_ready = meta.scheme === 'basic' ? meta.basic_ready : meta.extended_ready;
         meta.status = meta.offline_ready ? 'ready' : 'partial';
         meta.completed_at = new Date().toISOString(); meta.last_successful_sync_at = meta.completed_at;
+        meta.retry = null;
         // Old staging revisions are disposable; outbox/conflicts are separate.
         const retained = new Set<string>();
         for (const name of Object.keys(meta.datasets) as Dataset[]) {
@@ -293,7 +314,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
         await save([], obsolete);
         break;
       } catch (error) {
-        if ((error as { code?: string })?.code === '40001' && restart < 2) continue;
+        if (snapshotConflict(error) && restart < 2) continue;
         throw error;
       }
     }
@@ -302,8 +323,12 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
     const current = await getBootstrapMetadata(userId);
     if (current.lease?.owner !== owner) return;
     meta.offline_ready = false;
+    const failures = Math.min(6, (meta.retry?.failures ?? 0) + 1);
+    const backoff = Math.min(MAX_BACKOFF_MS, BOOTSTRAP_COALESCE_MS * 2 ** (failures - 1) * (0.8 + Math.random() * 0.4));
+    meta.retry = { failures, next_retry_at: Date.now() + Math.ceil(backoff) };
     meta.status = Object.values(meta.datasets).some((d) => d.status === 'complete') ? 'partial' : 'error';
-    meta.error = isTransportFailure(error) ? 'Нет подключения. Подготовка продолжится после восстановления сети.'
+    meta.error = snapshotConflict(error) ? 'Данные изменились во время подготовки. Повторим подготовку после паузы.'
+      : isTransportFailure(error) ? 'Нет подключения. Подготовка продолжится после восстановления сети.'
       : error instanceof Error ? error.message : 'Не удалось подготовить офлайн-данные.';
     for (const state of Object.values(meta.datasets)) if (state.status === 'loading') { state.status = 'error'; state.error = meta.error; }
     let remove: string[] = [];
@@ -323,15 +348,24 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
   }
 }
 
-export function runAccountBootstrap(userId: string, force = false, assets = prepareOfflineAssets): Promise<void> {
+export function runAccountBootstrap(userId: string, force = false, assets = prepareOfflineAssets): Promise<RunResult> {
   const existing = inFlight.get(userId);
   if (existing) return existing;
-  const task = (async () => {
+  const task = (async (): Promise<RunResult> => {
     // Share the existing sync lock; confirmed snapshots and pull pages cannot
     // overwrite each other. IndexedDB leases/CAS cover the fallback browsers.
     if (typeof navigator !== 'undefined' && navigator.locks?.request) {
-      await navigator.locks.request(`tasktrace-sync:${userId}`, () => bootstrap(userId, force, assets));
-    } else await bootstrap(userId, force, assets);
+      // Passive tabs never queue forced duplicate bootstraps behind the owner.
+      let acquired = false;
+      await navigator.locks.request(`tasktrace-sync:${userId}`, { ifAvailable: true }, async (lock) => {
+        if (!lock) return;
+        acquired = true;
+        await bootstrap(userId, force, assets);
+      });
+      return acquired ? 'settled' : 'busy';
+    }
+    await bootstrap(userId, force, assets);
+    return 'settled';
   })().finally(() => { inFlight.delete(userId); });
   inFlight.set(userId, task);
   return task;

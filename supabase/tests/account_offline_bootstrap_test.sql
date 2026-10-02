@@ -71,9 +71,82 @@ begin
   if v_count < 205 then raise exception 'unread notifications truncated'; end if;
   select count(*) into v_count from private.offline_account_rows('last_editors');
   if v_count < 1 then raise exception 'last editors missing'; end if;
-  begin perform public.get_offline_account_page('items','old-revision',0,500); exception when sqlstate '40001' then v_rejected := true; end;
+  begin perform public.get_offline_account_page('items','old-revision',0,500); exception when sqlstate 'PT409' then v_rejected := true; end;
   if not v_rejected then raise exception 'changed snapshot accepted old offset'; end if;
 end $$;
+
+-- One exact snapshot is reused across every dataset. Repeated calls retain
+-- revision/pagination guards, including the PostgreSQL microsecond boundary.
+do $$
+declare m jsonb; p jsonb; n text; i integer; d text; rejected boolean := false;
+begin
+  m := public.get_offline_account_manifest('extended', null::timestamptz);
+  for i in 1..20 loop
+    for n in select jsonb_object_keys(m->'datasets') loop
+      p := public.get_offline_account_page(n,m->'datasets'->n->>'revision',(m->>'snapshot_at')::timestamptz,0,500);
+      if p->>'revision' <> m->'datasets'->n->>'revision' or p->>'total' <> m->'datasets'->n->>'count' then
+        raise exception 'unstable revision for %',n;
+      end if;
+    end loop;
+  end loop;
+  begin
+    perform public.get_offline_account_page('items','stale',(m->>'snapshot_at')::timestamptz,500,500);
+  exception when sqlstate 'PT409' then
+    get stacked diagnostics d = pg_exception_detail;
+    rejected := d::jsonb->>'dataset' = 'items' and d::jsonb->>'offset' = '500'
+      and d::jsonb->>'expected_revision' = 'stale'
+      and d::jsonb->>'actual_revision' = m->'datasets'->'items'->>'revision';
+  end;
+  if not rejected then raise exception 'conflict diagnostics missing'; end if;
+  rejected := false;
+  begin perform public.get_offline_account_manifest('basic',statement_timestamp()-interval '31 minutes');
+  exception when sqlstate 'PT409' then rejected := true; end;
+  if not rejected then raise exception 'expired snapshot accepted'; end if;
+  rejected := false;
+  begin perform public.get_offline_account_manifest('basic',statement_timestamp()+interval '1 minute');
+  exception when sqlstate '22023' then rejected := true; end;
+  if not rejected then raise exception 'future snapshot accepted'; end if;
+end $$;
+
+reset role;
+select set_config('test.snapshot_at',(clock_timestamp()-interval '10 seconds')::text,true);
+-- The row would disappear if the 90-day lower boundary moved to wall time.
+insert into public.audit_log(project_id,user_id,action,entity_type,entity_id,created_at)
+values (:'active_project','94000000-0000-4000-8000-000000000001','updated','task_item',:'item',
+  current_setting('test.snapshot_at')::timestamptz-interval '90 days'+interval '1 microsecond');
+set local role authenticated;
+do $$
+declare s timestamptz := current_setting('test.snapshot_at')::timestamptz; m jsonb; p jsonb;
+begin
+  m := public.get_offline_account_manifest('extended',s);
+  if (m->>'history_start')::timestamptz <> s-interval '90 days'
+    or (m->>'day_start')::timestamptz <> date_trunc('day',s at time zone 'Etc/GMT-3') at time zone 'Etc/GMT-3' then
+    raise exception 'snapshot windows drifted';
+  end if;
+  if not exists(select 1 from private.offline_account_rows('history',s) r
+    where (r.row_data->>'created_at')::timestamptz = s-interval '90 days'+interval '1 microsecond') then
+    raise exception 'history boundary row lost';
+  end if;
+  if exists(select 1 from private.offline_account_rows('daily_audit',s) r where (r.row_data->>'created_at')::timestamptz > s)
+    or exists(select 1 from private.offline_account_rows('history',s) r where (r.row_data->>'created_at')::timestamptz > s) then
+    raise exception 'snapshot upper boundary ignored';
+  end if;
+  p := public.get_offline_account_page('history',m->'datasets'->'history'->>'revision',s,0,500);
+  if p->>'revision' <> m->'datasets'->'history'->>'revision' then raise exception 'history time mismatch'; end if;
+end $$;
+
+reset role;
+do $$ declare p record; r text; begin
+  for p in select fn.oid,fn.prosecdef from pg_proc fn join pg_namespace n on n.oid=fn.pronamespace
+    where n.nspname in ('public','private') and fn.proname in
+    ('get_offline_account_manifest','get_offline_account_page','offline_account_rows','offline_dataset_revision') loop
+    if p.prosecdef or not has_function_privilege('authenticated',p.oid,'EXECUTE') then raise exception 'invoker/auth grant changed'; end if;
+    foreach r in array array['anon','service_role'] loop
+      if has_function_privilege(r,p.oid,'EXECUTE') then raise exception 'unexpected bootstrap grant for %',r; end if;
+    end loop;
+  end loop;
+end $$;
+set local role authenticated;
 
 -- Inherited membership grants checklist access without a separate task row.
 -- Own override is visible to normal SELECT, but the management list is not.
@@ -95,13 +168,17 @@ begin
   end loop;
 end $$;
 
+select set_config('test.viewer_manifest', public.get_offline_account_manifest('basic',null::timestamptz)::text,true);
 reset role;
 delete from public.project_members where project_id = :'active_project' and user_id = '94000000-0000-4000-8000-000000000002';
 set local role authenticated;
 select set_config('request.jwt.claim.sub','94000000-0000-4000-8000-000000000002',true);
-do $$ declare m jsonb; begin
+do $$ declare m jsonb; old jsonb := current_setting('test.viewer_manifest')::jsonb; rejected boolean := false; begin
   m := public.get_offline_account_manifest('basic');
   if m->'datasets'->'projects'->>'count' <> '0' or m->'datasets'->'tasks'->>'count' <> '0' or m->'datasets'->'items'->>'count' <> '0' then raise exception 'revoked access survived bootstrap'; end if;
+  begin perform public.get_offline_account_page('items',old->'datasets'->'items'->>'revision',(old->>'snapshot_at')::timestamptz,0,500);
+  exception when sqlstate 'PT409' then rejected := true; end;
+  if not rejected then raise exception 'fixed snapshot bypassed a revoke'; end if;
 end $$;
 rollback;
 \echo 'Account offline bootstrap SQL passed'

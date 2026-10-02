@@ -8,6 +8,7 @@ export type Dataset = typeof BASIC_DATASETS[number] | typeof EXTENDED_DATASETS[n
 export type DatasetVersion = { revision: string; count: number; pages: string[] };
 export type AccountManifest = {
   schema_version: number; user_id: string; generated_at: string; day_start: string; history_start: string;
+  snapshot_at?: string;
   datasets: Partial<Record<Dataset, DatasetVersion>>;
 };
 export type DatasetState = DatasetVersion & { offset: number; status: 'pending' | 'loading' | 'complete' | 'error'; error?: string };
@@ -19,6 +20,8 @@ export type BootstrapMetadata = {
   manifest: AccountManifest | null; datasets: Partial<Record<Dataset, DatasetState>>;
   assets_ready: boolean; basic_ready: boolean; extended_ready: boolean;
   lease: { owner: string; expires_at: number } | null;
+  last_attempt_at?: number;
+  retry?: { failures: number; next_retry_at: number } | null;
 };
 export function requiredDatasets(scheme: OfflineScheme): Dataset[] {
   return scheme === 'extended' ? [...BASIC_DATASETS, ...EXTENDED_DATASETS] : [...BASIC_DATASETS];

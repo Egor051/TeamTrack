@@ -6,6 +6,7 @@ import { offlineSyncEnabled } from './outbox';
 import { syncPendingOperations } from './sync';
 import { subscribeTable } from '@/lib/supabase/realtime';
 import { updateSyncState, forgetSyncState } from './status';
+import { runtimeCapabilities } from './runtime-config';
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -30,6 +31,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       timer = setTimeout(() => { timer = null; run(); }, 250);
     };
     trigger(true);
+    // coordinatedRun skips network I/O offline; restore metadata independently.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false)
+      void runtimeCapabilities(userId).catch(() => undefined);
     const network = NetInfo.addEventListener((state) => {
       updateSyncState(userId, { connectivity: state.isConnected === false || state.isInternetReachable === false
         ? 'offline' : state.isConnected === true ? 'online' : 'unknown' });

@@ -16,6 +16,7 @@ import {
 import { closeAllRealtimeChannels } from '@/lib/supabase/realtime';
 import { parseAuthCallbackUrl, stripAuthCallbackParams } from './auth-links';
 import { readThroughCache, activeCacheUserId, putCached } from '@/lib/local-cache/cache';
+import { clearRuntimeConfig } from '@/lib/local-cache/runtime-config';
 
 type AuthContextType = {
   state: AuthState;
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let generation = 0;
     let activeUserId: string | null = null;
+    let runtimeUserId: string | null = null;
     const handledAuthLinks = new Set<string>();
 
     const consumeAuthLink = async (url: string): Promise<void> => {
@@ -96,6 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const scheduleSessionApply = (session: AuthState['session']) => {
+      const nextUserId = session?.user?.id ?? null;
+      if (nextUserId !== runtimeUserId || !nextUserId) clearRuntimeConfig();
+      runtimeUserId = nextUserId;
       // Defer profile I/O outside Supabase's auth callback lock.
       const currentGeneration = ++generation;
       setTimeout(() => { void applySession(session, currentGeneration); }, 0);
@@ -126,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      clearRuntimeConfig();
       data.subscription.unsubscribe();
       linkSubscription.remove();
     };

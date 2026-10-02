@@ -88,7 +88,7 @@ export function isExplicitAccessError(error: unknown): boolean {
   const value = error as { status?: number; code?: string; message?: string } | null;
   const message = value?.message?.toLowerCase() ?? '';
   return value?.status === 401 || value?.status === 403 || value?.code === '42501' || value?.code === 'PGRST301'
-    || /invalid jwt|jwt expired|session expired|auth session missing/.test(message);
+    || /invalid jwt|jwt expired|session expired|auth session missing|access denied|permission denied|not authorized|unauthorized|forbidden/.test(message);
 }
 
 export function isTransportFailure(error: unknown): boolean {

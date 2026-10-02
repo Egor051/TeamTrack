@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import pg from 'pg';
 import { createClient } from '@supabase/supabase-js';
 import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
+import { closeSmokeBrowser, stopSmokeServer } from './smoke-process-cleanup.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const local = getLocalSupabaseStatus();
@@ -332,19 +333,19 @@ try {
 
   console.log('Phase 6 production browser smoke PASS');
 } finally {
+  const cleanupErrors = [];
   if (originalSw) await writeFile(swPath, originalSw);
   if (browserStarted) {
-    try { browser('set', 'offline', 'off'); } catch { /* browser may have closed */ }
-    try { browser('close'); } catch { /* browser may have closed */ }
+    try { closeSmokeBrowser(browser); } catch (e) { cleanupErrors.push(e); }
   }
   if (memberBrowserStarted) {
-    try { memberBrowser('set', 'offline', 'off'); } catch { /* browser may have closed */ }
-    try { memberBrowser('close'); } catch { /* browser may have closed */ }
+    try { closeSmokeBrowser(memberBrowser); } catch (e) { cleanupErrors.push(e); }
   }
-  server?.kill();
+  try { await stopSmokeServer(server); } catch (e) { cleanupErrors.push(e); }
   if (originalConfig) {
     try { await db.query('update private.offline_runtime_config set write_enabled = $1, sync_enabled = $2, updated_at = $3',
       [originalConfig.write_enabled, originalConfig.sync_enabled, originalConfig.updated_at]); } catch { /* local DB may have stopped */ }
   }
   await db.end().catch(() => undefined);
+  if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Browser smoke process cleanup failed');
 }

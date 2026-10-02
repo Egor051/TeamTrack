@@ -59,7 +59,7 @@
     "test": "npm run check:db && npm run typecheck && npm run lint && npm run test:unit",
     "test:unit": "vitest run",
     "test:sql": "node scripts/run-sql-tests.mjs",
-    "test:backend": "node scripts/run-backend-integration-tests.mjs && node scripts/run-pkce-integration-tests.mjs && node scripts/run-concurrency-tests.mjs",
+    "test:backend": "node scripts/run-backend-integration-tests.mjs && node scripts/run-pkce-integration-tests.mjs && node scripts/run-concurrency-tests.mjs && node scripts/run-bootstrap-integration-tests.mjs",
     "gen:types": "node scripts/gen-types.mjs"
   },
   "private": true
