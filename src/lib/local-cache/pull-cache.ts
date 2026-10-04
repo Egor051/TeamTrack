@@ -17,15 +17,30 @@ export function applyPullToEntries(entries: CacheEntry[], changes: PullChange[],
   const byKey = new Map(entries.map((entry) => [entry.key, entry]));
   const touchedTasks = new Set<string>();
   for (const change of changes) {
-    touchedTasks.add(change.task_id);
+    // A bootstrap/online read can already contain a later confirmation than
+    // this historical feed page. Advancing the cursor must not undo that read.
+    const confirmed = [...byKey.values()].filter((entry) => entry.key.startsWith(`items:${change.task_id}:`))
+      .flatMap((entry) => JSON.parse(entry.data) as ReconciledItem[]).filter((row) => row.id === change.task_item_id);
+    let newest = change.item;
+    if (newest && validSyncVersion(newest.sync_version)) for (const row of confirmed) {
+      if (validSyncVersion(row.sync_version) && row.sync_version > newest.sync_version!) newest = row;
+    }
+    const effective = newest === change.item ? change : { ...change, item: newest };
+    let changed = false;
     for (const mode of ['active', 'archived', 'all']) {
       const key = `items:${change.task_id}:${mode}`;
       const entry = byKey.get(key);
       if (!entry) continue;
       const rows = JSON.parse(entry.data) as ReconciledItem[];
-      byKey.set(key, { ...entry, data: JSON.stringify(replaceRow(rows, change, mode)), last_synced_at: new Date().toISOString() });
+      const current = rows.find((row) => row.id === change.task_item_id);
+      if (change.change_type !== 'delete' && newest && current && validSyncVersion(current.sync_version)
+        && current.sync_version === newest.sync_version && (mode === 'all' || newest.is_archived === (mode === 'archived'))) continue;
+      const data = JSON.stringify(replaceRow(rows, effective, mode));
+      if (data === entry.data) continue;
+      changed = true;
+      byKey.set(key, { ...entry, data, last_synced_at: new Date().toISOString() });
     }
-    byKey.delete(`last-editors:${change.task_id}`);
+    if (changed) { touchedTasks.add(change.task_id); byKey.delete(`last-editors:${change.task_id}`); }
   }
   if (projectId) {
     const statsKey = `task-stats:${projectId}:active`;
@@ -48,4 +63,9 @@ export function applyPullToEntries(entries: CacheEntry[], changes: PullChange[],
 
 export function validSyncVersion(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+export function hasMeaningfulPull(entries: CacheEntry[], changes: PullChange[]): boolean {
+  const next = applyPullToEntries(entries, changes);
+  return next.length !== entries.length || next.some((entry) => entries.find((previous) => previous.key === entry.key)?.data !== entry.data);
 }

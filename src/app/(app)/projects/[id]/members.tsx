@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -83,6 +84,7 @@ export default function MembersScreen() {
     }
   }, [id]);
 
+  useOnlineRecovery(load);
   useFocusEffect(useCallback(() => {
     void permissionVersion;
     void load();

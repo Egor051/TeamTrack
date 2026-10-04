@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -235,6 +236,7 @@ export default function TaskScreen() {
     setOfflineForEdits(true);
   }, [id, taskId, user, showArchivedItems]);
 
+  useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
       void permissionVersion;
@@ -433,7 +435,7 @@ export default function TaskScreen() {
         <PageHeader
             title={task ? (taskEditing ? "Редактирование этапа" : task.title) : "Этап"}
             subtitle={taskEditing ? "" : task?.description || "Рабочий этап"}
-            onBack={() => router.replace(`/projects/${id}` as never)}
+            onBack={() => router.dismissTo(`/projects/${id}` as never)}
             backLabel="К проекту"
             breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект", href: `/projects/${id}` }, { label: task?.title || "Этап" }]}
             actions={

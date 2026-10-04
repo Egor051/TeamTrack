@@ -1,6 +1,7 @@
 import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationInput, SyncConflict } from './types';
 import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
+import { boundedOperation } from '@/lib/connectivity/deadline';
 
 const DB_NAME = 'tasktrace-local-cache';
 const STORE = 'entries';
@@ -8,8 +9,8 @@ const OUTBOX = 'pending_operations';
 const CONFLICTS = 'sync_conflicts';
 const pullKey = 'sync:task-items:cursor';
 
-function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+function openDatabase(signal?: AbortSignal): Promise<IDBDatabase> {
+  return boundedOperation((deadline) => new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 5);
     let blocked = false;
     request.onupgradeneeded = () => {
@@ -27,7 +28,7 @@ function openDatabase(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => {
-      if (blocked) { request.result.close(); return; }
+      if (blocked || deadline.aborted) { request.result.close(); return; }
       request.result.onversionchange = () => request.result.close();
       resolve(request.result);
     };
@@ -36,31 +37,34 @@ function openDatabase(): Promise<IDBDatabase> {
       blocked = true;
       reject(new Error('Обновление локального хранилища заблокировано другой вкладкой. Закройте другие вкладки TaskTrace и повторите.'));
     };
-  });
+  }), 10_000, signal);
 }
 
 function entryKey(userId: string, key: string): string {
   return `${userId}:${key}`;
 }
 
-async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void) => void, storeName = STORE): Promise<T> {
-  const db = await openDatabase();
+async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void) => void, storeName = STORE, signal?: AbortSignal): Promise<T> {
+  const db = await openDatabase(signal);
   try {
-    return await new Promise<T>((resolve, reject) => {
+    return await boundedOperation((deadline) => new Promise<T>((resolve, reject) => {
       const tx = db.transaction(storeName, mode);
+      const abort = () => { try { tx.abort(); } catch { /* Already committed/aborted. */ } };
+      deadline.addEventListener('abort', abort, { once: true });
+      const finish = () => deadline.removeEventListener('abort', abort);
       let value: T;
-      tx.oncomplete = () => resolve(value);
-      tx.onerror = (event) => reject((event.target as IDBRequest).error ?? tx.error ?? new Error('IndexedDB transaction failed'));
-      tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+      tx.oncomplete = () => { finish(); resolve(value); };
+      tx.onerror = (event) => { finish(); reject((event.target as IDBRequest).error ?? tx.error ?? new Error('IndexedDB transaction failed')); };
+      tx.onabort = () => { finish(); reject(tx.error ?? new Error('IndexedDB transaction aborted')); };
       action(tx.objectStore(storeName), (result) => { value = result; });
-    });
+    }), 10_000, signal);
   } finally {
     db.close();
   }
 }
 
 export const localCacheDriver: LocalCacheDriver = {
-  async commitCacheBatch(userId, entries, removeKeys = [], guards = []) {
+  async commitCacheBatch(userId, entries, removeKeys = [], guards = [], signal) {
     if (entries.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
     return transact<boolean>('readwrite', (store, resolve) => {
       let remaining = guards.length;
@@ -80,7 +84,7 @@ export const localCacheDriver: LocalCacheDriver = {
           if (--remaining === 0) commit();
         };
       }
-    });
+    }, STORE, signal);
   },
   get: (userId, key) => transact<CacheEntry | null>('readonly', (store, resolve) => {
     const request = store.get(entryKey(userId, key));

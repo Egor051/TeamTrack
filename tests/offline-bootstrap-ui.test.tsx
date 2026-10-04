@@ -4,13 +4,13 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialBootstrap, type BootstrapMetadata } from '@/lib/local-cache/bootstrap-types';
 
-const f = vi.hoisted(() => ({ meta: null as BootstrapMetadata | null, select: vi.fn(), platform: { OS: 'web' } }));
+const f = vi.hoisted(() => ({ meta: null as BootstrapMetadata | null, select: vi.fn(), retry: vi.fn(), platform: { OS: 'web' } }));
 vi.mock('react-native', () => ({ View: 'View', Pressable: 'Pressable', ScrollView: 'ScrollView', RefreshControl: 'RefreshControl',
   Platform: f.platform, StyleSheet: { create: (x: unknown) => x }, useWindowDimensions: () => ({ width: 1200 }) }));
 vi.mock('expo-router', () => ({ router: { push: vi.fn(), replace: vi.fn() }, Link: 'Link', useFocusEffect: vi.fn() }));
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: 'user-a', email: 'a@test.local' }, profile: { display_name: 'User A' } } }) }));
 vi.mock('@/lib/local-cache/use-offline-bootstrap', () => ({ useOfflineBootstrap: () => f.meta }));
-vi.mock('@/lib/local-cache/bootstrap', () => ({ selectOfflineScheme: f.select, runAccountBootstrap: vi.fn() }));
+vi.mock('@/lib/local-cache/bootstrap', () => ({ selectOfflineScheme: f.select, retryAccountBootstrap: f.retry }));
 vi.mock('@/lib/local-cache/cache', () => ({ isCachedResult: () => false, isExplicitAccessError: () => false, isTransportFailure: () => false }));
 vi.mock('@/features/projects/projects', () => ({ listOwnedProjects: vi.fn(async () => []), listProjectMembers: vi.fn(), listProjects: vi.fn(), listMyTasks: vi.fn(), transferProjectOwnership: vi.fn() }));
 vi.mock('@/features/auth/PermissionProvider', () => ({ usePermissionVersion: () => 0 }));
@@ -43,6 +43,16 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => { renderers.splice(0).forEach((r) => r.unmount()); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe('offline UX', () => {
+  it('Retry invokes a new attempt and remains available while the old attempt is running', async () => {
+    f.meta = { ...initialBootstrap('user-a'), status: 'running', progress: 94 };
+    f.retry.mockResolvedValue('settled');
+    const r = await render(OfflineReadyIndicator);
+    await act(async () => { r.root.findByProps({ size: 'sm', variant: 'ghost' }).props.onPress(); });
+    expect(f.retry).toHaveBeenCalledWith('user-a');
+    expect(offlineReadyLabel({ ...f.meta, status: 'offline_waiting' })).toBe('Офлайн: ожидание сети');
+    expect(offlineReadyLabel({ ...f.meta, status: 'ready', scheme: 'extended', offline_ready: true, basic_ready: true, extended_ready: false }))
+      .toBe('Офлайн: базовые данные готовы');
+  });
   it('renders the profile section below appearance with Basic selected by default', async () => {
     const r = await render(ProfileScreen);
     expect(body(r).indexOf('Оформление')).toBeLessThan(body(r).indexOf('Офлайн-режим'));

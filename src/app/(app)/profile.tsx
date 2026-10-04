@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
@@ -65,6 +66,7 @@ export default function ProfileScreen() {
     }
   }, [userId]);
 
+  useOnlineRecovery(loadOwned);
   useFocusEffect(useCallback(() => { void loadOwned(); return () => { ownedRequestRef.current += 1; }; }, [loadOwned]));
   useEffect(() => () => { membersRequestRef.current += 1; }, []);
 

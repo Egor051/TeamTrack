@@ -2,8 +2,9 @@ import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialBootstrap, type BootstrapMetadata } from '@/lib/local-cache/bootstrap-types';
+import { reportBrowserConnectivity, reportConnectivitySuccess } from '@/lib/connectivity/state';
 
-const f = vi.hoisted(() => ({ meta: null as BootstrapMetadata | null, run: vi.fn(), cancel: vi.fn(),
+const f = vi.hoisted(() => ({ meta: null as BootstrapMetadata | null, run: vi.fn(), resume: vi.fn(), cancel: vi.fn(),
   specs: [] as { options: { onEvent: () => void; onStatus: (s: string) => void } }[],
   metadata: null as null | ((id: string) => void), unsubscribe: vi.fn(), remove: vi.fn(), foreground: null as null | ((s: string) => void) }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventListener: (_: string, cb: (s: string) => void) => {
@@ -12,6 +13,7 @@ vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventLi
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: 'user-a' }, session: { access_token: 'test' } } }) }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeMany: (specs: typeof f.specs) => { f.specs = specs; return f.unsubscribe; } }));
 vi.mock('@/lib/local-cache/bootstrap', () => ({ BOOTSTRAP_REFRESH_MS: 300_000, runAccountBootstrap: f.run,
+  resumeAccountBootstrap: f.resume,
   cancelAccountBootstrap: f.cancel, getBootstrapMetadata: async () => f.meta,
   bootstrapDelay: (m: BootstrapMetadata) => Math.max(0, (m.retry?.next_retry_at ?? 0) - Date.now(),
     m.last_attempt_at === undefined ? 0 : m.last_attempt_at + 30_000 - Date.now()),
@@ -32,11 +34,23 @@ beforeEach(() => {
     f.meta = { ...f.meta!, status: 'ready', last_attempt_at: Date.now(), last_successful_sync_at: new Date().toISOString() };
     return 'settled';
   });
+  f.resume.mockImplementation(async () => { f.meta = { ...f.meta!, status: 'ready', offline_ready: true }; return 'settled'; });
 });
 afterEach(async () => {
   await act(async () => { renderer?.unmount(); }); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 describe('bootstrap trigger coalescing and cleanup', () => {
+  it('automatically resumes offline_waiting on confirmed connectivity despite old retry gates', async () => {
+    vi.stubGlobal('navigator', { onLine: false }); reportBrowserConnectivity(false);
+    f.run.mockImplementation(async () => {
+      f.meta = { ...f.meta!, status: 'offline_waiting', retry: { failures: 3, next_retry_at: Date.now() + 300_000 } };
+      return 'settled';
+    });
+    await mount(); await tick(400);
+    expect(f.meta?.status).toBe('offline_waiting');
+    vi.stubGlobal('navigator', { onLine: true }); reportConnectivitySuccess(); await tick(400);
+    expect(f.resume).toHaveBeenCalledOnce(); expect(f.meta?.status).toBe('ready');
+  });
   it('coalesces 50 Realtime events and repeated connected statuses into one refresh', async () => {
     await mount(); await tick(400); expect(f.run).toHaveBeenCalledTimes(1);
     await tick(1);

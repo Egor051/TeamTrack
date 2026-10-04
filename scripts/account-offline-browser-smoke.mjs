@@ -184,11 +184,82 @@ async function controlledBrowserMutation(tabs, itemId) {
   browser('tab', ownerTab); browser('eval', "window.dispatchEvent(new Event('online'));true");
   await eventually(() => metadata()?.offline_ready && Date.parse(metadata()?.last_successful_sync_at ?? '') >= restored, 'restored bootstrap fixture', 60_000);
 }
+async function lifecycleRegressions(taskId) {
+  const routeIs = (route) => eventually(() => browser('get', 'url') === base + route, `route ${route}`);
+  await open('/projects', 'Офлайн: готово', { readiness: true });
+  browser('reload'); await has('Офлайн: готово');
+  for (const breadcrumb of [false, true]) {
+    browser('click', ref(browser('snapshot', '-i'), 'Открыть проект Офлайн основной проект'));
+    await routeIs(`/projects/${projectId}`);
+    browser('click', ref(browser('snapshot', '-i'), 'Основной этап'));
+    await routeIs(`/projects/${projectId}/tasks/${taskId}`);
+    browser('click', ref(browser('snapshot', '-i'), breadcrumb ? 'link "Офлайн основной проект"' : 'К проекту'));
+    await routeIs(`/projects/${projectId}`);
+    browser('back'); await routeIs('/projects');
+  }
+  // Direct stage entry still has a usable parent fallback.
+  await open(`/projects/${projectId}/tasks/${taskId}`, 'Основной пункт');
+  browser('click', ref(browser('snapshot', '-i'), 'К проекту')); await routeIs(`/projects/${projectId}`);
+  await open('/projects', 'Офлайн: готово', { readiness: true });
+  console.log('PASS navigation button/breadcrumb → project → first browser back, direct links and reload');
+  for (const [route, text] of [
+    ['/projects', 'Офлайн основной проект'], [`/projects/${projectId}`, 'Основной этап'],
+    [`/projects/${projectId}/tasks/${taskId}`, 'Основной пункт'],
+  ]) {
+    browser('set', 'offline', 'on'); await open(route, text, { readiness: route === '/projects' });
+    await has('Нет подключения к сети. Показаны сохранённые данные.');
+    browser('set', 'offline', 'off');
+    await eventually(() => !body().includes('Нет подключения к сети. Показаны сохранённые данные.'), `mounted route recovery ${route}`);
+    check(browser('get', 'url') === base + route, 'Recovery navigated or reloaded the route');
+  }
+  console.log('PASS three Offline → Online cycles, cached projects/project/stage, mounted route recovery without reload');
+
+  await open('/projects', 'Офлайн: готово', { readiness: true });
+  await eventually(() => !metadata()?.lease, 'bootstrap lease released');
+  browser('set', 'offline', 'on');
+  browser('eval', `(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{await new Promise(function(ok,no){const tx=db.transaction('entries','readwrite');tx.objectStore('entries').delete('${userId}:bootstrap:metadata');tx.oncomplete=function(){ok()};tx.onerror=function(){no(tx.error)}})}finally{db.close()}return true})()`);
+  check(metadata() === null, 'Preparation metadata was not cleared before offline start');
+  browser('reload'); await has('Офлайн: ожидание сети');
+  check(metadata()?.status === 'offline_waiting', 'Offline preparation did not settle');
+  // Hold exactly one real manifest response and ignore its abort signal. Retry
+  // must start a new generation while this original promise remains unresolved.
+  browser('eval', `window.__held=false;window.__fetch=window.fetch;window.fetch=function(input,init){if(!window.__held&&String(input).includes('/rpc/get_offline_account_manifest')){window.__held=true;return new Promise(function(ok,no){window.__fetch(input,init).then(function(response){window.__late=function(){ok(response)}},no)})}return window.__fetch(input,init)};true`);
+  browser('set', 'offline', 'off');
+  await eventually(() => browser('eval', 'window.__held===true') === 'true', 'automatic resumed attempt');
+  check(['running','updating'].includes(metadata()?.status), 'Automatic recovery did not start preparation');
+  browser('eval', 'window.fetch=window.__fetch;true');
+  browser('click', ref(browser('snapshot', '-i'), 'Повторить'));
+  await has('Офлайн: готово'); await eventually(() => !metadata()?.lease, 'new retry finished');
+  const ready = metadata().completed_at;
+  browser('eval', 'if(window.__late)window.__late();true');
+  check(metadata().status === 'ready' && metadata().completed_at === ready, 'Late old response overwrote the retry result');
+  console.log('PASS offline_waiting → automatic recovery, Retry supersedes hung attempt, late response cannot overwrite ready');
+
+  await eventually(() => !metadata()?.lease && !body().includes('Синхронизация: в процессе'), 'idle ready state');
+  browser('eval', `window.__falseSync=[];window.__statusObserver=new MutationObserver(function(){if(document.body.innerText.includes('Синхронизация: в процессе'))window.__falseSync.push(Date.now())});window.__statusObserver.observe(document.body,{subtree:true,childList:true,characterData:true});window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));true`);
+  const first = activeTabTarget(); browser('tab', 'new', base + '/projects'); await has('Офлайн: готово');
+  const peer = activeTabTarget();
+  const inventory = JSON.parse(browser('tab', 'list', '--json')).data.tabs;
+  check(inventory.some((tab) => tab.targetId !== first), `Second tab missing: ${JSON.stringify(inventory)}`);
+  browser('tab', first);
+  await eventually(() => !metadata()?.lease, 'tab switch maintenance');
+  const falseSync = JSON.parse(browser('eval', 'window.__falseSync'));
+  check(falseSync.length === 0, `Focus/tab switch advertised an empty sync: ${JSON.stringify(falseSync)}`);
+  browser('eval', 'window.__statusObserver.disconnect();true');
+  // Retire the peer app before the single-tab offline fixture. An online peer
+  // correctly drains the shared outbox even while the original tab is offline.
+  // Navigating away avoids Windows CLI errors after closing individual tabs.
+  browser('tab', peer); browser('open', 'about:blank'); browser('tab', first);
+  check(browser('get', 'url') === base + '/projects', 'Tab switch lost the projects page');
+  console.log('PASS ready + focus/visibility/tab switching without false syncing');
+}
 try {
   console.log('Building production PWA with WRITE=true, SYNC=true against local Supabase...');
   // process env overrides .env; no file or feature-flag changes.
-  command('npm', ['run','build:web'], { ...process.env, EXPO_PUBLIC_SUPABASE_URL: local.API_URL,
-    EXPO_PUBLIC_SUPABASE_ANON_KEY: local.ANON_KEY, EXPO_PUBLIC_OFFLINE_WRITE_ENABLED: 'true', EXPO_PUBLIC_OFFLINE_SYNC_ENABLED: 'true' });
+  // The bundler has its own process lifecycle; the 60s browser CLI deadline
+  // must not kill a cold export or leave its Metro child running on Windows.
+  const build = spawn(process.execPath, ['scripts/build-phase6-local-smoke.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+  await new Promise((ok, no) => { build.once('error', no); build.once('exit', (code) => code === 0 ? ok() : no(new Error(`Web build failed: ${code}`))); });
   await db.connect();
   originalConfig = (await db.query('select write_enabled, sync_enabled, updated_at::text as updated_at from private.offline_runtime_config')).rows[0];
   await setRuntime(true, true);
@@ -224,6 +295,7 @@ try {
   browser('screenshot', resolve(root,'.expo/account-offline-basic.png'));
   console.log('PASS automatic basic bootstrap, independent projects indicators and PWA assets');
   await eventually(() => runtimeSnapshot()?.value?.write_enabled === true && runtimeSnapshot()?.value?.sync_enabled === true, 'confirmed runtime capabilities');
+  await lifecycleRegressions(taskId);
   if (process.argv.includes('--storm-soak') || process.argv.includes('--storm-burst')) await stormSoak(itemId);
 
   // None of these routes was opened before switching offline.
@@ -334,9 +406,12 @@ try {
   console.log('PASS extended → basic readiness offline');
   browser('set','offline','off');
   const errors = browser('errors'); check(!errors || /No errors|\[\]/i.test(errors), `Browser errors: ${errors}`);
+  const consoleLog = browser('console');
+  writeFileSync(resolve(root, '.expo/account-offline-console.log'), consoleLog);
+  check(!/unhandled.*rejection|uncaught|maximum update depth|cannot update a component|state update on an unmounted|indexeddb.*(?:exception|quotaexceeded)/i.test(consoleLog), `Browser console regression: ${consoleLog}`);
   console.log('Account offline browser smoke passed');
 } catch (error) {
-  try { console.error('Failed page:', body()); browser('screenshot', resolve(root, '.expo/account-offline-failure.png')); } catch { /* browser failed */ }
+  try { console.error('Failed page:', body()); console.error('Failed metadata:', JSON.stringify(metadata())); browser('screenshot', resolve(root, '.expo/account-offline-failure.png')); } catch { /* browser failed */ }
   throw error;
 } finally {
   const cleanupErrors = [];

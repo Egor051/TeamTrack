@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 import { subscribeMany } from '@/lib/supabase/realtime';
-import { BOOTSTRAP_REFRESH_MS, bootstrapDelay, cancelAccountBootstrap, getBootstrapMetadata, runAccountBootstrap, subscribeBootstrap } from './bootstrap';
+import { BOOTSTRAP_REFRESH_MS, bootstrapDelay, cancelAccountBootstrap, getBootstrapMetadata, resumeAccountBootstrap, runAccountBootstrap, subscribeBootstrap } from './bootstrap';
 
 export function OfflineBootstrapProvider({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -23,9 +23,11 @@ export function OfflineBootstrapProvider({ children }: { children: ReactNode }) 
       timer = setTimeout(() => { timer = null; void refresh(); }, delay);
     };
     const refresh = async () => {
-      if (disposed || running || usesLocalReads()) return;
+      if (disposed || running) return;
       running = true;
+      const eventAtStart = requestedAt;
       try {
+        if (usesLocalReads()) { await runAccountBootstrap(userId); return; }
         const before = await getBootstrapMetadata(userId);
         if (disposed) return;
         // Another tab's successful run can satisfy this tab's queued event.
@@ -34,9 +36,10 @@ export function OfflineBootstrapProvider({ children }: { children: ReactNode }) 
         }
         if (!force && before.status === 'ready' && before.last_successful_sync_at
           && Date.now() - Date.parse(before.last_successful_sync_at) < BOOTSTRAP_REFRESH_MS) return;
-        const delay = bootstrapDelay(before);
+        const recovering = before.status === 'offline_waiting' || before.retry?.reason === 'transport';
+        const delay = recovering ? 0 : bootstrapDelay(before);
         if (delay > 0) { schedule(delay + 50); return; }
-        const result = await runAccountBootstrap(userId, force);
+        const result = recovering ? await resumeAccountBootstrap(userId) : await runAccountBootstrap(userId, force);
         const after = await getBootstrapMetadata(userId);
         if (disposed) return;
         if (result === 'busy') { schedule(1000); return; }
@@ -49,7 +52,10 @@ export function OfflineBootstrapProvider({ children }: { children: ReactNode }) 
           console.warn('[TaskTrace] offline bootstrap failed', error);
           schedule(30_000);
         }
-      } finally { running = false; }
+      } finally {
+        running = false;
+        if (!disposed && !usesLocalReads() && requestedAt !== eventAtStart) schedule(400);
+      }
     };
     const trigger = (revalidate = false) => {
       if (disposed) return;
@@ -60,7 +66,10 @@ export function OfflineBootstrapProvider({ children }: { children: ReactNode }) 
     };
     trigger(true);
     const online = () => trigger(true);
-    const connectivity = subscribeConnectivity((next) => { if (next === 'online') trigger(true); });
+    const connectivity = subscribeConnectivity((next) => {
+      if (next !== 'online') cancelAccountBootstrap(userId);
+      trigger(true);
+    });
     const visible = () => { if (document.visibilityState === 'visible') trigger(); };
     window.addEventListener('online', online);
     document.addEventListener('visibilitychange', visible);

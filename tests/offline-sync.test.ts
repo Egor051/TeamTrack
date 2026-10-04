@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { act, create } from 'react-test-renderer';
 import type { CacheEntry, OfflineOperation, PullChange, SyncConflict } from '@/lib/local-cache/types';
 
 const state = vi.hoisted(() => ({
@@ -11,6 +13,7 @@ const state = vi.hoisted(() => ({
   bootstrapChange: false, pullRequests: [] as number[],
   configSync: true, configAvailable: true,
   switchAfterSend: false,
+  updates: [] as { isSyncing?: boolean }[],
 }));
 
 const builder = () => {
@@ -35,6 +38,10 @@ const builder = () => {
 vi.mock('@/lib/supabase/client', () => ({ supabase: {
   auth: { getSession: async () => ({ data: { session: { user: { id: state.userId }, access_token: `token-${state.userId}` } }, error: null }) },
 } }));
+vi.mock('react-native', () => ({ AppState: { addEventListener: () => ({ remove: () => undefined }) } }));
+vi.mock('@react-native-community/netinfo', () => ({ default: { addEventListener: () => () => undefined } }));
+vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: 'user-a' }, session: { access_token: 'test' }, isLoading: false } }) }));
+vi.mock('@/lib/supabase/realtime', () => ({ subscribeTable: () => () => undefined }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: string, options: { accessToken: () => Promise<string> }) => ({
   rpc: async (name: string, args: { p_operation_id?: string; p_expected_version?: number; p_percentage?: number; p_completed?: boolean; p_comment?: string; p_after_cursor?: number }) => {
     state.tokens.push(await options.accessToken());
@@ -76,7 +83,8 @@ vi.mock('@/lib/local-cache/runtime-config', () => ({
   runtimeCapabilities: async () => ({ write: state.configSync, sync: state.configSync, available: state.configAvailable }),
 }));
 vi.mock('@/lib/local-cache/status', () => ({
-  updateSyncState: () => undefined, notifySyncState: () => undefined,
+  updateSyncState: (_userId: string, patch: { isSyncing?: boolean }) => { state.updates.push(patch); }, notifySyncState: () => undefined,
+  forgetSyncState: () => undefined,
   markSuccessfulSync: async () => undefined,
 }));
 vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
@@ -162,7 +170,7 @@ function operation(sequence: number, type: OfflineOperation['type'], payload: Of
 }
 
 beforeEach(() => {
-  state.userId = 'user-a'; state.operations = []; state.conflicts = [];
+  state.userId = 'user-a'; state.operations = []; state.conflicts = []; state.updates = [];
   state.server = { id: 'item', task_id: 'task', title: 'Item', percentage: 20, is_completed: false,
     comment: null, sync_version: 10, is_archived: false };
   state.calls = []; state.receipts.clear(); state.sideEffects = 0;
@@ -173,6 +181,51 @@ beforeEach(() => {
 });
 
 describe('Phase 5 offline replay', () => {
+  it('ready + actual focus/visibility events stay ready, while a pending mutation shows syncing then ready', async () => {
+    vi.useFakeTimers();
+    const windowEvents = new EventTarget(); const documentEvents = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    vi.stubGlobal('window', windowEvents); vi.stubGlobal('document', documentEvents);
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const warning = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { SyncProvider } = await import('@/lib/local-cache/SyncProvider');
+    let renderer!: ReturnType<typeof create>;
+    try {
+      await act(async () => { renderer = create(createElement(SyncProvider, { children: 'app' })); });
+      await vi.advanceTimersByTimeAsync(250); state.updates = [];
+      windowEvents.dispatchEvent(new Event('focus')); await vi.advanceTimersByTimeAsync(250);
+      documentEvents.dispatchEvent(new Event('visibilitychange')); await vi.advanceTimersByTimeAsync(250);
+      expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(false);
+      state.operations = [operation(1, 'set_task_item_comment', { comment: 'Queued' })];
+      windowEvents.dispatchEvent(new Event('focus')); await vi.advanceTimersByTimeAsync(250);
+      expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(true);
+      expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
+      expect(state.operations).toEqual([]); expect(state.server.comment).toBe('Queued');
+    } finally {
+      await act(async () => { renderer?.unmount(); });
+      warning.mockRestore(); vi.useRealTimers(); vi.unstubAllGlobals();
+    }
+  });
+  it('background passes with an empty pull never advertise syncing', async () => {
+    await syncPendingOperations('user-a', true);
+    await syncPendingOperations('user-a', true);
+    expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(false);
+    expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
+  });
+  it('pending writes advertise syncing and return to ready after reconciliation', async () => {
+    state.operations = [operation(1, 'set_task_item_percentage', { percentage: 40 })];
+    await syncPendingOperations('user-a', true);
+    expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(true);
+    expect(state.operations).toEqual([]);
+    expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
+  });
+  it('a meaningful pull advertises syncing even without pending writes', async () => {
+    state.entries = [{ user_id: 'user-a', key: 'items:task:active', data: JSON.stringify([state.server]), last_synced_at: '', schema_version: 1 }];
+    state.pulled = [{ cursor: 1, task_id: 'task', task_item_id: 'item', change_type: 'upsert', item: { ...state.server, sync_version: 11 } }];
+    await syncPendingOperations('user-a', true);
+    expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(true);
+    expect(state.localCursor).toBe(1);
+    expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
+  });
   it('automatically retries queued work after a config-fetch backoff expires', async () => {
     vi.useFakeTimers();
     try {

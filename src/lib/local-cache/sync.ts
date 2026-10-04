@@ -1,13 +1,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { usesLocalReads } from '@/lib/connectivity/state';
 import { connectivityFetch } from '@/lib/connectivity/fetch';
+import { boundedOperation } from '@/lib/connectivity/deadline';
 import { supabase, type Database } from '@/lib/supabase/client';
 import { supabaseEnv } from '@/lib/env';
 import { activeCacheUserId, getCached, isTransportFailure } from './cache';
 import { announceConflictChange, recordConflict, unresolvedConflicts } from './conflicts';
 import { localCacheDriver } from './driver';
 import { listPendingOperations, offlineSyncEnabled } from './outbox';
-import { validSyncVersion } from './pull-cache';
+import { hasMeaningfulPull, validSyncVersion } from './pull-cache';
 import { RUNTIME_CONFIG_TTL_MS, runtimeCapabilities } from './runtime-config';
 import { markSuccessfulSync, notifySyncState, updateSyncState } from './status';
 import type { OfflineOperation, PullChange, ReconciledItem, SyncConflict } from './types';
@@ -30,6 +31,10 @@ export function announceSyncChange(userId: string): void {
   notifySyncState(userId);
 }
 const sameUser = async (userId: string) => await activeCacheUserId() === userId;
+const SYNC_REQUEST_TIMEOUT_MS = 20_000;
+function syncRead<T>(query: PromiseLike<T> & { abortSignal?: (signal: AbortSignal) => PromiseLike<T> }) {
+  return boundedOperation((signal) => query.abortSignal?.(signal) ?? query, SYNC_REQUEST_TIMEOUT_MS);
+}
 
 function scheduleRetry(userId: string, until: number): void {
   const existing = retryTimers.get(userId);
@@ -52,7 +57,7 @@ function clearRetry(userId: string): void {
 }
 
 async function clientFor(userId: string): Promise<SupabaseClient<Database> | null> {
-  const { data, error } = await supabase.auth.getSession();
+  const { data, error } = await boundedOperation(() => supabase.auth.getSession(), SYNC_REQUEST_TIMEOUT_MS);
   const session = data.session;
   if (error || !session || session.user.id !== userId ||
     (session.expires_at && session.expires_at * 1000 <= Date.now())) return null;
@@ -71,14 +76,14 @@ async function send(client: SupabaseClient<Database>, operation: OfflineOperatio
   if (!validSyncVersion(operation.expected_version)) throw new Error('Operation has no confirmed server version');
   const common = { p_operation_id: operation.operation_id, p_task_item_id: operation.task_item_id,
     p_expected_version: operation.expected_version };
-  const response = operation.type === 'set_task_item_state'
-    ? await client.rpc('apply_task_item_state_operation_v2', { ...common,
+  const response = await syncRead(operation.type === 'set_task_item_state'
+    ? client.rpc('apply_task_item_state_operation_v2', { ...common,
       p_completed: (operation.payload as { completed: boolean }).completed })
     : operation.type === 'set_task_item_percentage'
-      ? await client.rpc('apply_task_item_percentage_operation_v2', { ...common,
+      ? client.rpc('apply_task_item_percentage_operation_v2', { ...common,
         p_percentage: (operation.payload as { percentage: number }).percentage })
-      : await client.rpc('apply_task_item_comment_operation_v2', { ...common,
-        p_comment: (operation.payload as { comment: string | null }).comment ?? '' });
+      : client.rpc('apply_task_item_comment_operation_v2', { ...common,
+        p_comment: (operation.payload as { comment: string | null }).comment ?? '' }));
   if (response.error) throw response.error;
   const result = response.data as V2Result | null;
   if (!result || !['applied', 'conflict'].includes(result.status) || !validSyncVersion(result.version)
@@ -96,8 +101,8 @@ function deterministicRejection(error: unknown): boolean {
 async function taskSnapshot(client: SupabaseClient<Database>, taskId: string): Promise<ReconciledItem[]> {
   const rows: ReconciledItem[] = [];
   for (let from = 0; ; from += 500) {
-    const { data, error } = await client.from('task_items').select('*').eq('task_id', taskId)
-      .eq('is_archived', false).order('position').order('id').range(from, from + 499);
+    const { data, error } = await syncRead(client.from('task_items').select('*').eq('task_id', taskId)
+      .eq('is_archived', false).order('position').order('id').range(from, from + 499));
     if (error) throw error;
     rows.push(...(data ?? []));
     if (!data || data.length < 500) break;
@@ -116,13 +121,13 @@ async function reconcile(client: SupabaseClient<Database>, operation: OfflineOpe
 }
 
 async function fetchServerItem(client: SupabaseClient<Database>, itemId: string): Promise<ReconciledItem | null> {
-  const { data, error } = await client.from('task_items').select('*').eq('id', itemId).maybeSingle();
+  const { data, error } = await syncRead(client.from('task_items').select('*').eq('id', itemId).maybeSingle());
   if (error) throw error;
   return data;
 }
 
 async function bootstrapPull(client: SupabaseClient<Database>, userId: string, previousCursor?: import('./types').CacheEntry): Promise<void> {
-  const { data, error } = await client.rpc('get_task_item_sync_cursor');
+  const { data, error } = await syncRead(client.rpc('get_task_item_sync_cursor'));
   if (error) throw error;
   const start = Number(data);
   if (!Number.isSafeInteger(start) || start < 0) throw new Error('Invalid starting sync cursor');
@@ -134,18 +139,21 @@ async function bootstrapPull(client: SupabaseClient<Database>, userId: string, p
     const match = /^items:([^:]+):(active|archived|all)$/.exec(entry.key);
     if (!match) continue;
     const [, taskId, mode] = match;
-    const taskResult = await client.from('tasks').select('id').eq('id', taskId).maybeSingle();
+    const taskResult = await syncRead(client.from('tasks').select('id').eq('id', taskId).maybeSingle());
     if (taskResult.error) throw taskResult.error;
     if (!taskResult.data) { await localCacheDriver.remove(userId, entry.key); continue; }
     const rows: ReconciledItem[] = [];
     for (let from = 0; ; from += 500) {
       let query = client.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, from + 499);
       if (mode !== 'all') query = query.eq('is_archived', mode === 'archived');
-      const { data: page, error: pageError } = await query;
+      const { data: page, error: pageError } = await syncRead(query);
       if (pageError) throw pageError;
       rows.push(...(page ?? []));
       if (!page || page.length < 500) break;
     }
+    const before = JSON.parse(entry.data) as ReconciledItem[];
+    if (rows.length !== before.length || rows.some((row) => before.find((old) => old.id === row.id)?.sync_version !== row.sync_version))
+      updateSyncState(userId, { isSyncing: true });
     await localCacheDriver.putIfUnchanged({ ...entry, data: JSON.stringify(rows),
       last_synced_at: new Date().toISOString() }, entry.data);
   }
@@ -166,12 +174,13 @@ async function pull(client: SupabaseClient<Database>, userId: string): Promise<v
   let cursor = Number(JSON.parse(entry.data));
   if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid local sync cursor');
   for (let pageIndex = 0; pageIndex < 10000 && await sameUser(userId); pageIndex += 1) {
-    const { data, error } = await client.rpc('pull_task_item_changes_v2', { p_after_cursor: cursor, p_limit: 100 });
+    const { data, error } = await syncRead(client.rpc('pull_task_item_changes_v2', { p_after_cursor: cursor, p_limit: 100 }));
     if (error) throw error;
     const page = data as PullPage | null;
     if (page && 'reset_required' in page && page.reset_required === true) {
       if (!Number.isSafeInteger(page.retained_after_cursor) || page.retained_after_cursor <= cursor)
         throw new Error('Invalid cursor reset response');
+      updateSyncState(userId, { isSyncing: true });
       await bootstrapPull(client, userId, entry);
       entry = await localCacheDriver.get(userId, 'sync:task-items:cursor');
       if (!entry) throw new Error('Cursor reset failed');
@@ -182,10 +191,12 @@ async function pull(client: SupabaseClient<Database>, userId: string): Promise<v
     if (!page || !('changes' in page) || !Array.isArray(page.changes) || !Number.isSafeInteger(page.next_cursor)
       || page.next_cursor < cursor || typeof page.has_more !== 'boolean') throw new Error('Invalid pull page');
     if (!await sameUser(userId)) return;
+    const meaningful = page.changes.length > 0 && hasMeaningfulPull(await localCacheDriver.listEntries(userId), page.changes);
+    if (meaningful) updateSyncState(userId, { isSyncing: true });
     const applied = await localCacheDriver.applyPullPage(userId, cursor, page.next_cursor, page.changes);
     if (!applied) return; // Another tab advanced the cursor; its transaction owns the page.
     cursor = page.next_cursor;
-    if (page.changes.length) announceSyncChange(userId);
+    if (meaningful) announceSyncChange(userId);
     if (!page.has_more) return;
   }
   throw new Error('Pull page limit exceeded');
@@ -208,6 +219,7 @@ async function push(client: SupabaseClient<Database>, userId: string, allowedCon
       : operations[0];
     if (!oldest) return true;
     if (oldest.status === 'failed' || oldest.status === 'conflict') return false;
+    updateSyncState(userId, { isSyncing: true });
     if ((oldest.protocol_version && oldest.protocol_version > 2)
       || !['set_task_item_state', 'set_task_item_percentage', 'set_task_item_comment'].includes(oldest.type)) {
       await localCacheDriver.markOperation(userId, oldest.operation_id, 'failed', undefined, 'Требуется новая версия приложения.');
@@ -282,6 +294,8 @@ async function run(userId: string, allowedConflict?: SyncConflict): Promise<bool
     return false;
   }
   if (!allowedConflict) {
+    if ((await listPendingOperations(userId)).some((row) => row.status === 'pending' || row.status === 'synced_unreconciled'))
+      updateSyncState(userId, { isSyncing: true });
     await pull(client, userId);
   }
   if (!await sameUser(userId)) return false;
@@ -322,7 +336,7 @@ export function syncPendingOperations(userId: string, manual = false): Promise<v
     return Promise.resolve();
   }
   const task = (async () => {
-    updateSyncState(userId, { isSyncing: true, lastErrorKind: null });
+    updateSyncState(userId, { lastErrorKind: null });
     try {
       let succeeded = await coordinatedRun(userId);
       if (rerunRequested.delete(userId) && await sameUser(userId)) succeeded = await coordinatedRun(userId);
@@ -344,7 +358,6 @@ export function syncPendingOperations(userId: string, manual = false): Promise<v
       throw error;
     } finally {
       updateSyncState(userId, { isSyncing: false, progress: null });
-      announceSyncChange(userId);
     }
   })().finally(() => { inFlight.delete(userId); });
   inFlight.set(userId, task);
@@ -367,7 +380,7 @@ export async function chooseMine(userId: string, conflictId: string): Promise<vo
   await localCacheDriver.rebaseConflict(userId, conflictId, conflict.server_version);
   const task = run(userId, conflict).then(() => undefined);
   inFlight.set(userId, task);
-  try { await task; } finally { inFlight.delete(userId); }
+  try { await task; } finally { inFlight.delete(userId); updateSyncState(userId, { isSyncing: false, progress: null }); }
   const remaining = (await listPendingOperations(userId)).filter((row) => conflict.operation_ids.includes(row.operation_id));
   if (remaining.length) throw new Error('Не удалось применить ваш вариант. Проверьте подключение и повторите.');
   await localCacheDriver.finishMineConflict(userId, conflictId);

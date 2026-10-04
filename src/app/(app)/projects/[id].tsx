@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -102,6 +103,7 @@ export default function ProjectScreen() {
       if (request === requestRef.current) setLoading(false);
     }
   }, [id, archived]);
+  useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
       void permissionVersion;

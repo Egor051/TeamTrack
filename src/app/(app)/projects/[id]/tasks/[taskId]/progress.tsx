@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
@@ -66,6 +67,7 @@ export default function DailyProgress() {
     }
   }, [id, taskId]);
 
+  useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
       void permissionVersion;
@@ -109,7 +111,7 @@ export default function DailyProgress() {
         <PageHeader
           title="Прогресс дня"
           subtitle={taskTitle || "Только сегодняшние увеличения прогресса"}
-          onBack={() => router.replace(`/projects/${id}/tasks/${taskId}` as never)}
+          onBack={() => router.dismissTo(`/projects/${id}/tasks/${taskId}` as never)}
           backLabel="К этапу"
           breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "Прогресс дня" }]}
           actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void load()}>Обновить</Button></>}

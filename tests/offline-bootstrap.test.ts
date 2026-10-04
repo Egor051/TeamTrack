@@ -82,6 +82,105 @@ async function stored(key: string) { const d = (await import('@/lib/local-cache/
 function pages(name?: string) { return f.rpc.mock.calls.filter(([rpc, args]) => rpc === 'get_offline_account_page' && (!name || args.p_dataset === name)); }
 
 describe('account bootstrap', () => {
+  it('bounds the Extended final verification at 94% and settles with verified basic readiness', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const b = await run(); const normal = f.rpc.getMockImplementation()!;
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    f.rpc.mockImplementation((name, args) => name === 'get_offline_account_manifest' && args.p_scheme === 'extended' && args.p_snapshot_at
+      ? { abortSignal: () => { entered(); return new Promise(() => undefined); } } : normal(name, args));
+    await b.selectOfflineScheme(f.user, 'extended');
+    await started;
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'updating', progress: 94, basic_ready: true, extended_ready: false });
+    const pending = b.runAccountBootstrap(f.user);
+    await vi.advanceTimersByTimeAsync(b.BOOTSTRAP_OPERATION_TIMEOUT_MS); await pending;
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, basic_ready: true, extended_ready: false, lease: null, retry: { reason: 'transport' } });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('manual retry recovers its own unexpired lease after storage rejected both terminal state and cleanup', async () => {
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const original = driver.commitCacheBatch; let writes = 0;
+    const broken = vi.spyOn(driver, 'commitCacheBatch').mockImplementation((...args) => {
+      if (++writes > 1) return Promise.reject(new Error('Quota exceeded'));
+      return original(...args);
+    });
+    const b = await import('@/lib/local-cache/bootstrap'); await b.runAccountBootstrap(f.user);
+    expect((await b.getBootstrapMetadata(f.user)).status).toBe('error');
+    const saved = await stored(BOOTSTRAP_KEY);
+    expect(saved.lease.expires_at).toBeGreaterThan(Date.now());
+    broken.mockRestore(); await b.retryAccountBootstrap(f.user, async () => true);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, lease: null });
+  });
+  it('skips a missing optional dataset while keeping verified mandatory models ready', async () => {
+    const b = await run(); const normal = f.rpc.getMockImplementation()!;
+    f.rpc.mockImplementation((name, args) => {
+      if (name !== 'get_offline_account_manifest') return normal(name, args);
+      const data = manifest(args.p_scheme === 'extended'); delete data.datasets.notifications;
+      return { abortSignal: async () => ({ data, error: null }) };
+    });
+    await b.selectOfflineScheme(f.user, 'extended'); await again(b);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, offline_ready: true,
+      basic_ready: true, extended_ready: false, datasets: { notifications: { status: 'skipped' } } });
+    expect(pages('notifications')).toHaveLength(0);
+  });
+  it('settles an offline start and resumes after confirmed recovery without reloading', async () => {
+    vi.stubGlobal('navigator', { onLine: false });
+    const b = await import('@/lib/local-cache/bootstrap');
+    await b.runAccountBootstrap(f.user);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'offline_waiting', lease: null });
+    expect(f.rpc).not.toHaveBeenCalled();
+    vi.stubGlobal('navigator', { onLine: true, serviceWorker: { ready: Promise.resolve({ active: {} }) } });
+    await b.resumeAccountBootstrap(f.user);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, offline_ready: true });
+  });
+  it('replaces a hung attempt on retry and discards its late response', async () => {
+    const normal = f.rpc.getMockImplementation()!;
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: (value: unknown) => void; const hung = new Promise((resolve) => { release = resolve; });
+    f.rpc.mockImplementationOnce(() => ({ abortSignal: () => { entered(); return hung; } }));
+    const b = await import('@/lib/local-cache/bootstrap');
+    const old = b.runAccountBootstrap(f.user); await started;
+    f.rpc.mockImplementation(normal);
+    await b.retryAccountBootstrap(f.user, async () => true);
+    const ready = await b.getBootstrapMetadata(f.user);
+    expect(ready).toMatchObject({ status: 'ready', progress: 100, lease: null });
+    release({ data: { ...manifest(false), user_id: 'foreign' }, error: null }); await old;
+    expect(await b.getBootstrapMetadata(f.user)).toEqual(ready);
+  });
+  it('settles a request that ignores AbortSignal at the deadline and permits a fresh retry', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    const normal = f.rpc.getMockImplementation()!;
+    f.rpc.mockImplementationOnce(() => ({ abortSignal: () => { entered(); return new Promise(() => undefined); } }));
+    const b = await import('@/lib/local-cache/bootstrap');
+    const old = b.runAccountBootstrap(f.user); await started;
+    await vi.advanceTimersByTimeAsync(b.BOOTSTRAP_OPERATION_TIMEOUT_MS); await old;
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'offline_waiting', lease: null });
+    f.rpc.mockImplementation(normal); await b.retryAccountBootstrap(f.user, async () => true);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100 });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('cancels loading and unvisited datasets, releases the lease and allows retry', async () => {
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    const normal = f.rpc.getMockImplementation()!;
+    f.rpc.mockImplementation((name, args) => name === 'get_offline_account_page' && args.p_dataset === 'profile'
+      ? { abortSignal: () => { entered(); return new Promise(() => undefined); } } : normal(name, args));
+    const b = await import('@/lib/local-cache/bootstrap'); const old = b.runAccountBootstrap(f.user); await started;
+    b.cancelAccountBootstrap(f.user); await old;
+    const meta = await b.getBootstrapMetadata(f.user);
+    expect(meta.lease).toBeNull(); expect(meta.status).toBe('partial');
+    expect(Object.values(meta.datasets).every((state) => state.status === 'cancelled')).toBe(true);
+    f.rpc.mockImplementation(normal); await b.retryAccountBootstrap(f.user, async () => true);
+    expect((await b.getBootstrapMetadata(f.user)).status).toBe('ready');
+  });
+  it('keeps ready during unchanged background revalidation and settles Extended at 100%', async () => {
+    const b = await run(); await advance(b);
+    const transitions: string[] = [];
+    const stop = b.subscribeBootstrap(() => { void b.getBootstrapMetadata(f.user).then((meta) => transitions.push(meta.status)); });
+    await b.runAccountBootstrap(f.user, true); stop();
+    expect(transitions.length).toBeGreaterThan(0); expect(transitions.every((status) => status === 'ready')).toBe(true);
+    await b.selectOfflineScheme(f.user, 'extended'); await again(b);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, basic_ready: true, extended_ready: true });
+  });
   it.each(['40001', 'PT409'])('bounds 100 forced calls after %s and persists exponential backoff across tabs/reload', async (code) => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     f.failure = { dataset: 'profile', error: { code, message: 'offline snapshot changed' } };
@@ -178,6 +277,21 @@ describe('account bootstrap', () => {
     expect((await b.getBootstrapMetadata(f.user)).offline_ready).toBe(true);
     expect(pages('items')).toHaveLength(1);
   });
+  it('keeps a live foreign lease and its CAS baseline intact when another tab retries', async () => {
+    const owner = await import('@/lib/local-cache/bootstrap'); const normal = f.rpc.getMockImplementation()!;
+    let release!: () => void; const held = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    f.rpc.mockImplementation((name, args) => name === 'get_offline_account_manifest'
+      ? { abortSignal: async () => { entered(); await held; return { data: manifest(false), error: null }; } } : normal(name, args));
+    const first = owner.runAccountBootstrap(f.user, true); await started;
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const before = await driver.get(f.user, BOOTSTRAP_KEY);
+    vi.resetModules(); const peer = await import('@/lib/local-cache/bootstrap');
+    expect(await peer.retryAccountBootstrap(f.user, async () => true)).toBe('busy');
+    expect(await driver.get(f.user, BOOTSTRAP_KEY)).toEqual(before);
+    release(); await first;
+    expect(await owner.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', offline_ready: true, lease: null });
+  });
   it('defaults to basic and commits every required dataset including archives, templates, members and current-day audit', async () => {
     const b = await run(); const meta = await b.getBootstrapMetadata(f.user);
     expect(meta).toMatchObject({ scheme: 'basic', status: 'ready', offline_ready: true, basic_ready: true, extended_ready: false, progress: 100 });
@@ -207,7 +321,7 @@ describe('account bootstrap', () => {
   });
   it('does not report readiness for a missing dataset, incomplete page, failed write, or missing assets', async () => {
     f.failure = { dataset: 'template_items', error: transport };
-    let b = await run(); expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ offline_ready: false, status: 'partial' });
+    let b = await run(); expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ offline_ready: false, status: 'offline_waiting' });
     f.failure = null;
     const normal = f.rpc.getMockImplementation()!;
     f.rpc.mockImplementation((name, args) => name === 'get_offline_account_page' && args.p_dataset === 'template_items'
@@ -285,10 +399,11 @@ describe('account bootstrap', () => {
     await expect(notifications.fetchNotificationPage()).rejects.toMatchObject({ status: 403 });
     expect(await stored('notifications:window')).toBeNull();
   });
-  it('basic → extended starts a background download, persists selection and changes readiness requirements', async () => {
+  it('basic → extended keeps verified basic models usable without claiming failed optional data is ready', async () => {
     const b = await run(); f.failure = { dataset: 'history', error: transport }; f.rpc.mockClear();
     await b.selectOfflineScheme(f.user, 'extended'); await again(b);
-    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ scheme: 'extended', offline_ready: false, basic_ready: true });
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ scheme: 'extended', status: 'ready', progress: 100,
+      offline_ready: true, basic_ready: true, extended_ready: false, datasets: { history: { status: 'error' } } });
     expect(pages('items')).toHaveLength(0);
     f.failure = null; await run(); expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', extended_ready: true });
     expect(await stored(`audit:${taskId}:90days`)).toHaveLength(1);

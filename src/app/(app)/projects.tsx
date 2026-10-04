@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Link, router, useFocusEffect } from 'expo-router';
@@ -66,6 +67,7 @@ export default function ProjectsScreen() {
       if (request === requestRef.current) setLoading(false);
     }
   }, [archived, userId]);
+  useOnlineRecovery(load);
   useFocusEffect(useCallback(() => { if (!userId) return; void permissionVersion; void load(); return () => { requestRef.current += 1; }; }, [load, permissionVersion, userId]));
   useFocusEffect(useCallback(() => {
     if (!userId) return;

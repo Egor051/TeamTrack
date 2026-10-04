@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
@@ -83,6 +84,7 @@ export default function TemplatesScreen() {
     }
   }, [expandedId]);
 
+  useOnlineRecovery(load);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   async function run(action: () => Promise<unknown>) {

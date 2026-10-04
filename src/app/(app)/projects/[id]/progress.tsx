@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
@@ -62,6 +63,7 @@ export default function ProjectDailyProgressScreen() {
     }
   }, [id]);
 
+  useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
       void permissionVersion;

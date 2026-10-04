@@ -1,3 +1,4 @@
+import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
@@ -88,6 +89,7 @@ export default function NotificationsScreen() {
     }
   }, []);
 
+  useOnlineRecovery(load);
   useFocusEffect(useCallback(() => {
     const timer = setTimeout(() => { void load(); }, 0);
     if (!user) return () => clearTimeout(timer);

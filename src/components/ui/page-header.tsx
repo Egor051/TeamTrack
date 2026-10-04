@@ -13,7 +13,7 @@ export function PageHeader({ title, subtitle, onBack, backLabel = 'Назад', 
     {hasBack ? <View style={styles.back}><Button size="sm" variant="ghost" accessibilityLabel={backLabel} onPress={goBack}>‹ {backLabel}</Button></View> : null}
     {breadcrumbs?.length ? <View accessibilityLabel="Путь к текущей странице" style={styles.breadcrumbs}>{breadcrumbs.map((crumb, index) => <Fragment key={crumb.label + index}>
       {index > 0 ? <ThemedText type="caption" accessibilityElementsHidden>›</ThemedText> : null}
-      {crumb.href ? <Link href={crumb.href as Href} asChild><Button accessibilityRole="link" variant="ghost" size="sm" style={styles.crumb}>{crumb.label}</Button></Link> : <ThemedText type="small" style={styles.current}>{crumb.label}</ThemedText>}
+      {crumb.href ? <Link href={crumb.href as Href} dismissTo asChild><Button accessibilityRole="link" variant="ghost" size="sm" style={styles.crumb}>{crumb.label}</Button></Link> : <ThemedText type="small" style={styles.current}>{crumb.label}</ThemedText>}
     </Fragment>)}</View> : null}
     <View style={styles.header}><View style={styles.titles}><ThemedText type="h1">{title}</ThemedText>{subtitle ? <ThemedText type="small">{subtitle}</ThemedText> : null}</View>{actions ? <View style={styles.actions}>{actions}</View> : null}</View>
   </View>;

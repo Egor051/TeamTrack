@@ -50,11 +50,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     });
     const realtime = subscribeTable('task_items', { userId, onEvent: () => trigger() });
     const online = () => trigger(true);
-    if (typeof window !== 'undefined') window.addEventListener('online', online);
+    const focus = () => trigger();
+    const visible = () => { if (document.visibilityState === 'visible') trigger(); };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', online); window.addEventListener('focus', focus);
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visible);
+    }
     return () => {
       if (timer) clearTimeout(timer);
       network(); foreground.remove(); realtime(); connectivity();
-      if (typeof window !== 'undefined') window.removeEventListener('online', online);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', online); window.removeEventListener('focus', focus);
+        if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visible);
+      }
       forgetSyncState(userId);
     };
   }, [userId, sessionToken]);

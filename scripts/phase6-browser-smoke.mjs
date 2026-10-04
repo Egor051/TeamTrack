@@ -27,6 +27,7 @@ let server;
 let originalSw;
 let browserStarted = false;
 let memberBrowserStarted = false;
+let browserCliReady = false;
 let originalConfig;
 
 function command(executable, args, { quiet = false } = {}) {
@@ -36,7 +37,7 @@ function command(executable, args, { quiet = false } = {}) {
   const outputPath = quiet ? resolve(tmpdir(), `tasktrace-browser-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.log`) : null;
   const outputFd = outputPath ? openSync(outputPath, 'w') : null;
   try {
-    const result = spawnSync(commandName, commandArgs, { cwd: root, encoding: 'utf8', timeout: 60_000,
+    const result = spawnSync(commandName, commandArgs, { cwd: root, encoding: 'utf8', timeout: 60_000, windowsHide: true,
       stdio: outputFd === null ? 'inherit' : ['ignore', outputFd, outputFd] });
     if (result.error) throw result.error;
     const output = outputPath ? readFileSync(outputPath, 'utf8').trim() : '';
@@ -56,7 +57,15 @@ function memberBrowser(...args) {
   return browserCommand(memberSession, args);
 }
 function browserCommand(name, args) {
-  const run = () => command('npx', ['--yes', 'agent-browser', '--session', name, ...args], { quiet: true });
+  if (!browserCliReady) {
+    try { command('npx', ['--offline', '--yes', 'agent-browser', '--help'], { quiet: true }); }
+    catch (error) {
+      if (!/ENOTCACHED|cache mode|offline mode|could not determine executable/i.test(error.message)) throw error;
+      command('npx', ['--yes', 'agent-browser', '--help'], { quiet: true });
+    }
+    browserCliReady = true;
+  }
+  const run = () => command('npx', ['--offline', '--yes', 'agent-browser', '--session', name, ...args], { quiet: true });
   try { return run(); }
   catch (error) {
     // The Windows CLI occasionally exits before sending a read/navigation
@@ -138,7 +147,8 @@ try {
   originalConfig = (await db.query('select write_enabled, sync_enabled, updated_at::text as updated_at from private.offline_runtime_config')).rows[0];
   await setConfig(true, true);
   console.log('Building production web export against local Supabase...');
-  command(process.execPath, ['scripts/build-phase6-local-smoke.mjs']);
+  const build = spawn(process.execPath, ['scripts/build-phase6-local-smoke.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+  await new Promise((ok, no) => { build.once('error', no); build.once('exit', (code) => code === 0 ? ok() : no(new Error(`Web build failed: ${code}`))); });
   const fixture = JSON.parse(command(process.execPath, ['scripts/phase5-browser-smoke.mjs', 'setup'], { quiet: true }));
   server = spawn(process.execPath, ['scripts/serve-web.mjs'], { cwd: root,
     env: { ...process.env, PORT: '4174' }, stdio: 'ignore', windowsHide: true });
@@ -230,9 +240,16 @@ try {
     browser('set', 'offline', 'on');
     clickCheckbox();
     await bodyEventually('Ожидает синхронизации');
+    const originalTab = JSON.parse(browser('tab', 'list', '--json')).data.tabs.find((tab) => tab.active).targetId;
     browser('tab', 'new');
     browser('open', taskUrl);
     await bodyEventually('Ожидает синхронизации');
+    const replayTab = JSON.parse(browser('tab', 'list', '--json')).data.tabs.find((tab) => tab.active).targetId;
+    // Offline emulation is attached to each tab (including inherited settings).
+    // Reconnect both contenders, rather than leaving the original owner offline.
+    browser('tab', originalTab);
+    browser('set', 'offline', 'off');
+    browser('tab', replayTab);
     browser('set', 'offline', 'off');
     await eventually(async () => await percentage(fixture.itemId) === 100 && await receiptCount(fixture.aEmail) === beforeReceipts + 1,
       'cross-tab single application', 40_000);
@@ -266,8 +283,11 @@ try {
     browser('wait', '800');
     originalSw = await readFile(swPath);
     await writeFile(swPath, Buffer.concat([originalSw, Buffer.from(`\n// phase6-smoke-${Date.now()}\n`)]));
-    browser('eval', 'navigator.serviceWorker.ready.then(function(reg){return reg.update()})');
-    await bodyEventually('Доступна новая версия TaskTrace.');
+    // Start the update without making CDP await the browser's internal update
+    // job. The real banner below remains bounded by the existing UI deadline.
+    browser('eval', 'window.__swUpdateError=null;navigator.serviceWorker.getRegistration().then(function(reg){if(!reg)throw new Error("Missing service worker registration");return reg.update()}).catch(function(error){window.__swUpdateError=String(error)});true');
+    try { await bodyEventually('Доступна новая версия TaskTrace.'); }
+    catch (error) { throw new Error(`${error.message}\nService worker update: ${browser('eval', 'window.__swUpdateError')}`); }
     const update = browser('snapshot', '-i');
     browser('click', ref(update, 'button "Обновить"'));
     await eventually(() => browser('get', 'url') === taskUrl && bodyHas('Ожидает синхронизации'), 'SW update preserves pending operation');
@@ -332,6 +352,13 @@ try {
   }
 
   console.log('Phase 6 production browser smoke PASS');
+} catch (error) {
+  try {
+    console.error('Browser runtime:', browser('eval', '({online:navigator.onLine,url:location.href,requests:performance.getEntriesByType("resource").slice(-25).map(function(e){return {path:new URL(e.name).pathname,status:e.responseStatus}})})'));
+    console.error('Browser storage:', browser('eval', '(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open("tasktrace-local-cache");r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{const entries=await new Promise(function(ok,no){const r=db.transaction("entries").objectStore("entries").getAll();r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});const operations=await new Promise(function(ok,no){const r=db.transaction("pending_operations").objectStore("pending_operations").getAll();r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});return {bootstrap:entries.filter(function(e){return e.key==="bootstrap:metadata"}).map(function(e){const m=JSON.parse(e.data);return {status:m.status,lease:m.lease,retry:m.retry,error:m.error}}),runtime:entries.filter(function(e){return e.key==="runtime:offline-capabilities"}).map(function(e){return JSON.parse(e.data)}),operations:operations.map(function(o){return {id:o.operation_id,status:o.status,type:o.type,error:o.last_error}})}}finally{db.close()}})()'));
+    browser('screenshot', resolve(root, '.expo/phase6-browser-failure.png'));
+  } catch { /* Preserve the original failure if the browser also failed. */ }
+  throw error;
 } finally {
   const cleanupErrors = [];
   if (originalSw) await writeFile(swPath, originalSw);

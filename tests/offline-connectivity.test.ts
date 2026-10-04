@@ -32,6 +32,22 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('automatic cache read connectivity', () => {
+  it('manual recovery replaces a hung probe and ignores its late success', async () => {
+    let release!: () => void; const hung = new Promise<void>((resolve) => { release = resolve; });
+    const probe = vi.fn().mockImplementationOnce(() => hung).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue(undefined);
+    const cleanup = monitorConnectivity(probe);
+    try {
+      reportConnectivityFailure(new TypeError('Failed to fetch'));
+      const old = revalidateConnectivity();
+      await Promise.resolve();
+      await revalidateConnectivity(true);
+      expect(getConnectivityState()).toBe('degraded');
+      release(); await old;
+      expect(getConnectivityState()).toBe('degraded');
+      await revalidateConnectivity(true);
+      expect(getConnectivityState()).toBe('online');
+    } finally { cleanup(); }
+  });
   it('known offline reads real IndexedDB without invoking either network read or SDK session refresh', async () => {
     vi.stubGlobal('navigator', { onLine: false });
     const online = vi.fn(() => new Promise<never>(() => undefined));

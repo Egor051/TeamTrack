@@ -5,6 +5,7 @@ import { notifySyncState } from './status';
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
 import { usesLocalReads } from '@/lib/connectivity/state';
 import { getReadSession } from '@/lib/supabase/session';
+import { boundedOperation } from '@/lib/connectivity/deadline';
 
 // TTL schedules online refresh; it never expires an offline confirmation.
 export const RUNTIME_CONFIG_TTL_MS = 60_000;
@@ -112,7 +113,8 @@ export async function runtimeCapabilities(userId: string, forceRefresh = false,
     const fetchedAt = Date.now();
     pending = (async (): Promise<RefreshResult> => {
       try {
-        const { data, error, status } = await supabase.rpc('get_offline_runtime_config');
+        const query = supabase.rpc('get_offline_runtime_config');
+        const { data, error, status } = await boundedOperation((signal) => query.abortSignal?.(signal) ?? query, 20_000);
         if (error) throw { ...error, status: status ?? (error as { status?: number }).status };
         const value = validate(data);
         if (await activeCacheUserId() !== userId || generation !== expectedGeneration)
