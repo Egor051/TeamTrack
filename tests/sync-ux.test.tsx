@@ -201,11 +201,11 @@ describe('compact sync status and non-blocking failed actions', () => {
     snapshot.failedCount = 0; expect(compactSyncStatus('reconnecting', snapshot).text).toContain('офлайн');
     snapshot.connectivity = 'online'; expect(compactSyncStatus('reconnecting', snapshot).text).toContain('в процессе');
     snapshot.isSyncing = false; expect(compactSyncStatus('reconnecting', snapshot).text).toContain('ожидает');
-    snapshot.unsyncedCount = 0; expect(compactSyncStatus('reconnecting', snapshot).text).toBe('Синхронизация: переподключение...');
+    snapshot.unsyncedCount = 0; expect(compactSyncStatus('reconnecting', snapshot).text).toBe('Синхронизация: подключено');
   });
   it('does not treat a connected Realtime channel as an acknowledged offline operation', () => {
     expect(compactSyncStatus('connected', { ...clean, unsyncedCount: 1 }).text).toBe('Синхронизация: ожидает · 1 несинхр.');
-    expect(compactSyncStatus('connecting', clean).text).toBe('Синхронизация: подключение...');
+    expect(compactSyncStatus('connecting', clean).text).toBe('Синхронизация: подключено');
     expect(compactSyncStatus('connected', null)).toEqual({ text: 'Синхронизация: подключение...', tone: 'warning' });
   });
   it('exposes retry/discard only in an expandable inline section and calls the existing actions', async () => {

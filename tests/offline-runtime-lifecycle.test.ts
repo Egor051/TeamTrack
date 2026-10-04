@@ -1,0 +1,160 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createOfflineCoordinator, type CoordinatorDependencies } from '@/lib/local-cache/coordinator';
+import { initialBootstrap, type BootstrapMetadata } from '@/lib/local-cache/bootstrap-types';
+import { getNetworkFacts, getOfflineRuntime, invalidateOfflineRuntime, publishBootstrapFacts,
+  startRuntimeOperation } from '@/lib/local-cache/runtime-state';
+import { monitorConnectivity, getConnectivityState, reportBrowserConnectivity, reportConnectivityFailure,
+  reportConnectivitySuccess } from '@/lib/connectivity/state';
+
+let meta: BootstrapMetadata;
+let local: boolean;
+let coordinator: ReturnType<typeof createOfflineCoordinator> | null;
+let deps: CoordinatorDependencies;
+const ready = () => { meta = { ...meta, status: 'ready', progress: 100, basic_ready: true, offline_ready: true,
+  extended_ready: meta.scheme === 'extended', retry: null, error: null, last_successful_sync_at: new Date().toISOString() }; };
+const tick = (ms = 400) => vi.advanceTimersByTimeAsync(ms);
+beforeEach(() => {
+  vi.useFakeTimers(); vi.stubGlobal('navigator', { onLine: true });
+  meta = initialBootstrap('a'); local = false; coordinator = null;
+  deps = { local: () => local, probe: vi.fn(async () => undefined), session: vi.fn(async () => true),
+    metadata: vi.fn(async () => structuredClone(meta)), prepare: vi.fn(async () => {
+      if (local) meta = { ...meta, status: meta.basic_ready ? 'ready' : 'offline_waiting' };
+      else ready(); return 'settled' as const;
+    }), sync: vi.fn(async () => undefined), cancelPreparation: vi.fn(), cancelSync: vi.fn(),
+    delay: (m) => Math.max(0, (m.retry?.next_retry_at ?? 0) - Date.now()), refreshMs: 300_000, preloadEnabled: true };
+});
+afterEach(() => { coordinator?.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+describe('authoritative offline operation lifecycle', () => {
+  it('runtime snapshots contain facts and cannot duplicate preparation lifecycle or progress', () => {
+    publishBootstrapFacts('a', { ...meta, status: 'running', progress: 94, started_at: new Date().toISOString() });
+    expect(getOfflineRuntime('a').bootstrap).not.toHaveProperty('status');
+    expect(getOfflineRuntime('a').bootstrap).not.toHaveProperty('progress');
+    expect(getOfflineRuntime('a').bootstrap).not.toHaveProperty('started_at');
+  });
+  it('operation A → B → B finishes → late A cannot overwrite B', () => {
+    const a = startRuntimeOperation('a', 'preparation', 'preparation', 20_000, true);
+    const b = startRuntimeOperation('a', 'preparation', 'preparation', 20_000, true);
+    b.finish('success'); a.update({ visible: true, progress: { done: 94, total: 100 } }); a.finish('error');
+    publishBootstrapFacts('a', { ...meta, status: 'error' }, a);
+    expect(getOfflineRuntime('a').operations.preparation).toMatchObject({ id: b.id, phase: 'settled', outcome: 'success', progress: null });
+    expect(getOfflineRuntime('a').bootstrap).toBeNull();
+  });
+  it('progress 94 is metadata and cannot retain preparation after success', () => {
+    const op = startRuntimeOperation('a', 'preparation', 'preparation', 20_000, true);
+    op.update({ progress: { done: 94, total: 100 } }); op.finish('success');
+    expect(getOfflineRuntime('a').operations.preparation).toMatchObject({ phase: 'settled', outcome: 'success', progress: null, visible: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it.each(['preparation', 'sync', 'pipeline'] as const)('%s has a watchdog error outcome even when work never resolves', async (slot) => {
+    const op = startRuntimeOperation('a', slot, 'recovery', 1000, true); await tick(1000);
+    expect(op.signal.aborted).toBe(true);
+    expect(getOfflineRuntime('a').operations[slot]).toMatchObject({ phase: 'settled', outcome: 'error', visible: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('invalidates same-account operations across logout/login and isolates another account', () => {
+    const a = startRuntimeOperation('a', 'sync', 'synchronization', 20_000, true);
+    const b = startRuntimeOperation('b', 'sync', 'synchronization', 20_000, true);
+    invalidateOfflineRuntime('a'); a.finish('success'); a.update({ visible: true });
+    expect(a.current()).toBe(false); expect(b.current()).toBe(true);
+    expect(getOfflineRuntime('a').operations.sync?.outcome).toBe('cancelled'); b.finish('success');
+  });
+});
+describe('one recovery pipeline', () => {
+  it('online startup verifies backend/session, syncs, prepares and reaches ready in order', async () => {
+    const order: string[] = [];
+    deps.probe = vi.fn(async () => { order.push('backend'); }); deps.session = vi.fn(async () => { order.push('session'); return true; });
+    deps.sync = vi.fn(async () => { order.push('sync'); }); deps.prepare = vi.fn(async () => { order.push('preload'); ready(); return 'settled' as const; });
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('startup'); await tick();
+    expect(order).toEqual(['backend', 'session', 'sync', 'preload']); expect(meta.basic_ready).toBe(true);
+    expect(getOfflineRuntime('a').operations.pipeline).toMatchObject({ phase: 'settled', outcome: 'success' });
+  });
+  it('cold offline start uses local data and recovers after network returns without reload', async () => {
+    ready(); local = true; coordinator = createOfflineCoordinator('a', deps);
+    await coordinator.request('startup'); await tick();
+    expect(meta.basic_ready).toBe(true); expect(deps.sync).not.toHaveBeenCalled();
+    expect(getOfflineRuntime('a').operations.pipeline?.outcome).toBe('waiting-network');
+    local = false; await coordinator.request('reconnect');
+    expect(deps.session).toHaveBeenCalledOnce(); expect(deps.sync).toHaveBeenCalledOnce();
+    expect(getOfflineRuntime('a').operations.pipeline?.outcome).toBe('success');
+  });
+  it('preparation interrupted at 94% → reconnect → ready, with late completion ignored', async () => {
+    let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+    deps.prepare = vi.fn().mockImplementationOnce(async () => { meta.progress = 94; await gate; return 'settled' as const; })
+      .mockImplementation(async () => { ready(); return 'settled' as const; });
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('startup'); await tick();
+    const oldId = getOfflineRuntime('a').operations.pipeline!.id;
+    local = true; coordinator.networkLost(); local = false; await coordinator.request('reconnect');
+    const current = getOfflineRuntime('a').operations.pipeline!; expect(current.id).not.toBe(oldId);
+    expect(current.outcome).toBe('success'); release(); await tick(0);
+    expect(getOfflineRuntime('a').operations.pipeline).toEqual(current); expect(meta.progress).toBe(100);
+  });
+  it('recoverable error → Retry supersedes the old pipeline and really prepares again', async () => {
+    deps.prepare = vi.fn().mockRejectedValueOnce(new Error('storage unavailable')).mockImplementation(async () => { ready(); return 'settled' as const; });
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('startup'); await tick();
+    expect(getOfflineRuntime('a').operations.pipeline?.outcome).toBe('error');
+    await coordinator.request('retry');
+    expect(deps.probe).toHaveBeenLastCalledWith(true); expect(deps.prepare).toHaveBeenLastCalledWith('retry', true);
+    expect(meta.basic_ready).toBe(true); expect(deps.cancelPreparation).toHaveBeenCalled();
+  });
+  it('multiple reconnect events share one recovery and no duplicate preparation', async () => {
+    let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+    deps.probe = vi.fn(() => gate); coordinator = createOfflineCoordinator('a', deps);
+    const pending = Array.from({ length: 50 }, () => coordinator!.request('reconnect'));
+    await tick(0); expect(deps.probe).toHaveBeenCalledOnce(); release(); await Promise.all(pending); await tick();
+    expect(deps.prepare).toHaveBeenCalledOnce(); expect(deps.sync).toHaveBeenCalledOnce();
+  });
+  it('repeated focus/visibility freshness does no visible sync or preload for a fresh snapshot', async () => {
+    ready(); coordinator = createOfflineCoordinator('a', deps);
+    for (let i = 0; i < 50; i++) await coordinator.request('freshness'); await tick();
+    expect(deps.prepare).not.toHaveBeenCalled(); expect(deps.sync).not.toHaveBeenCalled(); expect(meta.status).toBe('ready');
+    expect(getOfflineRuntime('a').operations.pipeline).toMatchObject({ kind: 'refresh', visible: false, phase: 'settled' });
+  });
+  it('partial Extended retries automatically at its deadline despite recent Basic success', async () => {
+    ready(); meta.scheme = 'extended'; meta.extended_ready = false; meta.status = 'partial';
+    meta.retry = { failures: 1, next_retry_at: Date.now() + 5000, reason: 'optional' };
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('freshness'); await tick();
+    expect(deps.prepare).not.toHaveBeenCalled(); await tick(4650);
+    expect(meta.extended_ready).toBe(true); expect(deps.prepare).toHaveBeenCalledOnce();
+  });
+  it('startup checks sync capabilities immediately even when preparation has a durable backoff', async () => {
+    ready(); deps.delay = () => 30_000;
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('startup'); await tick();
+    expect(deps.sync).toHaveBeenCalledWith(true); expect(deps.prepare).not.toHaveBeenCalled();
+    expect(getOfflineRuntime('a').operations.pipeline).toMatchObject({ phase: 'settled', outcome: 'partial' });
+  });
+  it('backs off a first storage-write error even when storage cannot persist retry metadata', async () => {
+    deps.prepare = vi.fn().mockImplementationOnce(async () => {
+      meta = { ...meta, status: 'error', error: 'Storage quota exceeded', retry: null }; return 'settled' as const;
+    }).mockImplementation(async () => { ready(); return 'settled' as const; });
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('startup'); await tick();
+    expect(getOfflineRuntime('a').operations.pipeline?.outcome).toBe('error');
+    await tick(1000); expect(deps.prepare).toHaveBeenCalledOnce();
+    await tick(4000); expect(deps.prepare).toHaveBeenCalledTimes(2); expect(meta.basic_ready).toBe(true);
+  });
+  it('dispose/reload invalidates live recovery and late work cannot resurrect it', async () => {
+    deps.probe = vi.fn(() => new Promise<void>(() => undefined)); coordinator = createOfflineCoordinator('a', deps);
+    const pending = coordinator.request('reconnect'); await tick(0); coordinator.dispose(); await pending;
+    expect(getOfflineRuntime('a').operations.pipeline?.phase).toBe('settled'); expect(vi.getTimerCount()).toBe(0);
+  });
+});
+describe('physical network versus backend availability', () => {
+  it('navigator online + backend unavailable remains degraded; unrelated success cannot bypass a probe', async () => {
+    let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+    const cleanup = monitorConnectivity(vi.fn(() => gate));
+    try {
+      reportConnectivityFailure(new TypeError('Failed to fetch')); reportBrowserConnectivity(true); await tick(0);
+      reportConnectivitySuccess(); expect(getConnectivityState()).toBe('degraded');
+      expect(getNetworkFacts()).toMatchObject({ physical: 'connected', backend: 'unavailable' });
+      release(); await tick(0); expect(getConnectivityState()).toBe('online');
+    } finally { cleanup(); }
+  });
+  it('focus/pageshow repairs a missed online event after an offline cold start', async () => {
+    const events = new EventTarget(); vi.stubGlobal('window', events); vi.stubGlobal('navigator', { onLine: false });
+    const cleanup = monitorConnectivity(vi.fn(async () => undefined));
+    try {
+      expect(getConnectivityState()).toBe('offline'); vi.stubGlobal('navigator', { onLine: true });
+      events.dispatchEvent(new Event('pageshow')); events.dispatchEvent(new Event('focus')); await tick(0);
+      expect(getConnectivityState()).toBe('online'); expect(getNetworkFacts().backend).toBe('reachable');
+    } finally { cleanup(); }
+  });
+});

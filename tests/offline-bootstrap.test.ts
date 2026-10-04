@@ -82,6 +82,72 @@ async function stored(key: string) { const d = (await import('@/lib/local-cache/
 function pages(name?: string) { return f.rpc.mock.calls.filter(([rpc, args]) => rpc === 'get_offline_account_page' && (!name || args.p_dataset === name)); }
 
 describe('account bootstrap', () => {
+  it('reload during preparation restores durable data without a fictional running operation', async () => {
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!;
+    await driver.put({ ...entry, data: JSON.stringify({ ...JSON.parse(entry.data), status: 'running', progress: 94,
+      lease: { owner: 'closed-runtime', expires_at: Date.now() + 45_000 } }) });
+    vi.resetModules(); const fresh = await import('@/lib/local-cache/bootstrap');
+    expect(await fresh.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', basic_ready: true, progress: 100 });
+    expect((await import('@/lib/local-cache/runtime-state')).getOfflineRuntime(f.user).operations.preparation).toBeUndefined();
+    const current = await driver.get(f.user, BOOTSTRAP_KEY);
+    await driver.put({ ...current!, data: JSON.stringify({ ...JSON.parse(current!.data), verified: { basic: null, extended: null },
+      basic_ready: false, offline_ready: false, status: 'updating' }) });
+    expect((await fresh.getBootstrapMetadata(f.user)).status).toBe('partial');
+  });
+  it('checks actual Basic batches and committed models instead of trusting a ready flag', async () => {
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    await driver.remove(f.user, 'templates');
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: false, offline_ready: false, status: 'partial' });
+    await b.retryAccountBootstrap(f.user); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    const profile = (await driver.get(f.user, 'profile:self'))!; await driver.put({ ...profile, data: 'null' });
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
+  });
+  it('normalizes a legacy running operation before an expired daily snapshot returns', async () => {
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!;
+    await driver.put({ ...entry, data: JSON.stringify({ ...JSON.parse(entry.data), status: 'running', progress: 94 }) });
+    vi.setSystemTime(Date.now() + 86400000); vi.resetModules();
+    const fresh = await import('@/lib/local-cache/bootstrap');
+    expect(await fresh.getBootstrapMetadata(f.user)).toMatchObject({ status: 'partial', basic_ready: false });
+    expect((await import('@/lib/local-cache/runtime-state')).getOfflineRuntime(f.user).operations.preparation).toBeUndefined();
+  });
+  it('redownloads a corrupted batch of the same length instead of certifying it again', async () => {
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const entries = await driver.listEntries(f.user, 'bootstrap:batch:items:');
+    const batch = entries[0]; const rows = JSON.parse(batch.data); rows[0].comment = 'Corrupted disk value';
+    await driver.put({ ...batch, data: JSON.stringify(rows) });
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
+    f.rpc.mockClear(); await b.retryAccountBootstrap(f.user);
+    expect(pages('items')).toHaveLength(1); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    expect(await stored(`items:${taskId}:active`)).toMatchObject([{ comment: 'Saved comment' }]);
+  });
+  it('checks Extended history and notifications independently while retaining Basic readiness', async () => {
+    const b = await run(); await b.selectOfflineScheme(f.user, 'extended'); await again(b);
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    expect((await b.getBootstrapMetadata(f.user)).extended_ready).toBe(true);
+    await driver.remove(f.user, 'notifications:window');
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: true, extended_ready: false, status: 'partial' });
+    await b.retryAccountBootstrap(f.user); expect((await b.getBootstrapMetadata(f.user)).extended_ready).toBe(true);
+    await driver.remove(f.user, `audit:${taskId}:90days`);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: true, extended_ready: false });
+  });
+  it('a fully prepared cache stays ready offline and runtime preparation never persists', async () => {
+    const b = await run(); vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    await b.runAccountBootstrap(f.user);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', basic_ready: true, progress: 100 });
+    const saved = await stored(BOOTSTRAP_KEY);
+    expect(['running', 'updating', 'recovering', 'syncing']).not.toContain(saved.status);
+    expect(saved.started_at).toBeNull(); expect(Object.values(saved.datasets).some((s: unknown) => (s as { status: string }).status === 'loading')).toBe(false);
+  });
+  it('selecting an incomplete Extended scope offline persists partial, with Basic still usable', async () => {
+    const b = await run(); vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    await b.selectOfflineScheme(f.user, 'extended');
+    expect(await stored(BOOTSTRAP_KEY)).toMatchObject({ scheme: 'extended', status: 'partial', basic_ready: true,
+      extended_ready: false, offline_ready: true });
+    expect((await stored(BOOTSTRAP_KEY)).progress).toBeLessThan(100);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'partial', basic_ready: true, extended_ready: false });
+  });
   it('bounds the Extended final verification at 94% and settles with verified basic readiness', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     const b = await run(); const normal = f.rpc.getMockImplementation()!;
@@ -93,7 +159,7 @@ describe('account bootstrap', () => {
     expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'updating', progress: 94, basic_ready: true, extended_ready: false });
     const pending = b.runAccountBootstrap(f.user);
     await vi.advanceTimersByTimeAsync(b.BOOTSTRAP_OPERATION_TIMEOUT_MS); await pending;
-    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, basic_ready: true, extended_ready: false, lease: null, retry: { reason: 'transport' } });
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'partial', progress: 94, basic_ready: true, extended_ready: false, lease: null, retry: { reason: 'transport' } });
     expect(vi.getTimerCount()).toBe(0);
   });
   it('manual retry recovers its own unexpired lease after storage rejected both terminal state and cleanup', async () => {
@@ -110,6 +176,30 @@ describe('account bootstrap', () => {
     broken.mockRestore(); await b.retryAccountBootstrap(f.user, async () => true);
     expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, lease: null });
   });
+  it('a local commit timeout settles as a storage error, not waiting for a network that is available', async () => {
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const original = driver.commitCacheBatch; let writes = 0;
+    const failed = vi.spyOn(driver, 'commitCacheBatch').mockImplementation((...args) => ++writes === 2
+      ? Promise.reject(Object.assign(new Error('IndexedDB timed out'), { name: 'TimeoutError' })) : original(...args));
+    const b = await import('@/lib/local-cache/bootstrap'); await b.runAccountBootstrap(f.user);
+    const meta = await b.getBootstrapMetadata(f.user);
+    expect(meta).toMatchObject({ status: 'error', lease: null });
+    expect(meta.error).toContain('Локальная операция'); expect(meta.retry?.reason).not.toBe('transport');
+    failed.mockRestore(); await b.retryAccountBootstrap(f.user);
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+  });
+  it('a cancelled initial storage write cannot publish an error after a new successful attempt', async () => {
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    let reject!: (error: Error) => void; const oldWrite = new Promise<boolean>((_resolve, fail) => { reject = fail; });
+    vi.spyOn(driver, 'commitCacheBatch').mockImplementationOnce(() => { entered(); return oldWrite; });
+    const b = await import('@/lib/local-cache/bootstrap'); const old = b.runAccountBootstrap(f.user); await started;
+    b.cancelAccountBootstrap(f.user); await old;
+    expect((await b.getBootstrapMetadata(f.user)).status).toBe('not_started');
+    await b.retryAccountBootstrap(f.user); const ready = await b.getBootstrapMetadata(f.user);
+    reject(new Error('Late quota failure')); await Promise.resolve();
+    expect(await b.getBootstrapMetadata(f.user)).toEqual(ready); expect(ready.basic_ready).toBe(true);
+  });
   it('skips a missing optional dataset while keeping verified mandatory models ready', async () => {
     const b = await run(); const normal = f.rpc.getMockImplementation()!;
     f.rpc.mockImplementation((name, args) => {
@@ -118,12 +208,12 @@ describe('account bootstrap', () => {
       return { abortSignal: async () => ({ data, error: null }) };
     });
     await b.selectOfflineScheme(f.user, 'extended'); await again(b);
-    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', progress: 100, offline_ready: true,
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'partial', progress: 88, offline_ready: true,
       basic_ready: true, extended_ready: false, datasets: { notifications: { status: 'skipped' } } });
     expect(pages('notifications')).toHaveLength(0);
   });
   it('settles an offline start and resumes after confirmed recovery without reloading', async () => {
-    vi.stubGlobal('navigator', { onLine: false });
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
     const b = await import('@/lib/local-cache/bootstrap');
     await b.runAccountBootstrap(f.user);
     expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'offline_waiting', lease: null });
@@ -315,7 +405,7 @@ describe('account bootstrap', () => {
     expect(await stored(`daily-audit:${projectId}:${m.manifest!.day_start}`)).toHaveLength(1);
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.now() + 86400000);
     expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ offline_ready: false, basic_ready: false, status: 'partial', datasets: { daily_audit: { status: 'pending', offset: 0 } } });
-    vi.stubGlobal('navigator', { onLine: false });
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
     await b.selectOfflineScheme(f.user, 'extended'); await b.selectOfflineScheme(f.user, 'basic');
     expect((await b.getBootstrapMetadata(f.user)).offline_ready).toBe(false);
   });
@@ -402,12 +492,12 @@ describe('account bootstrap', () => {
   it('basic → extended keeps verified basic models usable without claiming failed optional data is ready', async () => {
     const b = await run(); f.failure = { dataset: 'history', error: transport }; f.rpc.mockClear();
     await b.selectOfflineScheme(f.user, 'extended'); await again(b);
-    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ scheme: 'extended', status: 'ready', progress: 100,
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ scheme: 'extended', status: 'partial', progress: 88,
       offline_ready: true, basic_ready: true, extended_ready: false, datasets: { history: { status: 'error' } } });
     expect(pages('items')).toHaveLength(0);
     f.failure = null; await run(); expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', extended_ready: true });
     expect(await stored(`audit:${taskId}:90days`)).toHaveLength(1);
-    vi.stubGlobal('navigator', { onLine: false }); f.rpc.mockClear();
+    vi.stubGlobal('navigator', { ...navigator, onLine: false }); f.rpc.mockClear();
     await b.selectOfflineScheme(f.user, 'basic');
     expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ scheme: 'basic', offline_ready: true });
     expect(f.rpc).not.toHaveBeenCalled();

@@ -44,7 +44,7 @@ function entryKey(userId: string, key: string): string {
   return `${userId}:${key}`;
 }
 
-async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void) => void, storeName = STORE, signal?: AbortSignal): Promise<T> {
+async function transactBase<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void) => void, storeName = STORE, signal?: AbortSignal): Promise<T> {
   const db = await openDatabase(signal);
   try {
     return await boundedOperation((deadline) => new Promise<T>((resolve, reject) => {
@@ -63,7 +63,23 @@ async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectSt
   }
 }
 
-export const localCacheDriver: LocalCacheDriver = {
+function operationTransaction(db: IDBDatabase, stores: string | string[], mode: IDBTransactionMode, signal?: AbortSignal): IDBTransaction {
+  if (signal?.aborted) throw Object.assign(new Error('Operation cancelled'), { name: 'AbortError' });
+  const tx = db.transaction(stores, mode);
+  const abort = () => { try { tx.abort(); } catch { /* Transaction already settled. */ } };
+  const timer = setTimeout(abort, 10_000);
+  signal?.addEventListener('abort', abort, { once: true });
+  const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); };
+  tx.addEventListener('complete', cleanup, { once: true }); tx.addEventListener('error', cleanup, { once: true });
+  tx.addEventListener('abort', cleanup, { once: true });
+  return tx;
+}
+
+function operationDriver(parent?: AbortSignal): LocalCacheDriver {
+  const transact = <T,>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void) => void, storeName = STORE, signal?: AbortSignal) =>
+    transactBase(mode, action, storeName, signal ?? parent);
+  return {
+  withOperation: operationDriver,
   async commitCacheBatch(userId, entries, removeKeys = [], guards = [], signal) {
     if (entries.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
     return transact<boolean>('readwrite', (store, resolve) => {
@@ -112,11 +128,11 @@ export const localCacheDriver: LocalCacheDriver = {
       .filter((entry) => entry.user_id === userId && entry.key.startsWith(prefix)));
   }),
   async enqueue(operation: OfflineOperationInput) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     let semanticError: Error | null = null;
     try {
       return await new Promise<OfflineOperation>((resolve, reject) => {
-        const tx = db.transaction([OUTBOX, STORE], 'readwrite');
+        const tx = operationTransaction(db, [OUTBOX, STORE], 'readwrite', parent);
         const outbox = tx.objectStore(OUTBOX);
         const cache = tx.objectStore(STORE);
         let saved: OfflineOperation;
@@ -180,10 +196,10 @@ export const localCacheDriver: LocalCacheDriver = {
     };
   }, OUTBOX),
   async acknowledgeOperation(userId, operationId, version, conflictId, item) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(conflictId ? [OUTBOX, CONFLICTS] : [OUTBOX], 'readwrite');
+        const tx = operationTransaction(db, conflictId ? [OUTBOX, CONFLICTS] : [OUTBOX], 'readwrite', parent);
         const store = tx.objectStore(OUTBOX);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB ACK failed'));
@@ -221,10 +237,10 @@ export const localCacheDriver: LocalCacheDriver = {
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.conflict_id.localeCompare(b.conflict_id)));
   }, CONFLICTS),
   async createConflict(conflict) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([CONFLICTS, OUTBOX], 'readwrite');
+        const tx = operationTransaction(db, [CONFLICTS, OUTBOX], 'readwrite', parent);
         const store = tx.objectStore(CONFLICTS);
         const outbox = tx.objectStore(OUTBOX);
         tx.oncomplete = () => resolve();
@@ -247,10 +263,10 @@ export const localCacheDriver: LocalCacheDriver = {
     } finally { db.close(); }
   },
   async rebaseConflict(userId, conflictId, version) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([CONFLICTS, OUTBOX], 'readwrite');
+        const tx = operationTransaction(db, [CONFLICTS, OUTBOX], 'readwrite', parent);
         const conflicts = tx.objectStore(CONFLICTS);
         const outbox = tx.objectStore(OUTBOX);
         tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed')); tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
@@ -274,10 +290,10 @@ export const localCacheDriver: LocalCacheDriver = {
     } finally { db.close(); }
   },
   async resolveServerConflict(userId, conflictId) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([CONFLICTS, OUTBOX, STORE], 'readwrite');
+        const tx = operationTransaction(db, [CONFLICTS, OUTBOX, STORE], 'readwrite', parent);
         const conflicts = tx.objectStore(CONFLICTS), outbox = tx.objectStore(OUTBOX), cache = tx.objectStore(STORE);
         tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed')); tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
         const request = conflicts.get(conflictId);
@@ -311,10 +327,10 @@ export const localCacheDriver: LocalCacheDriver = {
     request.onsuccess = () => { if ((request.result as SyncConflict | undefined)?.user_id === userId) store.delete(conflictId); resolve(); };
   }, CONFLICTS),
   async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([OUTBOX, STORE], 'readwrite');
+        const tx = operationTransaction(db, [OUTBOX, STORE], 'readwrite', parent);
         const outbox = tx.objectStore(OUTBOX), cache = tx.objectStore(STORE);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
@@ -349,10 +365,10 @@ export const localCacheDriver: LocalCacheDriver = {
     };
   }),
   async applyPullPage(userId, afterCursor, nextCursor, changes) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     try {
       return await new Promise<boolean>((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readwrite');
+        const tx = operationTransaction(db, STORE, 'readwrite', parent);
         const cache = tx.objectStore(STORE);
         let applied = false;
         tx.oncomplete = () => resolve(applied); tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed')); tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
@@ -382,10 +398,10 @@ export const localCacheDriver: LocalCacheDriver = {
     } finally { db.close(); }
   },
   async reconcileOperation(userId, operationId, item, activeSnapshot) {
-    const db = await openDatabase();
+    const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([OUTBOX, STORE], 'readwrite');
+        const tx = operationTransaction(db, [OUTBOX, STORE], 'readwrite', parent);
         const outbox = tx.objectStore(OUTBOX);
         const cache = tx.objectStore(STORE);
         tx.oncomplete = () => resolve();
@@ -427,3 +443,5 @@ export const localCacheDriver: LocalCacheDriver = {
     }
   },
 };
+}
+export const localCacheDriver = operationDriver();

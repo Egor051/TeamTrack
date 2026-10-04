@@ -97,6 +97,9 @@ async function eventually(probe, description, timeout = 25_000) {
 async function setConfig(write, sync) {
   await db.query('update private.offline_runtime_config set write_enabled = $1, sync_enabled = $2, updated_at = now()', [write, sync]);
 }
+function persistedCapabilities() {
+  return JSON.parse(browser('eval', '(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open("tasktrace-local-cache");r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{return await new Promise(function(ok,no){const r=db.transaction("entries").objectStore("entries").getAll();r.onsuccess=function(){const entry=r.result.find(function(e){return e.key==="runtime:offline-capabilities"});ok(entry?JSON.parse(entry.data).value:null)};r.onerror=function(){no(r.error)}})}finally{db.close()}})()'));
+}
 async function percentage(itemId) {
   const result = await db.query('select percentage from public.task_items where id = $1', [itemId]);
   return result.rows[0]?.percentage;
@@ -224,6 +227,9 @@ try {
     await setConfig(false, true);
     browser('reload');
     await bodyEventually('Оконные блоки установлены');
+    // Cached UI can render before recovery. Test an actually confirmed denial
+    // rather than switching offline before the capability response arrives.
+    await eventually(() => persistedCapabilities()?.write_enabled === false, 'confirmed remote write disable');
     browser('set', 'offline', 'on');
     clickCheckbox();
     check(!await bodyHas('Ожидает синхронизации'), 'Kill switch allowed a new offline operation');

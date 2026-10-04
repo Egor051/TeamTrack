@@ -20,6 +20,7 @@ import { parseAuthCallbackUrl, stripAuthCallbackParams } from './auth-links';
 import { readThroughCache, activeCacheUserId, putCached } from '@/lib/local-cache/cache';
 import { clearRuntimeConfig } from '@/lib/local-cache/runtime-config';
 import { uiRead } from '@/lib/supabase/ui-read';
+import { invalidateOfflineRuntime } from '@/lib/local-cache/runtime-state';
 
 type AuthContextType = {
   state: AuthState;
@@ -104,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const scheduleSessionApply = (session: AuthState['session']) => {
       const nextUserId = session?.user?.id ?? null;
+      if (runtimeUserId && nextUserId !== runtimeUserId) invalidateOfflineRuntime(runtimeUserId);
       if (nextUserId !== runtimeUserId || !nextUserId) clearRuntimeConfig();
       runtimeUserId = nextUserId;
       // Defer profile I/O outside Supabase's auth callback lock.
@@ -111,9 +113,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTimeout(() => { void applySession(session, currentGeneration); }, 0);
     };
 
+    const restoreSession = async () => {
+      const startedGeneration = generation;
+      const { data } = await getCurrentSession();
+      if (!cancelled && generation === startedGeneration) scheduleSessionApply(data.session);
+    };
+
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'INITIAL_SESSION' && !session && usesLocalReads()) {
-        void getCurrentSession().then(({ data }) => { if (!cancelled) scheduleSessionApply(data.session); });
+        void restoreSession().catch(() => undefined);
         return;
       }
       if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
@@ -127,21 +135,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const monitoring = monitorConnectivity(() => probeSupabaseConnectivity());
     const connectivity = subscribeConnectivity((next) => {
       if (next !== 'online') return;
-      void getCurrentSession().then(({ data }) => {
-        if (!cancelled) scheduleSessionApply(data.session);
-      }).catch(() => undefined);
+      void restoreSession().catch(() => undefined);
     });
     const storageChanged = () => {
       if (!usesLocalReads()) return;
-      void getCurrentSession().then(({ data }) => { if (!cancelled) scheduleSessionApply(data.session); });
+      void restoreSession().catch(() => undefined);
     };
     if (typeof window !== 'undefined') window.addEventListener('storage', storageChanged);
 
+    const initialGeneration = generation;
     void getCurrentSession().then(({ data: sessionData, error }) => {
       if (error && process.env.NODE_ENV !== 'production') console.debug('[AuthProvider] session restore failed');
-      if (!cancelled) scheduleSessionApply(sessionData.session);
+      if (!cancelled && generation === initialGeneration) scheduleSessionApply(sessionData.session);
     }).catch((error: unknown) => {
-      if (!cancelled) {
+      if (!cancelled && generation === initialGeneration) {
         if (process.env.NODE_ENV !== 'production') console.error('[AuthProvider] initialization error', error);
         setState((prev) => ({ ...prev, isLoading: false, error: mapSupabaseAuthError(error) }));
       }

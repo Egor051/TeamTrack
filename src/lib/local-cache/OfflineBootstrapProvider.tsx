@@ -1,100 +1,73 @@
 import { useEffect, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
+import { getCurrentSession } from '@/features/auth/auth';
+import { reportBrowserConnectivity, revalidateConnectivity, subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 import { subscribeMany } from '@/lib/supabase/realtime';
-import { BOOTSTRAP_REFRESH_MS, bootstrapDelay, cancelAccountBootstrap, getBootstrapMetadata, resumeAccountBootstrap, runAccountBootstrap, subscribeBootstrap } from './bootstrap';
+import { BOOTSTRAP_REFRESH_MS, bootstrapDelay, cancelAccountBootstrap, getBootstrapMetadata,
+  resumeAccountBootstrap, retryAccountBootstrap, runAccountBootstrap, subscribeBootstrap } from './bootstrap';
+import { cancelPendingSync, syncPendingOperations } from './sync';
+import { createOfflineCoordinator } from './coordinator';
+import { registerOfflineWork, requestOfflineWork } from './work-requests';
 
-export function OfflineBootstrapProvider({ children }: { children: ReactNode }) {
+export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
   const { state } = useAuth();
   const userId = state.isLoading ? null : state.user?.id ?? null;
-  const token = state.isLoading ? null : state.session?.access_token ?? null;
+  const token = state.session?.access_token ?? null;
   useEffect(() => {
-    if (Platform.OS !== 'web' || !userId || typeof window === 'undefined') return;
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let force = false;
-    let requestedAt = 0;
-    let running = false;
-    let connected = false;
-    const schedule = (delay: number) => {
-      if (disposed) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { timer = null; void refresh(); }, delay);
-    };
-    const refresh = async () => {
-      if (disposed || running) return;
-      running = true;
-      const eventAtStart = requestedAt;
-      try {
-        if (usesLocalReads()) { await runAccountBootstrap(userId); return; }
-        const before = await getBootstrapMetadata(userId);
-        if (disposed) return;
-        // Another tab's successful run can satisfy this tab's queued event.
-        if (force && before.last_successful_sync_at && Date.parse(before.last_successful_sync_at) >= requestedAt) {
-          force = false; requestedAt = 0;
-        }
-        if (!force && before.status === 'ready' && before.last_successful_sync_at
-          && Date.now() - Date.parse(before.last_successful_sync_at) < BOOTSTRAP_REFRESH_MS) return;
-        const recovering = before.status === 'offline_waiting' || before.retry?.reason === 'transport';
-        const delay = recovering ? 0 : bootstrapDelay(before);
-        if (delay > 0) { schedule(delay + 50); return; }
-        const result = recovering ? await resumeAccountBootstrap(userId) : await runAccountBootstrap(userId, force);
-        const after = await getBootstrapMetadata(userId);
-        if (disposed) return;
-        if (result === 'busy') { schedule(1000); return; }
-        if (after.status === 'ready' && after.last_successful_sync_at && Date.parse(after.last_successful_sync_at) >= requestedAt) {
-          force = false; requestedAt = 0;
-        }
-        if (after.status !== 'ready' || force) schedule(Math.max(400, bootstrapDelay(after) + 50));
-      } catch (error) {
-        if (!disposed) {
-          console.warn('[TaskTrace] offline bootstrap failed', error);
-          schedule(30_000);
-        }
-      } finally {
-        running = false;
-        if (!disposed && !usesLocalReads() && requestedAt !== eventAtStart) schedule(400);
-      }
-    };
-    const trigger = (revalidate = false) => {
-      if (disposed) return;
-      force ||= revalidate;
-      if (revalidate) requestedAt = Date.now();
-      // Coalesce a burst into one request and one completion callback/timer.
-      if (!running) schedule(400);
-    };
-    trigger(true);
-    const online = () => trigger(true);
-    const connectivity = subscribeConnectivity((next) => {
-      if (next !== 'online') cancelAccountBootstrap(userId);
-      trigger(true);
+    if (!userId) return;
+    const coordinator = createOfflineCoordinator(userId, {
+      local: usesLocalReads, probe: revalidateConnectivity,
+      session: async () => { const { data, error } = await getCurrentSession(); return !error && data.session?.user.id === userId; },
+      metadata: () => getBootstrapMetadata(userId),
+      prepare: (mode, force) => mode === 'retry' ? retryAccountBootstrap(userId)
+        : mode === 'resume' ? resumeAccountBootstrap(userId) : runAccountBootstrap(userId, force),
+      sync: (force) => syncPendingOperations(userId, force),
+      cancelPreparation: () => cancelAccountBootstrap(userId), cancelSync: () => cancelPendingSync(userId),
+      delay: bootstrapDelay, refreshMs: BOOTSTRAP_REFRESH_MS, preloadEnabled: Platform.OS === 'web',
     });
-    const visible = () => { if (document.visibilityState === 'visible') trigger(); };
-    window.addEventListener('online', online);
-    document.addEventListener('visibilitychange', visible);
-    const foreground = AppState.addEventListener('change', (next) => { if (next === 'active') trigger(); });
+    const registration = registerOfflineWork(userId, (reason) => coordinator.request(reason));
+    void coordinator.request('startup');
+    const connectivity = subscribeConnectivity((next) => {
+      if (next === 'online') void coordinator.request('reconnect'); else coordinator.networkLost();
+    });
+    const nativeNetwork = Platform.OS === 'web' ? () => undefined : NetInfo.addEventListener((next) => {
+      if (next.isConnected === false || next.isInternetReachable === false) reportBrowserConnectivity(false);
+      else if (next.isConnected === true) reportBrowserConnectivity(true);
+    });
+    const foreground = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') void coordinator.request('freshness');
+    };
+    const appState = AppState.addEventListener('change', (next) => {
+      if (next === 'active') { if (Platform.OS !== 'web') void revalidateConnectivity(); foreground(); }
+    });
+    let connected = false;
     const realtime = subscribeMany(['projects', 'project_members', 'profiles', 'tasks', 'task_members', 'task_assignees',
       'task_items', 'audit_log', 'task_templates', 'task_template_items', 'notifications'].map((table) => ({
-      table, options: { userId, onEvent: () => trigger(true), onStatus: (status) => {
-        if (status === 'connected') { if (!connected) trigger(true); connected = true; }
+      table, options: { userId, onEvent: () => { void coordinator.request('invalidation'); }, onStatus: (status) => {
+        if (status === 'connected') { if (!connected) void coordinator.request('freshness'); connected = true; }
         else if (status !== 'connecting') connected = false;
       } },
     })));
-    // Metadata wakes passive tabs and scheme changes. State broadcasts never
-    // force another server refresh, so page/lease writes cannot form a loop.
-    const metadata = subscribeBootstrap((changedUser) => { if (changedUser === userId && !running) trigger(); });
-    // Bounded manifest revalidation covers missed realtime events and entities
-    // absent from the private item feed. It does not download unchanged data.
-    const interval = setInterval(() => trigger(), BOOTSTRAP_REFRESH_MS);
+    const metadata = subscribeBootstrap((id) => { if (id === userId) void coordinator.request('freshness'); });
+    const interval = setInterval(foreground, BOOTSTRAP_REFRESH_MS);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', foreground); window.addEventListener('pageshow', foreground);
+      document.addEventListener('visibilitychange', foreground);
+    }
     return () => {
-      disposed = true;
-      if (timer) clearTimeout(timer);
-      clearInterval(interval); realtime(); foreground.remove(); metadata(); connectivity();
-      window.removeEventListener('online', online);
-      document.removeEventListener('visibilitychange', visible);
-      cancelAccountBootstrap(userId);
+      registration(); connectivity(); nativeNetwork(); realtime(); metadata(); appState.remove(); clearInterval(interval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', foreground); window.removeEventListener('pageshow', foreground);
+        document.removeEventListener('visibilitychange', foreground);
+      }
+      coordinator.dispose();
     };
-  }, [userId, token]);
+  }, [userId]);
+  useEffect(() => { if (userId && token) void requestOfflineWork(userId, 'freshness'); }, [userId, token]);
   return children;
 }
+
+// Compatibility export for callers of the old preload-only provider.
+export const OfflineBootstrapProvider = OfflineRuntimeProvider;

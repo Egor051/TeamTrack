@@ -21,6 +21,8 @@ export function compactSyncStatus(status: RealtimeStatus, snapshot: SyncState | 
   else if (snapshot?.isSyncing) { label = 'в процессе'; tone = 'warning'; }
   else if (count) { label = 'ожидает'; tone = 'warning'; }
   else if (snapshot?.lastErrorKind && snapshot.lastErrorKind !== 'disabled') { label = 'ошибка'; tone = 'destructive'; }
+  else if (snapshot?.connectivity === 'unknown') { label = 'подключение...'; tone = 'warning'; }
+  else if (snapshot?.connectivity === 'online') { label = 'подключено'; tone = 'success'; }
   else if (!snapshot && status === 'connected') { label = 'подключение...'; tone = 'warning'; }
   else if (status === 'connecting') { label = 'подключение...'; tone = 'warning'; }
   else if (status === 'reconnecting' || status === 'disconnected') { label = 'переподключение...'; tone = 'warning'; }

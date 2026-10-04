@@ -160,7 +160,7 @@ describe('persistent user-scoped runtime capabilities', () => {
     vi.stubGlobal('navigator', { onLine: true });
     remote.rpc.mockResolvedValue({ data: { ...enabled, write_enabled: false, sync_enabled: false }, error: null });
     await syncPendingOperations('user-a', true);
-    expect(remote.status).toHaveBeenCalledWith('user-a', expect.objectContaining({ lastErrorKind: 'disabled' }));
+    expect(remote.status).toHaveBeenCalledWith('user-a', expect.objectContaining({ lastErrorKind: 'disabled' }), expect.objectContaining({ userId: 'user-a', slot: 'sync' }));
     expect(remote.replay).not.toHaveBeenCalled();
     expect((await persisted())?.value).toMatchObject({ write_enabled: false, sync_enabled: false });
     vi.stubGlobal('navigator', { onLine: false });

@@ -11,8 +11,7 @@ import { Stack, router, usePathname } from 'expo-router';
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuthState } from '@/features/auth/AuthProvider';
-import { SyncProvider } from '@/lib/local-cache/SyncProvider';
-import { OfflineBootstrapProvider } from '@/lib/local-cache/OfflineBootstrapProvider';
+import { OfflineRuntimeProvider } from '@/lib/local-cache/OfflineBootstrapProvider';
 import { ConflictGate } from '@/lib/local-cache/ConflictGate';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/components/ui/theme-provider';
@@ -51,8 +50,8 @@ function RootStack() {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider><ThemeProvider><AuthProvider><SyncProvider><OfflineBootstrapProvider><ConflictGate>
+    <SafeAreaProvider><ThemeProvider><AuthProvider><OfflineRuntimeProvider><ConflictGate>
       <RootStack />
-    </ConflictGate></OfflineBootstrapProvider></SyncProvider></AuthProvider></ThemeProvider></SafeAreaProvider>
+    </ConflictGate></OfflineRuntimeProvider></AuthProvider></ThemeProvider></SafeAreaProvider>
   );
 }

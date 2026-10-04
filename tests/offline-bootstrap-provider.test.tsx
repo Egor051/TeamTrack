@@ -11,9 +11,13 @@ vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventLi
   f.foreground = cb; return { remove: f.remove };
 } } }));
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: 'user-a' }, session: { access_token: 'test' } } }) }));
+vi.mock('@/features/auth/auth', () => ({ getCurrentSession: async () => ({ data: { session: { user: { id: 'user-a' } } }, error: null }) }));
+vi.mock('@react-native-community/netinfo', () => ({ default: { addEventListener: () => () => undefined } }));
+vi.mock('@/lib/local-cache/sync', () => ({ syncPendingOperations: async () => undefined, cancelPendingSync: () => undefined }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeMany: (specs: typeof f.specs) => { f.specs = specs; return f.unsubscribe; } }));
 vi.mock('@/lib/local-cache/bootstrap', () => ({ BOOTSTRAP_REFRESH_MS: 300_000, runAccountBootstrap: f.run,
   resumeAccountBootstrap: f.resume,
+  retryAccountBootstrap: f.run,
   cancelAccountBootstrap: f.cancel, getBootstrapMetadata: async () => f.meta,
   bootstrapDelay: (m: BootstrapMetadata) => Math.max(0, (m.retry?.next_retry_at ?? 0) - Date.now(),
     m.last_attempt_at === undefined ? 0 : m.last_attempt_at + 30_000 - Date.now()),
@@ -31,10 +35,10 @@ beforeEach(() => {
   vi.stubGlobal('navigator', { onLine: true }); vi.stubGlobal('window', windowEvents);
   vi.stubGlobal('document', Object.assign(documentEvents, { visibilityState: 'visible' }));
   f.run.mockImplementation(async () => {
-    f.meta = { ...f.meta!, status: 'ready', last_attempt_at: Date.now(), last_successful_sync_at: new Date().toISOString() };
+    f.meta = { ...f.meta!, status: 'ready', basic_ready: true, offline_ready: true, last_attempt_at: Date.now(), last_successful_sync_at: new Date().toISOString() };
     return 'settled';
   });
-  f.resume.mockImplementation(async () => { f.meta = { ...f.meta!, status: 'ready', offline_ready: true }; return 'settled'; });
+  f.resume.mockImplementation(async () => { f.meta = { ...f.meta!, status: 'ready', offline_ready: true, basic_ready: true, retry: null }; return 'settled'; });
 });
 afterEach(async () => {
   await act(async () => { renderer?.unmount(); }); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();

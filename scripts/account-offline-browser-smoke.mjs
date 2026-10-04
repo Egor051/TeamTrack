@@ -226,7 +226,8 @@ async function lifecycleRegressions(taskId) {
   browser('eval', `window.__held=false;window.__fetch=window.fetch;window.fetch=function(input,init){if(!window.__held&&String(input).includes('/rpc/get_offline_account_manifest')){window.__held=true;return new Promise(function(ok,no){window.__fetch(input,init).then(function(response){window.__late=function(){ok(response)}},no)})}return window.__fetch(input,init)};true`);
   browser('set', 'offline', 'off');
   await eventually(() => browser('eval', 'window.__held===true') === 'true', 'automatic resumed attempt');
-  check(['running','updating'].includes(metadata()?.status), 'Automatic recovery did not start preparation');
+  check(/Офлайн: (подготовка|обновление)/.test(body()), 'Automatic recovery did not start preparation');
+  check(!['running','updating','recovering','syncing'].includes(metadata()?.status), 'Runtime preparation was persisted');
   browser('eval', 'window.fetch=window.__fetch;true');
   browser('click', ref(browser('snapshot', '-i'), 'Повторить'));
   await has('Офлайн: готово'); await eventually(() => !metadata()?.lease, 'new retry finished');
@@ -379,16 +380,29 @@ try {
   console.log('PASS cross-tab server disable blocks new writes and retains the pending operation');
   await setRuntime(true, true); browser('set','offline','off'); browser('reload');
   await eventually(() => pendingOperations().length === 0, 'retained operation sync after re-enable');
-  // Keep the peer for the remaining checks; final browser.close closes the
-  // whole isolated session without relying on handles retired by emulation.
+  // Retire the peer before the controlled single-owner interruption. Closing
+  // the entire isolated session in finally still handles its browser resources.
+  browser('tab', revalidationTab); browser('open', 'about:blank'); browser('tab', mainTab);
 
   browser('set','offline','off');
   await open('/profile', 'Офлайн-режим');
   const profileBody = body(); check(profileBody.indexOf('Оформление') < profileBody.indexOf('Офлайн-режим'), 'Profile section order');
   const profile = browser('snapshot','-i');
   check(profile.split('\n').some((line) => line.includes('radio "Базовая') && line.includes('checked')), 'Basic is not selected by default');
+  browser('eval', `window.__94Fetch=window.fetch;window.__94Held=false;window.fetch=async function(input,init){const url=String(input.url||input);const args=init&&typeof init.body==='string'?JSON.parse(init.body):{};if(!window.__94Held&&url.includes('/rpc/get_offline_account_manifest')&&args.p_scheme==='extended'&&args.p_snapshot_at){window.__94Held=true;const response=await window.__94Fetch(input,init);await new Promise(function(ok){window.__94Late=ok});return response}return window.__94Fetch(input,init)};true`);
   browser('click', ref(profile, 'radio "Расширенная'));
-  await eventually(() => metadata()?.scheme === 'extended' && metadata()?.offline_ready, 'extended bootstrap');
+  await eventually(() => browser('eval', 'window.__94Held===true') === 'true' && metadata()?.progress === 94, 'Extended final verification at 94%');
+  check(metadata().basic_ready && !metadata().extended_ready, 'Basic/Extended readiness merged during preparation');
+  check(!['running','updating'].includes(metadata().status), 'Extended runtime operation persisted');
+  browser('set', 'offline', 'on'); await eventually(() => !metadata()?.lease, 'interrupted Extended preparation settled');
+  browser('eval', 'window.fetch=window.__94Fetch;true'); browser('set', 'offline', 'off');
+  browser('eval', `for(let i=0;i<20;i++){window.dispatchEvent(new Event('online'));window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('pageshow'));document.dispatchEvent(new Event('visibilitychange'))}true`);
+  await eventually(() => metadata()?.scheme === 'extended' && metadata()?.extended_ready && !metadata()?.lease, '94% interruption → reconnect → Extended ready', 60_000);
+  const extendedCompleted = metadata().completed_at;
+  browser('eval', 'if(window.__94Late)window.__94Late();true');
+  check(metadata().completed_at === extendedCompleted && metadata().status === 'ready' && metadata().progress === 100,
+    'Late 94% verification overwrote successful reconnect');
+  console.log('PASS Extended 94% interruption → network loss → coalesced reconnect → ready; late response ignored');
   browser('reload'); await has('Офлайн-режим');
   check(browser('snapshot','-i').split('\n').some((line) => line.includes('radio "Расширенная') && line.includes('checked')), 'Scheme did not persist');
   browser('screenshot', resolve(root,'.expo/account-offline-profile.png'));

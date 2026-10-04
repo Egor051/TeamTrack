@@ -1,7 +1,7 @@
 import { activeCacheUserId } from './cache';
 import { localCacheDriver } from './driver';
 import { applyPendingOperations } from './outbox';
-import type { OfflineOperation, ReconciledItem, SyncConflict } from './types';
+import type { LocalCacheDriver, OfflineOperation, ReconciledItem, SyncConflict } from './types';
 import { validSyncVersion } from './pull-cache';
 
 const listeners = new Set<(userId: string) => void>();
@@ -50,13 +50,13 @@ export async function recordConflict(input: {
   serverState: ReconciledItem | null;
   serverVersion: number | null;
   conflictId?: string;
-}): Promise<SyncConflict> {
+}, driver: LocalCacheDriver = localCacheDriver): Promise<SyncConflict> {
   if (await activeCacheUserId() !== input.userId) throw new Error('Сеанс изменился.');
   const chain = [...input.operations].sort((a, b) => a.sequence - b.sequence);
   const first = chain[0];
   if (!first || chain.some((row) => row.user_id !== input.userId || row.task_item_id !== first.task_item_id))
     throw new Error('Invalid conflict chain');
-  const entries = await localCacheDriver.listEntries(input.userId);
+  const entries = await driver.listEntries(input.userId);
   const byKey = new Map(entries.map((entry) => [entry.key, entry.data]));
   const cachedItems = byKey.get(`items:${first.task_id}:active`) ?? byKey.get(`items:${first.task_id}:all`);
   const cachedItem = cachedItems ? (JSON.parse(cachedItems) as ReconciledItem[]).find((row) => row.id === first.task_item_id) : undefined;
@@ -77,7 +77,7 @@ export async function recordConflict(input: {
     item_name: input.serverState?.title ?? cachedItem?.title ?? first.task_item_id,
     created_at: now, updated_at: now, status: 'unresolved',
   };
-  await localCacheDriver.createConflict(conflict);
+  await driver.createConflict(conflict);
   announceConflictChange(input.userId);
   return conflict;
 }

@@ -32,6 +32,14 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('automatic cache read connectivity', () => {
+  it('a late successful request cannot erase a more recent transport failure', async () => {
+    let release!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { release = resolve; })));
+    const old = connectivityFetch('https://server.test/rest/v1/projects');
+    reportConnectivityFailure(new TypeError('Failed to fetch'));
+    release(new Response('[]', { status: 200 })); await old;
+    expect(getConnectivityState()).toBe('degraded');
+  });
   it('manual recovery replaces a hung probe and ignores its late success', async () => {
     let release!: () => void; const hung = new Promise<void>((resolve) => { release = resolve; });
     const probe = vi.fn().mockImplementationOnce(() => hung).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue(undefined);

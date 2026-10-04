@@ -3,6 +3,7 @@ import { enqueueOperation, hasPendingOperations, type SupportedEdit } from './ou
 import type { OfflineOperation } from './types';
 import { runtimeCapabilities } from './runtime-config';
 import { syncPendingOperations, announceSyncChange } from './sync';
+import { requestOfflineWork } from './work-requests';
 
 export async function performSupportedEdit(input: {
   userId: string;
@@ -25,6 +26,6 @@ export async function performSupportedEdit(input: {
   }
   const operation = await enqueueOperation(input.userId, input.projectId, input.taskId, input.itemId, input.edit, input.itemVersion);
   announceSyncChange(input.userId);
-  void syncPendingOperations(input.userId).catch(() => undefined);
+  void (requestOfflineWork(input.userId, 'mutations') ?? syncPendingOperations(input.userId)).catch(() => undefined);
   return { kind: 'local', operation };
 }

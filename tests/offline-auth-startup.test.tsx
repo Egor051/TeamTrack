@@ -26,6 +26,24 @@ afterEach(async () => {
   renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks();
 });
 describe('offline AuthProvider startup', () => {
+  it.each(['success', 'error'])('ignores a late initial session %s after a newer sign-in', async (outcome) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('navigator', { onLine: true });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let complete!: (value: unknown) => void; let reject!: (error: Error) => void;
+    const pending = new Promise((resolve, fail) => { complete = resolve; reject = fail; });
+    const newer = { user: { id: 'user-b' }, expires_at: Date.now() / 1000 + 3600 };
+    f.stored = newer;
+    f.session.mockReset().mockImplementationOnce(() => pending).mockResolvedValue({ data: { session: newer }, error: null });
+    await act(async () => { renderer = create(createElement(AuthProvider, { children: createElement(Consumer) })); });
+    await act(async () => { f.changed('SIGNED_IN', newer); await new Promise((resolve) => setTimeout(resolve, 25)); });
+    expect(api.state.user?.id).toBe('user-b');
+    await act(async () => {
+      if (outcome === 'success') complete({ data: { session: { user: { id: 'user-a' } } }, error: null });
+      else reject(new Error('Late restoration failed'));
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    });
+    expect(api.state).toMatchObject({ user: { id: 'user-b' }, error: null, isLoading: false });
+  });
   it('opens an expired saved session and cached profile without SDK waits, and logout clears UI/storage immediately', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('navigator', { onLine: false });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

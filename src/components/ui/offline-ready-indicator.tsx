@@ -2,6 +2,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { useOfflineBootstrap } from '@/lib/local-cache/use-offline-bootstrap';
 import { retryAccountBootstrap } from '@/lib/local-cache/bootstrap';
 import type { BootstrapMetadata } from '@/lib/local-cache/bootstrap-types';
+import { requestOfflineWork } from '@/lib/local-cache/work-requests';
 import { ThemedText } from './text';
 import { Button } from './button';
 import { useTheme } from './theme-provider';
@@ -11,10 +12,10 @@ export function offlineReadyLabel(meta: BootstrapMetadata): string {
     case 'ready': return meta.offline_ready ? meta.scheme === 'extended' && !meta.extended_ready ? 'Офлайн: базовые данные готовы' : 'Офлайн: готово' : 'Офлайн: частично готово';
     case 'running': return `Офлайн: подготовка ${meta.progress}%`;
     case 'updating': return `Офлайн: обновление ${meta.progress}%`;
-    case 'partial': return 'Офлайн: частично готово';
+    case 'partial': return meta.basic_ready && meta.scheme === 'extended' ? 'Офлайн: базовые данные готовы' : 'Офлайн: частично готово';
     case 'error': return 'Офлайн: ошибка';
     case 'offline_waiting': return 'Офлайн: ожидание сети';
-    default: return 'Офлайн: подготовка…';
+    default: return 'Офлайн: не подготовлено';
   }
 }
 // Rendered only by /projects, independently of RealtimeIndicator.
@@ -25,7 +26,7 @@ export function OfflineReadyIndicator() {
   const color = meta.offline_ready ? colors.success : meta.status === 'error' ? colors.destructive : colors.warning;
   return <View style={styles.container}>
     <View style={styles.row} accessibilityLiveRegion="polite"><View style={[styles.dot, { backgroundColor: color }]} /><ThemedText type="caption">{offlineReadyLabel(meta)}</ThemedText></View>
-    {meta.error || meta.status === 'running' || meta.status === 'updating' ? <View style={styles.feedback}>{meta.error ? <ThemedText type="caption">{meta.error}</ThemedText> : null}<Button size="sm" variant="ghost" onPress={() => void retryAccountBootstrap(meta.user_id).catch(() => undefined)}>Повторить</Button></View> : null}
+    {meta.error || meta.status === 'running' || meta.status === 'updating' || meta.status === 'partial' || meta.status === 'offline_waiting' ? <View style={styles.feedback}>{meta.error ? <ThemedText type="caption">{meta.error}</ThemedText> : null}<Button size="sm" variant="ghost" onPress={() => void (requestOfflineWork(meta.user_id, 'retry') ?? retryAccountBootstrap(meta.user_id)).catch(() => undefined)}>Повторить</Button></View> : null}
   </View>;
 }
 const styles = StyleSheet.create({ container: { gap: 4, flexShrink: 1, maxWidth: '100%' }, row: { flexDirection: 'row', alignItems: 'center', gap: 6 },

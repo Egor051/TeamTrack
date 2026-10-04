@@ -1,5 +1,5 @@
 import { getReadSession } from '@/lib/supabase/session';
-import { usesLocalReads, reportConnectivityFailure, reportConnectivitySuccess } from '@/lib/connectivity/state';
+import { usesLocalReads, reportConnectivityFailure, reportConnectivitySuccess, connectivityRequestEpoch } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError, isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 import { localCacheDriver } from './driver';
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
@@ -118,8 +118,9 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     catch { baseline = undefined; }
   }
   try {
+    const epoch = connectivityRequestEpoch();
     const value = await online();
-    reportConnectivitySuccess();
+    reportConnectivitySuccess(epoch);
     if (userId && await sessionUserId() === userId) {
       if (baseline !== undefined) await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline);
       if (options.projectId && options.clearProjectBlockOnSuccess) await removeCached(userId, `blocked:${options.projectId}`);

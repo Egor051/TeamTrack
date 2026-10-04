@@ -181,50 +181,35 @@ beforeEach(() => {
 });
 
 describe('Phase 5 offline replay', () => {
-  it('ready + actual focus/visibility events stay ready, while a pending mutation shows syncing then ready', async () => {
-    vi.useFakeTimers();
-    const windowEvents = new EventTarget(); const documentEvents = Object.assign(new EventTarget(), { visibilityState: 'visible' });
-    vi.stubGlobal('window', windowEvents); vi.stubGlobal('document', documentEvents);
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    const warning = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { SyncProvider } = await import('@/lib/local-cache/SyncProvider');
-    let renderer!: ReturnType<typeof create>;
-    try {
-      await act(async () => { renderer = create(createElement(SyncProvider, { children: 'app' })); });
-      await vi.advanceTimersByTimeAsync(250); state.updates = [];
-      windowEvents.dispatchEvent(new Event('focus')); await vi.advanceTimersByTimeAsync(250);
-      documentEvents.dispatchEvent(new Event('visibilitychange')); await vi.advanceTimersByTimeAsync(250);
-      expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(false);
-      state.operations = [operation(1, 'set_task_item_comment', { comment: 'Queued' })];
-      windowEvents.dispatchEvent(new Event('focus')); await vi.advanceTimersByTimeAsync(250);
-      expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(true);
-      expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
-      expect(state.operations).toEqual([]); expect(state.server.comment).toBe('Queued');
-    } finally {
-      await act(async () => { renderer?.unmount(); });
-      warning.mockRestore(); vi.useRealTimers(); vi.unstubAllGlobals();
-    }
+  it('foreground freshness passes stay quiet, while pending mutations advertise synchronization', async () => {
+    await syncPendingOperations('user-a', true); state.updates = [];
+    for (let i = 0; i < 3; i++) await syncPendingOperations('user-a', true);
+    expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(false);
+    state.operations = [operation(1, 'set_task_item_comment', { comment: 'Queued' })];
+    await syncPendingOperations('user-a', true);
+    expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(true);
+    expect(state.operations).toEqual([]); expect(state.server.comment).toBe('Queued');
   });
   it('background passes with an empty pull never advertise syncing', async () => {
     await syncPendingOperations('user-a', true);
     await syncPendingOperations('user-a', true);
     expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(false);
-    expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
+    expect((await import('@/lib/local-cache/runtime-state')).getOfflineRuntime('user-a').operations.sync).toMatchObject({ phase: 'settled', visible: false, progress: null });
   });
   it('pending writes advertise syncing and return to ready after reconciliation', async () => {
     state.operations = [operation(1, 'set_task_item_percentage', { percentage: 40 })];
     await syncPendingOperations('user-a', true);
     expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(true);
     expect(state.operations).toEqual([]);
-    expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
+    expect((await import('@/lib/local-cache/runtime-state')).getOfflineRuntime('user-a').operations.sync).toMatchObject({ phase: 'settled', visible: false, progress: null });
   });
-  it('a meaningful pull advertises syncing even without pending writes', async () => {
+  it('a meaningful background pull refreshes data without advertising synchronization', async () => {
     state.entries = [{ user_id: 'user-a', key: 'items:task:active', data: JSON.stringify([state.server]), last_synced_at: '', schema_version: 1 }];
     state.pulled = [{ cursor: 1, task_id: 'task', task_item_id: 'item', change_type: 'upsert', item: { ...state.server, sync_version: 11 } }];
     await syncPendingOperations('user-a', true);
-    expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(true);
+    expect(state.updates.some((patch) => patch.isSyncing === true)).toBe(false);
     expect(state.localCursor).toBe(1);
-    expect(state.updates.at(-1)).toMatchObject({ isSyncing: false });
+    expect((await import('@/lib/local-cache/runtime-state')).getOfflineRuntime('user-a').operations.sync).toMatchObject({ phase: 'settled', visible: false, progress: null });
   });
   it('automatically retries queued work after a config-fetch backoff expires', async () => {
     vi.useFakeTimers();

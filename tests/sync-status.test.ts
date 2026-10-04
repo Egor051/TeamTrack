@@ -7,6 +7,7 @@ vi.mock('@/lib/local-cache/outbox', () => ({ listPendingOperations: store.operat
 vi.mock('@/lib/local-cache/conflicts', () => ({ unresolvedConflicts: store.conflicts }));
 vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: { get: store.get } }));
 import { forgetSyncState, getSyncState, updateSyncState } from '@/lib/local-cache/status';
+import { reportBrowserConnectivity } from '@/lib/connectivity/state';
 
 beforeEach(() => {
   store.userId = 'user-a'; store.operations.mockResolvedValue([]); store.conflicts.mockResolvedValue([]); store.get.mockResolvedValue(null);
@@ -26,7 +27,8 @@ describe('unsynced operation lifecycle count', () => {
     expect((await getSyncState('user-a')).unsyncedCount).toBe(0);
   });
   it('keeps connectivity and pass activity separate from durable operation counts', async () => {
-    updateSyncState('user-a', { connectivity: 'offline', isSyncing: false });
+    reportBrowserConnectivity(false);
+    updateSyncState('user-a', { isSyncing: false });
     store.operations.mockResolvedValue([{ status: 'pending' }, { status: 'failed' }]);
     expect(await getSyncState('user-a')).toMatchObject({ connectivity: 'offline', unsyncedCount: 2, failedCount: 1 });
   });

@@ -3,6 +3,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { getBootstrapMetadata, subscribeBootstrap } from './bootstrap';
 import { initialBootstrap, type BootstrapMetadata } from './bootstrap-types';
 import { getUtcPlus3DayStart } from './day';
+import { subscribeOfflineRuntime } from './runtime-state';
 
 export function useOfflineBootstrap(): BootstrapMetadata | null {
   const { state } = useAuth();
@@ -25,7 +26,8 @@ export function useOfflineBootstrap(): BootstrapMetadata | null {
     };
     refreshAtMidnight();
     const cleanup = subscribeBootstrap((id) => { if (id === userId) load(); });
-    return () => { active = false; clearTimeout(dayTimer); cleanup(); };
+    const runtime = subscribeOfflineRuntime((id) => { if (id === userId || id === null) load(); });
+    return () => { active = false; clearTimeout(dayTimer); cleanup(); runtime(); };
   }, [userId]);
   return userId ? metadata?.user_id === userId ? metadata : initialBootstrap(userId) : null;
 }

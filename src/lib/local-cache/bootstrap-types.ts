@@ -12,6 +12,7 @@ export type AccountManifest = {
   datasets: Partial<Record<Dataset, DatasetVersion>>;
 };
 export type DatasetState = DatasetVersion & { offset: number; status: 'pending' | 'loading' | 'complete' | 'error' | 'skipped' | 'cancelled'; error?: string };
+export type SnapshotEvidence = { manifest: AccountManifest; models: string[]; batches?: Record<string, string> };
 export type BootstrapMetadata = {
   user_id: string; scheme: OfflineScheme; schema_version: number;
   status: 'not_started' | 'running' | 'updating' | 'ready' | 'partial' | 'offline_waiting' | 'error';
@@ -22,6 +23,7 @@ export type BootstrapMetadata = {
   lease: { owner: string; expires_at: number } | null;
   last_attempt_at?: number;
   retry?: { failures: number; next_retry_at: number; reason?: 'transport' | 'optional' } | null;
+  verified?: { basic: SnapshotEvidence | null; extended: SnapshotEvidence | null };
 };
 export function requiredDatasets(scheme: OfflineScheme): Dataset[] {
   return scheme === 'extended' ? [...BASIC_DATASETS, ...EXTENDED_DATASETS] : [...BASIC_DATASETS];
@@ -36,7 +38,7 @@ export function bootstrapProgress(meta: BootstrapMetadata): number {
   const names = requiredDatasets(meta.scheme);
   const completed = names.reduce((sum, name) => {
     const state = meta.datasets[name];
-    return sum + (!state ? 0 : ['complete', 'error', 'skipped', 'cancelled'].includes(state.status) ? 1 : state.count ? Math.min(1, state.offset / state.count) : 0);
+    return sum + (!state ? 0 : state.status === 'complete' ? 1 : state.count ? Math.min(1, state.offset / state.count) : 0);
   }, meta.assets_ready ? 1 : 0);
   // The final unit is verification of the committed read models.
   const verified = meta.scheme === 'basic' ? meta.basic_ready : meta.extended_ready;

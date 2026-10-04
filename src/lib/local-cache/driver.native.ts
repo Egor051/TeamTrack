@@ -24,7 +24,7 @@ function decodeConflict(row: { data: string }): SyncConflict { return JSON.parse
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let transactionQueue: Promise<void> = Promise.resolve();
 
-function exclusive(db: SQLite.SQLiteDatabase, action: (tx: SQLite.SQLiteDatabase) => Promise<void>): Promise<void> {
+function exclusiveBase(db: SQLite.SQLiteDatabase, action: (tx: SQLite.SQLiteDatabase) => Promise<void>): Promise<void> {
   const task = transactionQueue.then(() => db.withExclusiveTransactionAsync(action));
   transactionQueue = task.catch(() => undefined);
   return task;
@@ -91,7 +91,12 @@ function database(): Promise<SQLite.SQLiteDatabase> {
   return databasePromise;
 }
 
-export const localCacheDriver: LocalCacheDriver = {
+function operationDriver(parent?: AbortSignal): LocalCacheDriver {
+  const check = () => { if (parent?.aborted) throw Object.assign(new Error('Operation cancelled'), { name: 'AbortError' }); };
+  const exclusive = (db: SQLite.SQLiteDatabase, action: (tx: SQLite.SQLiteDatabase) => Promise<void>) =>
+    exclusiveBase(db, async (tx) => { check(); await action(tx); check(); });
+  return {
+  withOperation: operationDriver,
   async commitCacheBatch(userId, batch, removeKeys = [], guards = []) {
     if (batch.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
     const db = await database();
@@ -119,10 +124,10 @@ export const localCacheDriver: LocalCacheDriver = {
   },
   async put(entry) {
     const db = await database();
-    await db.runAsync(
+    await exclusive(db, async (tx) => { await tx.runAsync(
       'INSERT OR REPLACE INTO cache_entries (user_id, cache_key, data, last_synced_at, schema_version) VALUES (?, ?, ?, ?, ?)',
       [entry.user_id, entry.key, entry.data, entry.last_synced_at, entry.schema_version],
-    );
+    ); });
   },
   async putIfUnchanged(entry, expectedData) {
     const db = await database();
@@ -137,7 +142,7 @@ export const localCacheDriver: LocalCacheDriver = {
   },
   async remove(userId, key) {
     const db = await database();
-    await db.runAsync('DELETE FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, key]);
+    await exclusive(db, async (tx) => { await tx.runAsync('DELETE FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, key]); });
   },
   async listEntries(userId, prefix = '') {
     const db = await database();
@@ -188,10 +193,10 @@ export const localCacheDriver: LocalCacheDriver = {
   },
   async markOperation(userId, operationId, status, result, error) {
     const db = await database();
-    await db.runAsync(
+    await exclusive(db, async (tx) => { await tx.runAsync(
       'UPDATE pending_operations SET status = ?, server_result = ?, last_error = ? WHERE user_id = ? AND operation_id = ?',
       [status, result === undefined ? null : JSON.stringify(result), error ?? null, userId, operationId],
-    );
+    ); });
   },
   async acknowledgeOperation(userId, operationId, version, conflictId, item) {
     const db = await database();
@@ -271,7 +276,7 @@ export const localCacheDriver: LocalCacheDriver = {
   },
   async finishMineConflict(userId, conflictId) {
     const db = await database();
-    await db.runAsync('DELETE FROM sync_conflicts WHERE conflict_id = ? AND user_id = ?', [conflictId, userId]);
+    await exclusive(db, async (tx) => { await tx.runAsync('DELETE FROM sync_conflicts WHERE conflict_id = ? AND user_id = ?', [conflictId, userId]); });
   },
   async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
     const db = await database();
@@ -351,3 +356,5 @@ export const localCacheDriver: LocalCacheDriver = {
     });
   },
 };
+}
+export const localCacheDriver = operationDriver();

@@ -49,6 +49,14 @@ beforeEach(() => {
 });
 
 describe('SQLite outbox migration', () => {
+  it('rolls back a queued write when its operation was superseded', async () => {
+    const { localCacheDriver: driver } = await import('@/lib/local-cache/driver.native');
+    await driver.get('user-a', 'initialize');
+    const controller = new AbortController(); const scoped = driver.withOperation!(controller.signal);
+    const late = scoped.put({ user_id: 'user-a', key: 'late', data: '[1]', last_synced_at: '', schema_version: 1 });
+    controller.abort(); await expect(late).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await driver.get('user-a', 'late')).toBeNull();
+  });
   it('persists conflict and cursor through module restart with account isolation', async () => {
     const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
     await localCacheDriver.put({ user_id: 'user-a', key: 'items:task-1:active',

@@ -27,6 +27,13 @@ beforeEach(async () => {
 });
 
 describe('IndexedDB outbox', () => {
+  it('rejects writes from a superseded operation before opening a transaction', async () => {
+    const { localCacheDriver: driver } = await import('@/lib/local-cache/driver.web');
+    const controller = new AbortController(); const scoped = driver.withOperation!(controller.signal);
+    controller.abort();
+    await expect(scoped.put({ user_id: 'user-a', key: 'late', data: '[1]', last_synced_at: '', schema_version: 1 })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await driver.get('user-a', 'late')).toBeNull();
+  });
   it('commits snapshot and resume metadata atomically, rejects a stale lease and never changes the outbox', async () => {
     const { localCacheDriver: driver } = await import('@/lib/local-cache/driver.web');
     const entry = (key: string, data: string): CacheEntry => ({ user_id: 'user-a', key, data, last_synced_at: '2026-10-01', schema_version: 1 });

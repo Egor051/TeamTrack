@@ -1,5 +1,5 @@
 import { ConnectivityUnavailableError, isTransportFailure } from './errors';
-import { browserIsOffline, reportConnectivityFailure, reportConnectivitySuccess, usesLocalReads } from './state';
+import { browserIsOffline, reportConnectivityFailure, reportConnectivitySuccess, usesLocalReads, connectivityRequestEpoch } from './state';
 import { requestDeadline } from './deadline';
 let authRevalidations = 0;
 // Auth refresh retries span a 30s SDK tick. Recovery is background work and
@@ -23,11 +23,13 @@ function aborted(message: string): Error {
 export const connectivityFetch: typeof fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const authRecovery = authRevalidations > 0 && /\/auth\/v1\//.test(url);
+  const epoch = connectivityRequestEpoch();
   if (usesLocalReads() && (!authRecovery || browserIsOffline())) throw aborted(new ConnectivityUnavailableError().message);
   const deadline = authRecovery ? requestDeadline(5000) : null;
   try {
     const response = await fetch(input, deadline ? { ...init, signal: init?.signal ?? deadline.signal } : init);
-    if (response.ok && !authRecovery) reportConnectivitySuccess();
+    if (init?.signal?.aborted) throw aborted('Operation cancelled');
+    if (response.ok && !authRecovery) reportConnectivitySuccess(epoch);
     else if ([502, 503, 504].includes(response.status)) {
       let error: { status: number; code?: string; message?: string } = { status: response.status };
       try {
