@@ -10,6 +10,8 @@ import { BOOTSTRAP_REFRESH_MS, bootstrapDelay, cancelAccountBootstrap, getBootst
 import { cancelPendingSync, syncPendingOperations } from './sync';
 import { createOfflineCoordinator } from './coordinator';
 import { registerOfflineWork, requestOfflineWork } from './work-requests';
+import { getSyncState } from './status';
+import { subscribeReadModelCommits } from './read-model-events';
 
 export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -24,10 +26,18 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
       prepare: (mode, force) => mode === 'retry' ? retryAccountBootstrap(userId)
         : mode === 'resume' ? resumeAccountBootstrap(userId) : runAccountBootstrap(userId, force),
       sync: (force) => syncPendingOperations(userId, force),
+      syncNeeded: async () => {
+        const snapshot = await getSyncState(userId);
+        return snapshot.pendingCount > 0 || Boolean(snapshot.lastErrorKind && snapshot.lastErrorKind !== 'disabled');
+      },
       cancelPreparation: () => cancelAccountBootstrap(userId), cancelSync: () => cancelPendingSync(userId),
       delay: bootstrapDelay, refreshMs: BOOTSTRAP_REFRESH_MS, preloadEnabled: Platform.OS === 'web',
     });
     const registration = registerOfflineWork(userId, (reason) => coordinator.request(reason));
+    const readModels = subscribeReadModelCommits((commit) => {
+      if (commit.userId === userId && commit.source === 'read' && commit.keys.some((key) => key.startsWith('projects:') || key.startsWith('my-tasks:')))
+        void coordinator.request('invalidation');
+    });
     void coordinator.request('startup');
     const connectivity = subscribeConnectivity((next) => {
       if (next === 'online') void coordinator.request('reconnect'); else coordinator.networkLost();
@@ -57,7 +67,7 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
       document.addEventListener('visibilitychange', foreground);
     }
     return () => {
-      registration(); connectivity(); nativeNetwork(); realtime(); metadata(); appState.remove(); clearInterval(interval);
+      registration(); readModels(); connectivity(); nativeNetwork(); realtime(); metadata(); appState.remove(); clearInterval(interval);
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', foreground); window.removeEventListener('pageshow', foreground);
         document.removeEventListener('visibilitychange', foreground);

@@ -175,6 +175,22 @@ describe('account bootstrap', () => {
     const profile = (await driver.get(f.user, 'profile:self'))!; await driver.put({ ...profile, data: 'null' });
     expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
   });
+  it('authorized foreground reads may clear false access markers without invalidating a ready certificate', async () => {
+    const b = await run(); const cache = await import('@/lib/local-cache/cache');
+    await cache.reconcileVisibleProjects(f.user, [{ id: projectId }], [{ id: projectId }]);
+    await cache.reconcileVisibleTasks(f.user, [{ id: taskId }], [{ id: taskId }]);
+    expect(await stored(`blocked:${projectId}`)).toBeNull();
+    expect(await stored(`blocked-task:${taskId}`)).toBeNull();
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ status: 'ready', basic_ready: true, offline_ready: true });
+    f.rpc.mockClear(); await b.runAccountBootstrap(f.user);
+    expect(f.rpc).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('an explicit denial still invalidates readiness when its persisted marker is missing: %s', async (missing) => {
+    const b = await run(); const cache = await import('@/lib/local-cache/cache');
+    await cache.putCached(f.user, `blocked:${projectId}`, true);
+    if (missing) await (await import('@/lib/local-cache/driver')).localCacheDriver.remove(f.user, `blocked:${projectId}`);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: false, offline_ready: false });
+  });
   it('normalizes a legacy running operation before an expired daily snapshot returns', async () => {
     const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
     const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!;

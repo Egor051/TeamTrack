@@ -221,22 +221,33 @@ async function lifecycleRegressions(taskId) {
   check(metadata() === null, 'Preparation metadata was not cleared before offline start');
   browser('reload'); await has('Офлайн: ожидание сети');
   check(metadata()?.status === 'offline_waiting', 'Offline preparation did not settle');
-  // Hold exactly one real manifest response and ignore its abort signal. Retry
-  // must start a new generation while this original promise remains unresolved.
+  // Hold one manifest response. Refresh must join healthy live work until its
+  // deadline, then recover the incomplete cache; a late response stays fenced.
   browser('eval', `window.__held=false;window.__fetch=window.fetch;window.fetch=function(input,init){if(!window.__held&&String(input).includes('/rpc/get_offline_account_manifest')){window.__held=true;return new Promise(function(ok,no){window.__fetch(input,init).then(function(response){window.__late=function(){ok(response)}},no)})}return window.__fetch(input,init)};true`);
   browser('set', 'offline', 'off');
   await eventually(() => browser('eval', 'window.__held===true') === 'true', 'automatic resumed attempt');
   check(/Офлайн: (подготовка|обновление)/.test(body()), 'Automatic recovery did not start preparation');
   check(!['running','updating','recovering','syncing'].includes(metadata()?.status), 'Runtime preparation was persisted');
   browser('eval', 'window.fetch=window.__fetch;true');
-  browser('click', ref(browser('snapshot', '-i'), 'Повторить'));
+  check(!body().includes('Повторить'), 'A separate preparation Retry is still visible');
+  browser('click', ref(browser('snapshot', '-i'), 'button "Обновить"'));
   await has('Офлайн: готово'); await eventually(() => !metadata()?.lease, 'new retry finished');
   const ready = metadata().completed_at;
   browser('eval', 'if(window.__late)window.__late();true');
   check(metadata().status === 'ready' && metadata().completed_at === ready, 'Late old response overwrote the retry result');
-  console.log('PASS offline_waiting → automatic recovery, Retry supersedes hung attempt, late response cannot overwrite ready');
+  console.log('PASS automatic recovery, Refresh joins live work through deadline, late response cannot overwrite ready');
 
   await eventually(() => !metadata()?.lease && !body().includes('Синхронизация: в процессе'), 'idle ready state');
+  browser('eval', `window.__refreshRequests=[];window.__refreshFetch=window.fetch;window.fetch=function(input,init){window.__refreshRequests.push(String(input.url||input));return window.__refreshFetch(input,init)};true`);
+  browser('click', ref(browser('snapshot', '-i'), 'button "Обновить"'));
+  await eventually(() => browser('eval', `Array.from(document.querySelectorAll('[role="button"]')).some(function(el){return el.textContent==='Обновить'&&el.getAttribute('aria-busy')!=='true'&&el.getAttribute('aria-disabled')!=='true'})`) === 'true', 'fresh ready Refresh completed');
+  const refreshRequests = JSON.parse(browser('eval', 'window.__refreshRequests'));
+  browser('eval', 'window.fetch=window.__refreshFetch;true');
+  check(refreshRequests.some((url) => /\/rest\/v1\/projects\?/.test(url)), 'Refresh did not fetch current projects');
+  check(!refreshRequests.some((url) => /\/rpc\/(get_offline_account_manifest|get_offline_account_page|apply_task_item_(?:state|percentage|comment)_operation)/.test(url)), `Fresh-ready Refresh performed unnecessary background work: ${JSON.stringify(refreshRequests)}`);
+  check(metadata().completed_at === ready && !metadata().lease, 'Fresh-ready Refresh changed the preparation certificate');
+  browser('screenshot', resolve(root, '.expo/manual-refresh-projects.png'));
+  console.log('PASS fresh-ready Refresh fetches overview, skips account preload/mutations, retains readiness certificate');
   browser('eval', `window.__falseSync=[];window.__statusObserver=new MutationObserver(function(){if(document.body.innerText.includes('Синхронизация: в процессе'))window.__falseSync.push(Date.now())});window.__statusObserver.observe(document.body,{subtree:true,childList:true,characterData:true});window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));true`);
   const first = activeTabTarget(); browser('tab', 'new', base + '/projects'); await has('Офлайн: готово');
   const peer = activeTabTarget();

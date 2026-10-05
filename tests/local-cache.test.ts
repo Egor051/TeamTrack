@@ -29,6 +29,7 @@ import { getProject, getTask, listProjectTasks, listProjects } from '@/features/
 import { reportConnectivitySuccess } from '@/lib/connectivity/state';
 import { getCurrentUser } from '@/features/auth/auth';
 import { cacheAccessEpoch, confirmCacheAccess } from '@/lib/local-cache/access-state';
+import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 
 const networkError = { message: 'TypeError: Failed to fetch', status: 0, code: '' };
 const project = [{ id: 'project-1', name: 'Alpha' }];
@@ -60,6 +61,30 @@ beforeEach(() => {
 });
 
 describe('read-through cache', () => {
+  it('overview reordering does not invalidate fresh preparation; an actual project change does', async () => {
+    const changed = vi.fn(); const off = subscribeReadModelCommits(changed);
+    try {
+      await readThroughCache('projects:active', async () => [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }]);
+      changed.mockClear();
+      await readThroughCache('projects:active', async () => [{ name: 'B', id: 'p2' }, { name: 'A', id: 'p1' }]);
+      expect(changed).not.toHaveBeenCalled();
+      await readThroughCache('projects:active', async () => [{ id: 'p1', name: 'Changed' }, { id: 'p2', name: 'B' }]);
+      expect(changed).toHaveBeenCalledOnce();
+    } finally { off(); }
+  });
+  it('returns a newer committed snapshot when an older HTTP response loses CAS, without claiming offline', async () => {
+    const key = 'projects:active';
+    await readThroughCache(key, async () => [{ id: 'same', name: 'initial' }]);
+    let release!: (rows: { id: string; name: string }[]) => void;
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    const pending = readThroughCache(key, async () => { entered(); return new Promise<{ id: string; name: string }[]>((resolve) => { release = resolve; }); });
+    await started;
+    fixtures.records.set(`user-a:${key}`, { user_id: 'user-a', key, data: JSON.stringify([{ id: 'same', name: 'newer' }]), schema_version: 1 });
+    release([{ id: 'same', name: 'older' }]);
+    const rows = await pending;
+    expect(rows).toEqual([{ id: 'same', name: 'newer' }]);
+    expect(isCachedResult(rows)).toBe(false);
+  });
   it.each(['active', 'archived'] as const)('AUD-11: leaving the %s list through archive/restore does not revoke cache access', async (status) => {
     const projectId = '00000000-0000-4000-8000-000000000099';
     const saved = { id: projectId, name: 'Retained', role: 'owner', status };

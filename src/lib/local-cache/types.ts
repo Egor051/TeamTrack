@@ -79,7 +79,7 @@ export interface LocalCacheDriver {
   commitCacheBatch(userId: string, entries: CacheEntry[], removeKeys?: string[], guards?: { key: string; data: string | null }[], signal?: AbortSignal): Promise<boolean>;
   get(userId: string, key: string): Promise<CacheEntry | null>;
   put(entry: CacheEntry): Promise<void>;
-  putIfUnchanged(entry: CacheEntry, expectedData: string | null): Promise<void>;
+  putIfUnchanged(entry: CacheEntry, expectedData: string | null): Promise<boolean | void>;
   remove(userId: string, key: string): Promise<void>;
   listEntries(userId: string, prefix?: string): Promise<CacheEntry[]>;
   enqueue(operation: OfflineOperationInput): Promise<OfflineOperation>;

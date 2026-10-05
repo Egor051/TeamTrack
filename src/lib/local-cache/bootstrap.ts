@@ -11,7 +11,8 @@ import type { CacheEntry } from './types';
 import { getUtcPlus3DayStart } from './day';
 import { getOfflineRuntime, startRuntimeOperation, cancelRuntimeOperation, publishBootstrapFacts, subscribeOfflineRuntime, type OperationTicket } from './runtime-state';
 import { requestOfflineWork } from './work-requests';
-import { cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
+import { announceReadModelCommit } from './read-model-events';
+import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
 
 const PAGE_SIZE = 500;
 const LEASE_MS = 45_000;
@@ -240,7 +241,14 @@ async function verifyLocalReadiness(meta: BootstrapMetadata): Promise<Pick<Boots
       const expected = accountReadModels(meta.user_id, rows, manifest, entries.filter((e) => e.key.startsWith('items:')));
       if (certificate && expected.some((entry) => !certificate.models.includes(entry.key))) return false;
       return expected.every((entry) => {
-        const value = stored.get(entry.key); if (!value) return false;
+        const value = stored.get(entry.key);
+        // Authorized foreground reads clear negative-access markers. Missing
+        // `blocked=false` is equivalent to false, while a denial remains binding.
+        if (/^blocked(?:-task)?:/.test(entry.key)) {
+          if (cacheAccessDecision(meta.user_id, entry.key) === true) return false;
+          if (!value && entry.data === 'false') return true;
+        }
+        if (!value) return false;
         return modelCovers(JSON.parse(value.data), JSON.parse(entry.data));
       });
     } catch { return false; }
@@ -412,6 +420,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
               await save(committed, removed, guards);
               for (const entry of committed) snapshotBaseline.set(entry.key, entry.data);
               for (const entry of committed) if (/^blocked(?:-task)?:/.test(entry.key) && entry.data === 'false') confirmCacheAccess(userId, entry.key, accessBaseline);
+              announceReadModelCommit(userId, committed.map((entry) => entry.key), 'preparation');
               break;
             } catch (error) {
               meta.verified = previousEvidence; await ensureActive();

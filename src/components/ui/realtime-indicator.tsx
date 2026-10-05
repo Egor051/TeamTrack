@@ -22,11 +22,11 @@ export function compactSyncStatus(status: RealtimeStatus, snapshot: SyncState | 
   else if (count) { label = 'ожидает'; tone = 'warning'; }
   else if (snapshot?.lastErrorKind && snapshot.lastErrorKind !== 'disabled') { label = 'ошибка'; tone = 'destructive'; }
   else if (snapshot?.connectivity === 'unknown') { label = 'подключение...'; tone = 'warning'; }
+  else if (status === 'error') { label = 'автообновление недоступно'; tone = 'warning'; }
+  else if (status === 'reconnecting' || status === 'disconnected') { label = 'переподключение...'; tone = 'warning'; }
   else if (snapshot?.connectivity === 'online') { label = 'подключено'; tone = 'success'; }
   else if (!snapshot && status === 'connected') { label = 'подключение...'; tone = 'warning'; }
   else if (status === 'connecting') { label = 'подключение...'; tone = 'warning'; }
-  else if (status === 'reconnecting' || status === 'disconnected') { label = 'переподключение...'; tone = 'warning'; }
-  else if (status === 'error') { label = 'ошибка'; tone = 'destructive'; }
   else { label = 'подключено'; tone = 'success'; }
   return { text: `Синхронизация: ${label}${count ? ` · ${count} несинхр.` : ''}`, tone };
 }
@@ -108,7 +108,7 @@ export function RealtimeIndicator({ status }: { status: RealtimeStatus }) {
       {hasReadError && <ThemedText type="small">Не удалось прочитать состояние синхронизации на устройстве.</ThemedText>}
       {failed && <><ThemedText type="small">{failedReason(failed)}</ThemedText>
         <View style={styles.actions}>
-          <Button size="sm" disabled={busy} onPress={() => void retry()}>Повторить</Button>
+          <Button size="sm" disabled={busy} onPress={() => void retry()}>Отправить изменение снова</Button>
           <Button size="sm" variant="outline" disabled={busy} onPress={discard}>Отменить локальное изменение</Button>
         </View></>}
       {error && <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.destructive }}>{error}</ThemedText>}

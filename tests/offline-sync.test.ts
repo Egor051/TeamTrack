@@ -253,6 +253,15 @@ describe('Phase 5 offline replay', () => {
     expect(state.calls).toEqual([]);
     expect(state.operations[0].status).toBe('failed');
   });
+
+  it.each(['failed', 'conflict'] as const)('manual sync preserves %s mutations without sending them again', async (status) => {
+    state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'Local' }), status }];
+    const retained = structuredClone(state.operations);
+    for (let refresh = 0; refresh < 2; refresh += 1)
+      expect(await syncPendingOperations('user-a', true)).toMatchObject({ outcome: 'blocked' });
+    expect(state.calls).toEqual([]); expect(state.sideEffects).toBe(0);
+    expect(state.operations).toEqual(retained);
+  });
   it('replays a server change committed during initial cache bootstrap', async () => {
     state.localCursor = null;
     state.entries = [{ user_id: 'user-a', key: 'items:task:active',

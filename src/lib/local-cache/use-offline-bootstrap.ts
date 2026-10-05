@@ -3,7 +3,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { getBootstrapMetadata, subscribeBootstrap } from './bootstrap';
 import { initialBootstrap, type BootstrapMetadata } from './bootstrap-types';
 import { getUtcPlus3DayStart } from './day';
-import { subscribeOfflineRuntime } from './runtime-state';
+import { getOfflineRuntime, subscribeOfflineRuntime } from './runtime-state';
 
 export function useOfflineBootstrap(): BootstrapMetadata | null {
   const { state } = useAuth();
@@ -26,8 +26,14 @@ export function useOfflineBootstrap(): BootstrapMetadata | null {
     };
     refreshAtMidnight();
     const cleanup = subscribeBootstrap((id) => { if (id === userId) load(); });
-    const runtime = subscribeOfflineRuntime((id) => { if (id === userId || id === null) load(); });
+    let pipeline = JSON.stringify(getOfflineRuntime(userId).operations.pipeline ?? null);
+    const runtime = subscribeOfflineRuntime((id) => {
+      if (id === null) { load(); return; }
+      if (id !== userId) return;
+      const next = JSON.stringify(getOfflineRuntime(userId).operations.pipeline ?? null);
+      if (pipeline !== next) { pipeline = next; load(); }
+    });
     return () => { active = false; clearTimeout(dayTimer); cleanup(); runtime(); };
   }, [userId]);
-  return userId ? metadata?.user_id === userId ? metadata : initialBootstrap(userId) : null;
+  return userId ? metadata?.user_id === userId ? metadata : { ...initialBootstrap(userId), status: 'checking' } : null;
 }

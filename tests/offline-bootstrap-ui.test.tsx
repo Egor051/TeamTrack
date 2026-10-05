@@ -43,12 +43,14 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => { renderers.splice(0).forEach((r) => r.unmount()); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe('offline UX', () => {
-  it('Retry invokes a new attempt and remains available while the old attempt is running', async () => {
+  it('preparation remains informational while running and exposes no separate Retry', async () => {
     f.meta = { ...initialBootstrap('user-a'), status: 'running', progress: 94 };
     f.retry.mockResolvedValue('settled');
     const r = await render(OfflineReadyIndicator);
-    await act(async () => { r.root.findByProps({ size: 'sm', variant: 'ghost' }).props.onPress(); });
-    expect(f.retry).toHaveBeenCalledWith('user-a');
+    expect(r.root.findAll((node) => node.type as unknown === 'Button')).toHaveLength(0);
+    expect(body(r)).not.toContain('Повторить');
+    expect(f.retry).not.toHaveBeenCalled();
+    expect(offlineReadyLabel({ ...f.meta, status: 'checking' })).toBe('Офлайн: проверяем сохранённые данные');
     expect(offlineReadyLabel({ ...f.meta, status: 'offline_waiting' })).toBe('Офлайн: ожидание сети');
     expect(offlineReadyLabel({ ...f.meta, status: 'ready', scheme: 'extended', offline_ready: true, basic_ready: true, extended_ready: false }))
       .toBe('Офлайн: базовые данные готовы');

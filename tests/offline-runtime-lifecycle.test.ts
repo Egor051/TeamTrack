@@ -141,7 +141,7 @@ describe('one recovery pipeline', () => {
     expect(meta.extended_ready).toBe(true); expect(deps.prepare).toHaveBeenCalledOnce();
   });
   it('startup checks sync capabilities immediately even when preparation has a durable backoff', async () => {
-    ready(); deps.delay = () => 30_000;
+    ready(); meta.retry = { failures: 1, next_retry_at: Date.now() + 30_000 }; deps.delay = () => 30_000;
     coordinator = createOfflineCoordinator('a', deps); await coordinator.request('startup'); await tick();
     expect(deps.sync).toHaveBeenCalledWith(true); expect(deps.prepare).not.toHaveBeenCalled();
     expect(getOfflineRuntime('a').operations.pipeline).toMatchObject({ phase: 'settled', outcome: 'partial' });

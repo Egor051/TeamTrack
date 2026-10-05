@@ -12,15 +12,15 @@ import { hasMeaningfulPull, validSyncVersion } from './pull-cache';
 import { RUNTIME_CONFIG_TTL_MS, runtimeCapabilities } from './runtime-config';
 import { markSuccessfulSync, notifySyncState, updateSyncState } from './status';
 import type { OfflineOperation, PullChange, ReconciledItem, SyncConflict, LocalCacheDriver } from './types';
-import { startRuntimeOperation, cancelRuntimeOperation, type OperationTicket } from './runtime-state';
-import { requestOfflineWork } from './work-requests';
+import { startRuntimeOperation, cancelRuntimeOperation, getOfflineRuntime, type OperationTicket } from './runtime-state';
+import { requestOfflineWork, type SyncResult } from './work-requests';
 import { reconciledKeys } from './reconcile';
 import { denyCacheAccess } from './access-state';
 
 type V2Result = { status: 'applied' | 'conflict'; version: number; item: ReconciledItem };
 type PullPage = { changes: PullChange[]; next_cursor: number; has_more: boolean } | { reset_required: true; retained_after_cursor: number };
 
-const inFlight = new Map<string, Promise<void>>();
+const inFlight = new Map<string, Promise<SyncResult>>();
 const syncTickets = new Map<string, OperationTicket>();
 const rerunRequested = new Set<string>();
 const backoff = new Map<string, { failures: number; until: number }>();
@@ -367,24 +367,31 @@ async function coordinatedRun(userId: string, ctx: SyncContext): Promise<boolean
   return run(userId, ctx);
 }
 
-export function syncPendingOperations(userId: string, manual = false): Promise<void> {
-  if (!offlineSyncEnabled()) return Promise.resolve();
+export function syncPendingOperations(userId: string, manual = false): Promise<SyncResult> {
+  if (!offlineSyncEnabled()) return Promise.resolve({ outcome: 'disabled', error: null });
   const existing = inFlight.get(userId);
   if (existing) return existing;
   if (!manual && Date.now() < (backoff.get(userId)?.until ?? 0)) {
     scheduleRetry(userId, backoff.get(userId)!.until);
-    return Promise.resolve();
+    return Promise.resolve({ outcome: 'partial', error: getOfflineRuntime(userId).syncError });
   }
   const ticket = startRuntimeOperation(userId, 'sync', 'refresh', 5 * 60_000);
   syncTickets.set(userId, ticket);
   const ctx = syncContext(ticket);
+  const result: SyncResult = { outcome: 'partial', error: null };
   const task = boundedOperation(async () => {
     updateSyncState(userId, { lastErrorKind: null }, ticket);
     try {
       const succeeded = await coordinatedRun(userId, ctx);
-      if (succeeded) { backoff.delete(userId); clearRetry(userId); }
+      if (succeeded) { result.outcome = 'success'; backoff.delete(userId); clearRetry(userId); }
       else if (await ctx.wait(() => sameUser(userId))) {
         const operations = await ctx.wait(() => listPendingOperations(userId));
+        const conflicts = await ctx.wait(() => unresolvedConflicts(userId));
+        const error = getOfflineRuntime(userId).syncError;
+        result.outcome = usesLocalReads() ? 'waiting-network' : operations.some((row) => row.status === 'failed' || row.status === 'conflict')
+          || conflicts.length ? 'blocked' : error === 'disabled' ? 'disabled' : 'partial';
+        result.error = error === 'config-unavailable' ? 'Не удалось проверить доступность синхронизации.'
+          : error === 'auth' ? 'Требуется авторизация.' : null;
         if (operations.some((row) => row.status === 'pending' || row.status === 'synced_unreconciled')
           && !operations.some((row) => row.status === 'failed' || row.status === 'conflict')
           && !(await ctx.wait(() => unresolvedConflicts(userId))).length)
@@ -405,12 +412,12 @@ export function syncPendingOperations(userId: string, manual = false): Promise<v
       ticket.finish(usesLocalReads() ? 'waiting-network' : 'success');
     }
   }, 5 * 60_000, ticket.signal).catch((error) => {
-    if (ticket.signal.aborted) return;
+    if (ticket.signal.aborted) { result.outcome = 'partial'; return; }
     ticket.finish('error', error instanceof Error ? error.message : 'Sync failed'); throw error;
   }).finally(() => {
     if (inFlight.get(userId) === task) inFlight.delete(userId);
     if (syncTickets.get(userId) === ticket) syncTickets.delete(userId);
-  });
+  }).then(() => result);
   inFlight.set(userId, task);
   return task;
 }
@@ -431,7 +438,8 @@ export async function chooseMine(userId: string, conflictId: string): Promise<vo
   await localCacheDriver.rebaseConflict(userId, conflictId, conflict.server_version);
   const ticket = startRuntimeOperation(userId, 'sync', 'synchronization', 5 * 60_000, true);
   syncTickets.set(userId, ticket);
-  const task = boundedOperation(() => run(userId, syncContext(ticket), conflict), 5 * 60_000, ticket.signal).then(() => undefined);
+  const task = boundedOperation(() => run(userId, syncContext(ticket), conflict), 5 * 60_000, ticket.signal)
+    .then((succeeded): SyncResult => ({ outcome: succeeded ? 'success' : 'blocked', error: null }));
   inFlight.set(userId, task);
   try { await task; } finally {
     ticket.finish('partial');

@@ -15,7 +15,7 @@ export type DatasetState = DatasetVersion & { offset: number; status: 'pending' 
 export type SnapshotEvidence = { manifest: AccountManifest; models: string[]; batches?: Record<string, string> };
 export type BootstrapMetadata = {
   user_id: string; scheme: OfflineScheme; schema_version: number;
-  status: 'not_started' | 'running' | 'updating' | 'ready' | 'partial' | 'offline_waiting' | 'error';
+  status: 'checking' | 'not_started' | 'running' | 'updating' | 'ready' | 'partial' | 'offline_waiting' | 'error';
   started_at: string | null; completed_at: string | null; last_successful_sync_at: string | null;
   progress: number; offline_ready: boolean; error: string | null;
   manifest: AccountManifest | null; datasets: Partial<Record<Dataset, DatasetState>>;

@@ -131,6 +131,7 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
   },
   async putIfUnchanged(entry, expectedData) {
     const db = await database();
+    let committed = false;
     await exclusive(db, async (tx) => {
       const current = await tx.getFirstAsync<{ data: string }>(
         'SELECT data FROM cache_entries WHERE user_id = ? AND cache_key = ?', [entry.user_id, entry.key],
@@ -138,7 +139,9 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
       if ((current?.data ?? null) !== expectedData) return;
       await tx.runAsync('INSERT OR REPLACE INTO cache_entries (user_id, cache_key, data, last_synced_at, schema_version) VALUES (?, ?, ?, ?, ?)',
         [entry.user_id, entry.key, entry.data, entry.last_synced_at, entry.schema_version]);
+      committed = true;
     });
+    return committed;
   },
   async remove(userId, key) {
     const db = await database();

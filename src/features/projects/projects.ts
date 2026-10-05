@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/features/auth/auth';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/client';
 import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
-import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, isTransportFailure, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
+import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, isSupersededResult, isTransportFailure, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
 import { applyPendingOperations, listPendingOperations } from '@/lib/local-cache/outbox';
 import { buildSyncEnabled } from '@/lib/local-cache/runtime-config';
 import { ChecklistLocalRepository } from '@/lib/local-cache/repository';
@@ -106,7 +106,7 @@ export async function listProjects(status: 'active' | 'archived' = 'active'): Pr
     // Absence from a status tab is not evidence of lost membership.
     visible = await listProjectsOnline(); return visible.filter((project) => project.status === status);
   }, { filterCached: filterBlockedProjects });
-  if (!isCachedResult(projects) && userId && await activeCacheUserId() === userId) {
+  if (!isCachedResult(projects) && !isSupersededResult(projects) && userId && await activeCacheUserId() === userId) {
     await reconcileVisibleProjects(userId, previous ?? [], visible ?? projects, accessBaseline);
     return filterBlockedProjects(userId, projects);
   }
@@ -188,7 +188,7 @@ export async function listProjectTasks(projectId: string): Promise<Task[]> {
   const userId = await activeCacheUserId();
   const previous = userId ? await getCached<Task[]>(userId, `tasks:${projectId}`) : null;
   const tasks = await readThroughCache(`tasks:${projectId}`, () => fetchAll<Task>((from, to) => supabase.from('tasks').select('*').eq('project_id', projectId).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)), { projectId, filterCached: filterBlockedTasks });
-  if (!isCachedResult(tasks) && userId && await activeCacheUserId() === userId) {
+  if (!isCachedResult(tasks) && !isSupersededResult(tasks) && userId && await activeCacheUserId() === userId) {
     await reconcileVisibleTasks(userId, previous ?? [], tasks, accessBaseline);
     return filterBlockedTasks(userId, tasks);
   }

@@ -110,12 +110,13 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
     store.put(entry, entryKey(entry.user_id, entry.key));
     resolve();
   }),
-  putIfUnchanged: (entry, expectedData) => transact<void>('readwrite', (store, resolve) => {
+  putIfUnchanged: (entry, expectedData) => transact<boolean>('readwrite', (store, resolve) => {
     const key = entryKey(entry.user_id, entry.key);
     const request = store.get(key);
     request.onsuccess = () => {
-      if (((request.result as CacheEntry | undefined)?.data ?? null) === expectedData) store.put(entry, key);
-      resolve();
+      const unchanged = ((request.result as CacheEntry | undefined)?.data ?? null) === expectedData;
+      if (unchanged) store.put(entry, key);
+      resolve(unchanged);
     };
   }),
   remove: (userId, key) => transact<void>('readwrite', (store, resolve) => {

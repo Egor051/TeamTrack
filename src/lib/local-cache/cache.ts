@@ -5,9 +5,14 @@ import { localCacheDriver } from './driver';
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
 import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
+import { announceReadModelCommit, overviewReadModelChanged } from './read-model-events';
 export { isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 
 const cachedResults = new WeakSet<object>();
+const supersededResults = new WeakSet<object>();
+export function isSupersededResult(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && supersededResults.has(value);
+}
 
 export function isCachedResult(value: unknown): boolean {
   return value !== null && typeof value === 'object' && cachedResults.has(value);
@@ -78,15 +83,22 @@ export async function putCached<T>(userId: string, key: string, value: T): Promi
   }
 }
 
-async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, expectedData: string | null): Promise<void> {
+async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, expectedData: string | null): Promise<{ newer: T } | null> {
   try {
-    await localCacheDriver.putIfUnchanged({
-      user_id: userId, key, data: JSON.stringify(value),
+    const data = JSON.stringify(value);
+    const committed = await localCacheDriver.putIfUnchanged({
+      user_id: userId, key, data,
       last_synced_at: new Date().toISOString(), schema_version: LOCAL_CACHE_SCHEMA_VERSION,
     }, expectedData);
+    const current = await localCacheDriver.get(userId, key);
+    if ((committed === false || current?.data !== data) && current?.user_id === userId && current.schema_version === LOCAL_CACHE_SCHEMA_VERSION)
+      return { newer: JSON.parse(current.data) as T };
+    if (committed !== false && current?.data === data && /^(projects:|my-tasks:)/.test(key) && overviewReadModelChanged(expectedData, data))
+      announceReadModelCommit(userId, [key], 'read');
   } catch (error) {
     logCacheError('conditional write', error);
   }
+  return null;
 }
 
 async function removeCached(userId: string, key: string): Promise<void> {
@@ -142,11 +154,18 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     if (userId && await sessionUserId() === userId) {
       if (accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline)))
         throw new ResourceAccessDeniedError('Доступ был отозван во время загрузки.');
-      if (baseline !== undefined) await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline);
+      const replacement = baseline !== undefined ? await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline) : null;
       confirmCacheAccess(userId, `cache:${key}`, accessBaseline);
       if (options.projectId && options.clearProjectBlockOnSuccess && confirmCacheAccess(userId, `blocked:${options.projectId}`, accessBaseline)) await removeCached(userId, `blocked:${options.projectId}`);
       if (options.taskId && options.clearTaskBlockOnSuccess && confirmCacheAccess(userId, `blocked-task:${options.taskId}`, accessBaseline)) await removeCached(userId, `blocked-task:${options.taskId}`);
       if (accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline))) throw new ResourceAccessDeniedError('Доступ был отозван во время загрузки.');
+      if (replacement) {
+        const latest = options.filterCached ? await options.filterCached(userId, replacement.newer) : replacement.newer;
+        if (await sessionUserId() !== userId) throw new ResourceAccessDeniedError('Сеанс изменился во время загрузки.');
+        if (accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline))) throw new ResourceAccessDeniedError('Доступ был отозван во время загрузки.');
+        if (latest !== null && typeof latest === 'object') supersededResults.add(latest);
+        return latest;
+      }
     }
     return value;
   } catch (error) {

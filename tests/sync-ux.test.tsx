@@ -201,7 +201,9 @@ describe('compact sync status and non-blocking failed actions', () => {
     snapshot.failedCount = 0; expect(compactSyncStatus('reconnecting', snapshot).text).toContain('офлайн');
     snapshot.connectivity = 'online'; expect(compactSyncStatus('reconnecting', snapshot).text).toContain('в процессе');
     snapshot.isSyncing = false; expect(compactSyncStatus('reconnecting', snapshot).text).toContain('ожидает');
-    snapshot.unsyncedCount = 0; expect(compactSyncStatus('reconnecting', snapshot).text).toBe('Синхронизация: подключено');
+    snapshot.unsyncedCount = 0; expect(compactSyncStatus('reconnecting', snapshot).text).toBe('Синхронизация: переподключение...');
+    expect(compactSyncStatus('error', snapshot).text).toBe('Синхронизация: автообновление недоступно');
+    expect(compactSyncStatus('connected', snapshot).text).toBe('Синхронизация: подключено');
   });
   it('does not treat a connected Realtime channel as an acknowledged offline operation', () => {
     expect(compactSyncStatus('connected', { ...clean, unsyncedCount: 1 }).text).toBe('Синхронизация: ожидает · 1 несинхр.');
@@ -214,7 +216,7 @@ describe('compact sync status and non-blocking failed actions', () => {
     expect(body(renderer)).not.toContain('Отменить локальное изменение');
     await act(async () => { renderer.root.findByProps({ accessibilityRole: 'button' }).props.onPress(); });
     expect(blocked(renderer)).toBe(false); expect(body(renderer)).toContain('Отменить локальное изменение');
-    await press(renderer, 'Повторить'); expect(mocks.retry).toHaveBeenCalledWith('user-a', 'op-a');
+    await press(renderer, 'Отправить изменение снова'); expect(mocks.retry).toHaveBeenCalledWith('user-a', 'op-a');
     testWindow.confirm.mockReturnValueOnce(false);
     await press(renderer, 'Отменить локальное изменение'); expect(mocks.discard).not.toHaveBeenCalled();
     await press(renderer, 'Отменить локальное изменение'); expect(mocks.discard).toHaveBeenCalledWith('user-a', 'op-a');

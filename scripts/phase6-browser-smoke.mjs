@@ -334,11 +334,11 @@ try {
   check(!memberBrowser('get', 'text', 'body').includes('Обнаружен конфликт синхронизации'), 'Failed operation opened a false conflict');
   if (uxOnly) {
     memberBrowser('set', 'viewport', '390', '844');
-    check(memberBrowser('eval', 'Array.from(document.querySelectorAll(\'[role="button"]\')).filter(function(el) { return ["Повторить", "Отменить локальное изменение"].includes(el.textContent); }).every(function(el) { var rect = el.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; })') === 'true',
+    check(memberBrowser('eval', 'Array.from(document.querySelectorAll(\'[role="button"]\')).filter(function(el) { return ["Отправить изменение снова", "Отменить локальное изменение"].includes(el.textContent); }).every(function(el) { var rect = el.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; })') === 'true',
       'Failed actions overflow the narrow viewport');
     memberBrowser('screenshot', resolve(root, '.expo/sync-ux-failed.png'));
   }
-  memberBrowser('click', ref(memberBrowser('snapshot', '-i'), 'button "Повторить"'));
+  memberBrowser('click', ref(memberBrowser('snapshot', '-i'), 'button "Отправить изменение снова"'));
   await eventually(async () => await percentage(fixture.itemId) === 100
     && memberBrowser('get', 'text', 'body').includes('Синхронизация: подключено'), 'failed operation retry', 40_000);
   memberBrowser('open', taskUrl);
