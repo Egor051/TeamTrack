@@ -27,11 +27,16 @@ vi.mock('@/lib/local-cache/driver', () => ({
 import { filterBlockedProjects, isCachedResult, readThroughCache } from '@/lib/local-cache/cache';
 import { getProject, getTask, listProjectTasks, listProjects } from '@/features/projects/projects';
 import { reportConnectivitySuccess } from '@/lib/connectivity/state';
+import { getCurrentUser } from '@/features/auth/auth';
+import { cacheAccessEpoch, confirmCacheAccess } from '@/lib/local-cache/access-state';
 
 const networkError = { message: 'TypeError: Failed to fetch', status: 0, code: '' };
 const project = [{ id: 'project-1', name: 'Alpha' }];
 
 beforeEach(() => {
+  // Each fixture starts with independent confirmed permissions.
+  for (const key of ['blocked:project-1', 'blocked:00000000-0000-4000-8000-000000000002', 'blocked-task:00000000-0000-4000-8000-000000000001'])
+    confirmCacheAccess('user-a', key, cacheAccessEpoch());
   fixtures.records.clear();
   fixtures.userId = 'user-a';
   fixtures.writeFails = false;
@@ -55,6 +60,25 @@ beforeEach(() => {
 });
 
 describe('read-through cache', () => {
+  it.each(['active', 'archived'] as const)('AUD-11: leaving the %s list through archive/restore does not revoke cache access', async (status) => {
+    const projectId = '00000000-0000-4000-8000-000000000099';
+    const saved = { id: projectId, name: 'Retained', role: 'owner', status };
+    await readThroughCache(`projects:${status}`, async () => [saved]);
+    await readThroughCache(`project:${projectId}`, async () => saved);
+    vi.mocked(getCurrentUser).mockResolvedValue({ data: { user: { id: 'user-a' } }, error: null } as Awaited<ReturnType<typeof getCurrentUser>>);
+    fixtures.from.mockImplementation((table: string) => {
+      const row = { ...saved, status: status === 'active' ? 'archived' : 'active' };
+      let statusFilter: string | undefined;
+      const query = { select: () => query, order: () => query, range: () => query, in: () => query,
+        eq: (key: string, value: string) => { if (key === 'status') statusFilter = value; return query; }, then: (resolve: (value: unknown) => void) => Promise.resolve({ data: table === 'projects'
+          ? statusFilter && statusFilter !== row.status ? [] : [row] : [{ project_id: projectId, role: 'owner' }], error: null }).then(resolve) };
+      return query;
+    });
+    await listProjects(status);
+    const detail = { select: () => detail, eq: () => detail, maybeSingle: async () => ({ data: null, error: networkError }) };
+    fixtures.from.mockReturnValue(detail);
+    expect(await getProject(projectId)).toEqual(saved);
+  });
   it('returns server data and saves it with user and freshness metadata', async () => {
     const result = await readThroughCache('projects:active', async () => project);
     expect(result).toBe(project);

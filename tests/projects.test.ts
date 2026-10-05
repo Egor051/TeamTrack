@@ -4,7 +4,7 @@ const { supabase } = vi.hoisted(() => ({ supabase: { from: vi.fn() } }));
 vi.mock('@/lib/supabase/client', () => ({ supabase }));
 vi.mock('@/features/auth/auth', () => ({ getCurrentUser: vi.fn() }));
 
-import { getTask, listOwnedProjects } from '@/features/projects/projects';
+import { getTask, listOwnedProjects, listTaskAudit } from '@/features/projects/projects';
 import { getCurrentUser } from '@/features/auth/auth';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import { userMessage } from '@/lib/errors/user-message';
@@ -12,6 +12,20 @@ import { userMessage } from '@/lib/errors/user-message';
 const taskId = '00000000-0000-4000-8000-000000000001';
 const projectId = '00000000-0000-4000-8000-000000000002';
 const userId = '00000000-0000-4000-8000-000000000003';
+
+it('AUD-02: online history includes deleted-item snapshots and earlier audit events', async () => {
+  const rows = [{ id: 1, project_id: projectId, entity_type: 'task_item', entity_id: 'deleted-item', action: 'updated', old_data: { percentage: 0 }, new_data: { percentage: 50 }, created_at: new Date().toISOString() },
+    { id: 2, project_id: projectId, entity_type: 'task_item', entity_id: 'deleted-item', action: 'removed', old_data: { task_id: taskId }, new_data: null, created_at: new Date().toISOString() }];
+  supabase.from.mockImplementation((table: string) => {
+    let ids: string[] | null = null; let snapshots = false;
+    const query = { select: () => query, eq: () => query, order: () => query, range: () => query,
+      in: (_key: string, value: string[]) => { ids = value; return query; }, or: () => { snapshots = true; return query; },
+      maybeSingle: async () => ({ data: { id: taskId }, error: null }),
+      then: (resolve: (value: unknown) => void) => Promise.resolve({ data: table === 'task_items' ? [] : snapshots ? [rows[1]] : rows.filter((row) => ids?.includes(row.entity_id)), error: null }).then(resolve) };
+    return query;
+  });
+  expect((await listTaskAudit(projectId, taskId)).map((row) => row.id).sort()).toEqual([1, 2]);
+});
 
 function taskQuery(result: { data: unknown; error: { message: string } | null }) {
   const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue(result) };

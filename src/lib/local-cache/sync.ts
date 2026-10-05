@@ -14,6 +14,8 @@ import { markSuccessfulSync, notifySyncState, updateSyncState } from './status';
 import type { OfflineOperation, PullChange, ReconciledItem, SyncConflict, LocalCacheDriver } from './types';
 import { startRuntimeOperation, cancelRuntimeOperation, type OperationTicket } from './runtime-state';
 import { requestOfflineWork } from './work-requests';
+import { reconciledKeys } from './reconcile';
+import { denyCacheAccess } from './access-state';
 
 type V2Result = { status: 'applied' | 'conflict'; version: number; item: ReconciledItem };
 type PullPage = { changes: PullChange[]; next_cursor: number; has_more: boolean } | { reset_required: true; retained_after_cursor: number };
@@ -129,7 +131,7 @@ async function taskSnapshot(client: SupabaseClient<Database>, taskId: string, ct
   const rows: ReconciledItem[] = [];
   for (let from = 0; ; from += 500) {
     const { data, error } = await syncRead(client.from('task_items').select('*').eq('task_id', taskId)
-      .eq('is_archived', false).order('position').order('id').range(from, from + 499), ctx);
+      .order('position').order('id').range(from, from + 499), ctx);
     if (error) throw error;
     rows.push(...(data ?? []));
     if (!data || data.length < 500) break;
@@ -139,11 +141,25 @@ async function taskSnapshot(client: SupabaseClient<Database>, taskId: string, ct
 
 async function reconcile(client: SupabaseClient<Database>, operation: OfflineOperation, ctx: SyncContext): Promise<void> {
   if (!await ctx.wait(() => sameUser(operation.user_id))) throw new Error('Session changed');
+  const before = await ctx.storage.listEntries(operation.user_id);
+  const guards = [...reconciledKeys(operation), 'sync:task-items:cursor'].map((key) => ({ key, data: before.find((entry) => entry.key === key)?.data ?? null }));
+  const access = await syncRead(client.from('tasks').select('id').eq('id', operation.task_id).maybeSingle(), ctx);
+  if (access.error) throw access.error;
+  if (!access.data) {
+    denyCacheAccess(operation.user_id, `blocked-task:${operation.task_id}`);
+    await ctx.storage.put({ user_id: operation.user_id, key: `blocked-task:${operation.task_id}`, data: 'true', last_synced_at: new Date().toISOString(), schema_version: 1 });
+    await ctx.storage.reconcileOperation(operation.user_id, operation.operation_id, null, null, guards);
+    announceSyncChange(operation.user_id);
+    return;
+  }
   const snapshot = await taskSnapshot(client, operation.task_id, ctx);
-  const item = snapshot.find((row) => row.id === operation.task_item_id);
-  if (!item) throw new Error('Confirmed task item is unavailable');
+  // A structural change can shift paginated rows. Confirm absence by ID before
+  // retiring a deletion, rather than treating a pagination gap as a tombstone.
+  const item = snapshot.find((row) => row.id === operation.task_item_id)
+    ?? await fetchServerItem(client, operation.task_item_id, ctx);
+  if (item && !snapshot.some((row) => row.id === item.id)) snapshot.push(item);
   if (!await ctx.wait(() => sameUser(operation.user_id))) throw new Error('Session changed');
-  await ctx.storage.reconcileOperation(operation.user_id, operation.operation_id, item, snapshot);
+  await ctx.storage.reconcileOperation(operation.user_id, operation.operation_id, item, snapshot, guards);
   announceSyncChange(operation.user_id);
 }
 
@@ -270,9 +286,11 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
             (error as { message?: string }).message ?? 'Server rejected operation');
           if ((error as { code?: string }).code === '42501') {
             const access = await syncRead(client.from('tasks').select('id').eq('id', oldest.task_id).maybeSingle(), ctx);
-            if (!access.error && !access.data && await ctx.wait(() => sameUser(userId)))
+            if (!access.error && !access.data && await ctx.wait(() => sameUser(userId))) {
+              denyCacheAccess(userId, `blocked-task:${oldest.task_id}`);
               await ctx.storage.put({ user_id: userId, key: `blocked-task:${oldest.task_id}`,
                 data: 'true', last_synced_at: new Date().toISOString(), schema_version: 1 });
+            }
           }
           announceSyncChange(userId);
           return false;

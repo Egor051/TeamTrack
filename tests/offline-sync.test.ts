@@ -13,10 +13,12 @@ const state = vi.hoisted(() => ({
   bootstrapChange: false, pullRequests: [] as number[],
   configSync: true, configAvailable: true,
   switchAfterSend: false,
+  missingItem: false,
   updates: [] as { isSyncing?: boolean }[],
 }));
 
-const builder = () => {
+const builder = (table = 'task_items') => {
+  let archivedOnly: boolean | undefined;
   const fetchPage = async () => {
     const snapshot = { ...state.server };
     if (state.bootstrapChange) {
@@ -24,13 +26,13 @@ const builder = () => {
       state.server.percentage = 80; state.server.sync_version = 11;
       state.pulled = [{ cursor: 1, task_id: 'task', task_item_id: 'item', change_type: 'upsert', item: { ...state.server } }];
     }
-    return { data: [snapshot], error: null };
+    return { data: state.missingItem || (archivedOnly !== undefined && archivedOnly !== snapshot.is_archived) ? [] : [snapshot], error: null };
   };
   const query = {
-    select: () => query, eq: () => query, order: () => query,
+    select: () => query, eq: (key: string, value: unknown) => { if (key === 'is_archived') archivedOnly = value as boolean; return query; }, order: () => query,
     range: () => query,
     then: (onFulfilled: (value: Awaited<ReturnType<typeof fetchPage>>) => unknown) => fetchPage().then(onFulfilled),
-    maybeSingle: async () => ({ data: { ...state.server }, error: null }),
+    maybeSingle: async () => ({ data: table === 'tasks' ? { id: 'task' } : state.missingItem ? null : { ...state.server }, error: null }),
   };
   return query;
 };
@@ -43,7 +45,7 @@ vi.mock('@react-native-community/netinfo', () => ({ default: { addEventListener:
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: 'user-a' }, session: { access_token: 'test' }, isLoading: false } }) }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeTable: () => () => undefined }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: string, options: { accessToken: () => Promise<string> }) => ({
-  rpc: async (name: string, args: { p_operation_id?: string; p_expected_version?: number; p_percentage?: number; p_completed?: boolean; p_comment?: string; p_after_cursor?: number }) => {
+  rpc: async (name: string, args: { p_operation_id?: string; p_task_item_id?: string; p_expected_version?: number; p_percentage?: number; p_completed?: boolean; p_comment?: string; p_after_cursor?: number }) => {
     state.tokens.push(await options.accessToken());
     if (name === 'pull_task_item_changes_v2') {
       const cursor = args.p_after_cursor!;
@@ -65,7 +67,7 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: str
     } else state.server.comment = args.p_comment || null;
     state.server.sync_version += 1;
     state.sideEffects += 1;
-    const result = { status: 'applied', version: state.server.sync_version, item: { ...state.server } };
+    const result = { status: 'applied', version: state.server.sync_version, item: { ...state.server, id: args.p_task_item_id } };
     state.receipts.set(args.p_operation_id!, result);
     if (state.switchAfterSend) { state.switchAfterSend = false; state.userId = 'user-b'; }
     if (state.loseAck) { state.loseAck = false; throw new Error('Failed to fetch'); }
@@ -169,8 +171,18 @@ function operation(sequence: number, type: OfflineOperation['type'], payload: Of
     expected_version: sequence === 1 ? 10 : null, depends_on_operation_id: sequence === 1 ? null : `operation-${sequence - 1}` };
 }
 
+it.each(['archived', 'deleted'])('AUD-08: an ACKed %s item releases the queue', async (kind) => {
+  state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'already saved' }), status: 'synced_unreconciled', server_version: 10 },
+    { ...operation(2, 'set_task_item_comment', { comment: 'next' }), task_item_id: 'unrelated-item', depends_on_operation_id: null, expected_version: 10 }];
+  state.server.is_archived = kind === 'archived'; state.missingItem = kind === 'deleted';
+  await syncPendingOperations('user-a', true);
+  expect(state.operations).toEqual([]);
+  expect(state.calls.map((call) => call.id)).toEqual(['operation-2']);
+});
+
 beforeEach(() => {
   state.userId = 'user-a'; state.operations = []; state.conflicts = []; state.updates = [];
+  state.missingItem = false;
   state.server = { id: 'item', task_id: 'task', title: 'Item', percentage: 20, is_completed: false,
     comment: null, sync_version: 10, is_archived: false };
   state.calls = []; state.receipts.clear(); state.sideEffects = 0;

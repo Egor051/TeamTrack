@@ -55,6 +55,9 @@ create index if not exists task_templates_created_by_idx
     on public.task_templates(created_by);
 
 -- One set of text limits is enforced by storage and every public mutation RPC.
+-- The preceding schema allowed shorter/longer or differently formatted text.
+-- Preserve those existing rows on upgrade; NOT VALID enforces the new rule on
+-- every subsequent INSERT/UPDATE without rewriting user data or history.
 alter table public.profiles
     drop constraint if exists profiles_display_name_not_blank;
 alter table public.profiles
@@ -62,39 +65,39 @@ alter table public.profiles
     check (
         char_length(btrim(display_name)) between 2 and 80
         and btrim(display_name) ~ '^[[:alnum:]_ .-]+$'
-    );
+    ) not valid;
 
 alter table public.projects
     add constraint projects_name_length_chk
-    check (char_length(btrim(name)) between 1 and 500);
+    check (char_length(btrim(name)) between 1 and 500) not valid;
 alter table public.projects
     add constraint projects_description_length_chk
-    check (description is null or char_length(description) <= 10000);
+    check (description is null or char_length(description) <= 10000) not valid;
 
 alter table public.tasks
     add constraint tasks_title_length_chk
-    check (char_length(btrim(title)) between 1 and 500);
+    check (char_length(btrim(title)) between 1 and 500) not valid;
 alter table public.tasks
     add constraint tasks_description_length_chk
-    check (description is null or char_length(description) <= 10000);
+    check (description is null or char_length(description) <= 10000) not valid;
 
 alter table public.task_items
     add constraint task_items_title_length_chk
-    check (char_length(btrim(title)) between 1 and 500);
+    check (char_length(btrim(title)) between 1 and 500) not valid;
 alter table public.task_items
     add constraint task_items_description_length_chk
-    check (description is null or char_length(description) <= 10000);
+    check (description is null or char_length(description) <= 10000) not valid;
 alter table public.task_items
     drop constraint if exists task_items_comment_length_chk;
 alter table public.task_items
     add constraint task_items_comment_length_chk
-    check (comment is null or char_length(comment) <= 10000);
+    check (comment is null or char_length(comment) <= 10000) not valid;
 
 alter table public.task_templates
     drop constraint if exists task_templates_name_chk;
 alter table public.task_templates
     add constraint task_templates_name_chk
-    check (char_length(btrim(name)) between 1 and 500);
+    check (char_length(btrim(name)) between 1 and 500) not valid;
 
 -- Canonical effective checklist role: explicit override first, inherited
 -- project role otherwise. No override can create project-level authority.

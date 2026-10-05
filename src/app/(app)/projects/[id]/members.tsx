@@ -93,6 +93,8 @@ export default function MembersScreen() {
 
   useFocusEffect(useCallback(() => {
     if (!id) return;
+    // Permission invalidation closes resource channels before revalidation.
+    void permissionVersion;
     realtimeConnectedRef.current = false;
     const onStatus = (next: RealtimeStatus) => {
       if (next === 'connected' && !realtimeConnectedRef.current) {
@@ -106,7 +108,7 @@ export default function MembersScreen() {
       { table: 'projects', options: { projectId: id, onEvent: () => void load(), onStatus } },
       { table: 'project_members', options: { projectId: id, onEvent: () => void load(), onStatus } },
     ]);
-  }, [id, load]));
+  }, [id, load, permissionVersion]));
 
   const canManage = (currentRole === 'owner' || currentRole === 'admin') && projectStatus === 'active';
   const manageableRoleOptions = currentRole === 'owner'

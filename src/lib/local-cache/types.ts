@@ -94,5 +94,6 @@ export interface LocalCacheDriver {
   discardFailedChain(userId: string, taskId: string, itemId: string, projectId: string, serverState: ReconciledItem | null): Promise<void>;
   initializePullCursor(userId: string, cursor: number): Promise<boolean>;
   applyPullPage(userId: string, afterCursor: number, nextCursor: number, changes: PullChange[]): Promise<boolean>;
-  reconcileOperation(userId: string, operationId: string, item: ReconciledItem, activeSnapshot: ReconciledItem[]): Promise<void>;
+  reconcileOperation(userId: string, operationId: string, item: ReconciledItem | null, snapshot: ReconciledItem[] | null,
+    guards?: { key: string; data: string | null }[]): Promise<void>;
 }

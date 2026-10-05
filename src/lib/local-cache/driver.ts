@@ -126,11 +126,12 @@ export const localCacheDriver: LocalCacheDriver = {
       data: JSON.stringify(nextCursor), last_synced_at: new Date().toISOString(), schema_version: 1 });
     return true;
   },
-  async reconcileOperation(userId, operationId, item, activeSnapshot) {
+  async reconcileOperation(userId, operationId, item, activeSnapshot, guards = []) {
     const index = pending.findIndex((row) => row.user_id === userId && row.operation_id === operationId);
     if (index < 0) return;
     const operation = pending[index];
-    if (operation.status !== 'synced_unreconciled' || operation.task_item_id !== item.id) throw new Error('Invalid reconciliation');
+    if (operation.status !== 'synced_unreconciled' || (item && operation.task_item_id !== item.id)) throw new Error('Invalid reconciliation');
+    if (guards.some((guard) => (entries.get(entryKey(userId, guard.key))?.data ?? null) !== guard.data)) throw new Error('Reconciliation snapshot superseded');
     const keys = reconciledKeys(operation);
     const updated = reconcileEntries(keys.map((key) => entries.get(entryKey(userId, key)) ?? null), operation, item, activeSnapshot);
     keys.forEach((key, i) => {

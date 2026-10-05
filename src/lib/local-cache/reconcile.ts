@@ -1,4 +1,5 @@
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry, type OfflineOperation, type ReconciledItem } from './types';
+import { validSyncVersion } from './pull-cache';
 
 export const reconciledKeys = (operation: OfflineOperation) => [
   `items:${operation.task_id}:active`,
@@ -9,23 +10,30 @@ export const reconciledKeys = (operation: OfflineOperation) => [
 ];
 
 export function reconcileEntries(
-  entries: (CacheEntry | null)[], operation: OfflineOperation, item: ReconciledItem, activeSnapshot: ReconciledItem[],
+  entries: (CacheEntry | null)[], operation: OfflineOperation, item: ReconciledItem | null, snapshot: ReconciledItem[] | null,
 ): (CacheEntry | null)[] {
+  // A revoked/missing task must not retain readable data. The operation was
+  // already durably ACKed, so it can be retired without replaying a mutation.
+  if (snapshot === null) return entries.map(() => null);
   const next = [...entries];
-  if (!activeSnapshot.some((row) => row.id === item.id)) throw new Error('Confirmed item missing from task snapshot');
-  const activeRows = entries[0] ? JSON.parse(entries[0].data) as ReconciledItem[] : null;
-  if (!activeRows?.some((row) => row.id === item.id)) {
-    next[0] = { user_id: operation.user_id, key: `items:${operation.task_id}:active`,
-      data: JSON.stringify(activeSnapshot), last_synced_at: new Date().toISOString(),
-      schema_version: LOCAL_CACHE_SCHEMA_VERSION };
-  }
+  if (item && !snapshot.some((row) => row.id === item.id)) throw new Error('Confirmed item missing from task snapshot');
+  const confirmed = entries.slice(0, 3).flatMap((entry) => entry ? JSON.parse(entry.data) as ReconciledItem[] : []);
+  const rows = snapshot.map((row) => confirmed.reduce((newest, cached) => cached.id === row.id
+    && validSyncVersion(cached.sync_version) && validSyncVersion(newest.sync_version)
+    && cached.sync_version > newest.sync_version ? cached : newest, row));
   for (let index = 0; index < 3; index += 1) {
-    if (index === 0 && next[0] !== entries[0]) continue;
     const entry = entries[index];
-    if (!entry) continue;
-    const rows = JSON.parse(entry.data) as ReconciledItem[];
-    const patched = rows.map((row) => row.id === item.id ? { ...row, ...item } : row);
-    next[index] = { ...entry, data: JSON.stringify(patched), last_synced_at: new Date().toISOString() };
+    if (!entry && index !== 0) continue;
+    // Reconciliation owns only this ACK's item. Preserve unrelated membership;
+    // HTTP pagination is not an atomic snapshot of concurrent structural edits.
+    const currentRows = entry ? JSON.parse(entry.data) as ReconciledItem[] : rows;
+    const newest = rows.find((row) => row.id === operation.task_item_id);
+    const patched = currentRows.filter((row) => row.id !== operation.task_item_id);
+    if (newest && (index === 2 || Boolean(newest.is_archived) === (index === 1))) patched.push(newest);
+    patched.sort((a, b) => Number((a as { position?: number }).position ?? 0) - Number((b as { position?: number }).position ?? 0) || a.id.localeCompare(b.id));
+    const filtered = patched.filter((row) => index === 2 || Boolean(row.is_archived) === (index === 1));
+    next[index] = { ...(entry ?? { user_id: operation.user_id, key: `items:${operation.task_id}:active`, schema_version: LOCAL_CACHE_SCHEMA_VERSION }),
+      data: JSON.stringify(filtered), last_synced_at: new Date().toISOString() };
   }
   // The stats snapshot may cover multiple tasks. Update this task from the
   // reconciled active item list, or invalidate stats if that list is absent.

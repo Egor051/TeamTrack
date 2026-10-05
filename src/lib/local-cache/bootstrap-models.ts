@@ -4,6 +4,7 @@ import type { Notification } from '@/features/notifications/notifications';
 import type { AccountManifest, Dataset } from './bootstrap-types';
 import type { CacheEntry } from './types';
 import { LOCAL_CACHE_SCHEMA_VERSION } from './types';
+import { taskAuditEntityIds } from '@/features/projects/task-audit';
 
 export type AccountRows = Partial<Record<Dataset, unknown[]>>;
 export function cacheEntry(userId: string, key: string, data: unknown): CacheEntry {
@@ -79,7 +80,8 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     if (project?.role === 'owner' || project?.role === 'admin') put(`task-overrides:${task.id}`, overridesByTask.get(task.id) ?? []);
     if (rows.last_editors) put(`last-editors:${task.id}`, editorsByTask.get(task.id) ?? []);
     if (rows.history) {
-      const history = [task.id, ...all.map((i) => i.id)].flatMap((id) => historyByEntity.get(id) ?? []).filter((a) => a.project_id === task.project_id);
+      const ids = taskAuditEntityIds(task.id, all.map((i) => i.id), (rows.history as AuditEntry[]).filter((a) => a.project_id === task.project_id));
+      const history = ids.flatMap((id) => historyByEntity.get(id) ?? []).filter((a) => a.project_id === task.project_id);
       put(`audit:${task.id}:90days`, history.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id));
     }
   }

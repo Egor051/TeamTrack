@@ -76,7 +76,7 @@ function createSharedChannel(topic: string): SharedChannel {
       }
     })
     .subscribe((status, error) => {
-      if (!sharedChannels.has(topic)) return;
+      if (sharedChannels.get(topic) !== entry) return;
       if (status === 'SUBSCRIBED') broadcastStatus(entry, 'connected');
       else if (status === 'CHANNEL_ERROR') broadcastStatus(entry, 'error', error?.message);
       else if (status === 'TIMED_OUT') broadcastStatus(entry, 'reconnecting');
@@ -103,7 +103,7 @@ function subscribeOnlineTable(table: string, options: SubscriptionOptions) {
     active = false;
     entry.listeners.delete(listener);
     if (entry.listeners.size > 0) return;
-    sharedChannels.delete(topic);
+    if (sharedChannels.get(topic) === entry) sharedChannels.delete(topic);
     void supabase.removeChannel(entry.channel);
   };
 }

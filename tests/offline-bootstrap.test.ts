@@ -82,6 +82,78 @@ async function stored(key: string) { const d = (await import('@/lib/local-cache/
 function pages(name?: string) { return f.rpc.mock.calls.filter(([rpc, args]) => rpc === 'get_offline_account_page' && (!name || args.p_dataset === name)); }
 
 describe('account bootstrap', () => {
+  it('AUD-02: bootstrap keeps history of a hard-deleted item and its earlier events', async () => {
+    f.rows.history = [
+      { id: 1, project_id: projectId, entity_type: 'task_item', entity_id: 'deleted-item', action: 'updated', old_data: { percentage: 0 }, new_data: { percentage: 50 }, created_at: stamp },
+      { id: 2, project_id: projectId, entity_type: 'task_item', entity_id: 'deleted-item', action: 'removed', old_data: { task_id: taskId }, new_data: null, created_at: stamp },
+    ];
+    const b = await run(); await b.selectOfflineScheme(f.user, 'extended'); await again(b);
+    expect((await stored(`audit:${taskId}:90days`) as { id: number }[]).map((row) => row.id)).toEqual([2, 1]);
+  });
+  it('AUD-10: notification page/count bypass Supabase Auth and HTTP while already offline', async () => {
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    await driver.put({ user_id: f.user, key: 'notifications:window', data: JSON.stringify({ rows: f.rows.notifications, read_limit: 100 }), last_synced_at: '', schema_version: 1 });
+    const state = await import('@/lib/connectivity/state'); state.reportConnectivityFailure(new TypeError('Failed to fetch'));
+    f.from.mockClear();
+    const notifications = await import('@/features/notifications/notifications');
+    expect(await notifications.fetchNotificationPage()).toMatchObject({ offline: true, rows: [{ id: 'notification' }] });
+    expect(await notifications.fetchUnreadCount()).toBe(1);
+    expect(f.from).not.toHaveBeenCalled();
+  });
+  it.each(['insert', 'delete'])('AUD-09: pull after final manifest verification cannot be overwritten by bootstrap (%s)', async (change) => {
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    await driver.initializePullCursor(f.user, 0);
+    const rpc = f.rpc.getMockImplementation()!;
+    let manifests = 0;
+    f.rpc.mockImplementation((name: string, args: Record<string, unknown>) => {
+      const query = rpc(name, args);
+      const read = async () => {
+        const result = await query;
+        if (name === 'get_offline_account_manifest' && ++manifests === 2) {
+          const newer = change === 'insert' ? { ...f.rows.items[0] as object, id: 'new-item', sync_version: 5 } : null;
+          const id = change === 'insert' ? 'new-item' : itemId;
+          await driver.put({ user_id: f.user, key: `items:${taskId}:active`, data: JSON.stringify(f.rows.items.filter((row) => (row as { task_id: string }).task_id === taskId)), last_synced_at: '', schema_version: 1 });
+          await driver.applyPullPage(f.user, 0, 10, [{ cursor: 10, task_id: taskId, task_item_id: id, change_type: newer ? 'upsert' : 'delete', item: newer as import('@/lib/local-cache/types').ReconciledItem | null }]);
+          f.rows.items = change === 'insert' ? [...f.rows.items, newer] : f.rows.items.filter((row) => (row as { id: string }).id !== itemId);
+        }
+        return result;
+      };
+      return { abortSignal: read, then: (...args: Parameters<ReturnType<typeof read>['then']>) => read().then(...args) };
+    });
+    await run();
+    const ids = (await stored(`items:${taskId}:active`) as { id: string }[]).map((row) => row.id);
+    expect(ids).toEqual(change === 'insert' ? [itemId, 'new-item'] : []);
+    expect(await stored('sync:task-items:cursor')).toBe(10);
+  });
+  it('AUD-09/13: a newer revoke fences a verified snapshot even when its tombstone write fails', async () => {
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const cache = await import('@/lib/local-cache/cache');
+    const rpc = f.rpc.getMockImplementation()!;
+    let manifests = 0;
+    f.rpc.mockImplementation((name: string, args: Record<string, unknown>) => {
+      const query = rpc(name, args);
+      const read = async () => {
+        const result = await query;
+        if (name === 'get_offline_account_manifest' && ++manifests === 2) {
+          vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+          const failedWrite = vi.spyOn(driver, 'put').mockRejectedValueOnce(new Error('IndexedDB write failed'));
+          await cache.putCached(f.user, `blocked:${projectId}`, true); failedWrite.mockRestore();
+          // RLS now hides the revoked project. The just-verified response still
+          // belongs to the earlier generation and must be discarded.
+          f.rows.projects = f.rows.projects.filter((row) => (row as { id: string }).id !== projectId);
+          f.rows.tasks = f.rows.tasks.filter((row) => (row as { project_id: string }).project_id !== projectId);
+          f.rows.roles = f.rows.roles.filter((row) => (row as { task_id: string }).task_id !== taskId);
+          f.rows.items = f.rows.items.filter((row) => (row as { task_id: string }).task_id !== taskId);
+        }
+        return result;
+      };
+      return { abortSignal: read, then: (...args: Parameters<ReturnType<typeof read>['then']>) => read().then(...args) };
+    });
+    await run();
+    expect(manifests).toBeGreaterThan(2);
+    expect(await cache.getCached(f.user, `blocked:${projectId}`)).toBe(true);
+    expect(await cache.filterBlockedProjects(f.user, [{ id: projectId }])).toEqual([]);
+  });
   it('reload during preparation restores durable data without a fictional running operation', async () => {
     const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
     const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!;
@@ -485,6 +557,7 @@ describe('account bootstrap', () => {
     expect((await notifications.fetchNotificationPage(100, 100)).rows).toEqual([]);
     const projects = await import('@/features/projects/projects');
     expect(await projects.listTaskAudit(projectId, taskId)).toHaveLength(1);
+    (await import('@/lib/connectivity/state')).reportConnectivitySuccess();
     f.from.mockReturnValue({ select: () => ({ order: () => ({ range: async () => ({ data: null, error: { status: 403, message: 'Denied' } }) }) }) });
     await expect(notifications.fetchNotificationPage()).rejects.toMatchObject({ status: 403 });
     expect(await stored('notifications:window')).toBeNull();

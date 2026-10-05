@@ -21,6 +21,7 @@ import {
   listTaskTemplates,
   updateTaskTemplate,
   updateTaskTemplateItem,
+  moveTaskTemplateItem,
   type TaskTemplate,
   type TaskTemplateItem,
 } from '@/features/projects/projects';
@@ -171,13 +172,13 @@ export default function TemplatesScreen() {
                            {editingItem === item.id ? <View style={styles.editItem}><Input label="Название пункта" value={editingItemTitle} onChangeText={setEditingItemTitle} maxLength={500} disabled={busy} /><Textarea label="Описание пункта" value={editingItemDescription} onChangeText={setEditingItemDescription} maxLength={10000} disabled={busy} /></View> : <View style={styles.flex}><ThemedText>{index + 1}. {item.title}</ThemedText>{item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}</View>}
                          </View>
                          {canEdit ? <View style={styles.itemActions}>
-                           {editingItem === item.id ? <Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim()} onPress={() => void run(async () => { await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription.trim(), item.position); setEditingItem(null); })}>Сохранить</Button> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); setEditingItemTitle(item.title); setEditingItemDescription(item.description ?? ''); }}>Изменить</Button>}
-                           <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, index === 1 ? Math.max(0, expandedItems[index - 1].position - 1) : (expandedItems[index - 2].position + expandedItems[index - 1].position) / 2))}>Вверх</Button>
-                           <Button size="sm" variant="ghost" disabled={busy || index === expandedItems.length - 1} onPress={() => void run(() => updateTaskTemplateItem(item.id, item.title, item.description ?? undefined, index === expandedItems.length - 2 ? expandedItems[index + 1].position + 1 : (expandedItems[index + 1].position + expandedItems[index + 2].position) / 2))}>Вниз</Button>
+                           {editingItem === item.id ? <Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim()} onPress={() => void run(async () => { await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription.trim()); setEditingItem(null); })}>Сохранить</Button> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); setEditingItemTitle(item.title); setEditingItemDescription(item.description ?? ''); }}>Изменить</Button>}
+                           <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void run(() => moveTaskTemplateItem(item.id, -1))}>Вверх</Button>
+                           <Button size="sm" variant="ghost" disabled={busy || index === expandedItems.length - 1} onPress={() => void run(() => moveTaskTemplateItem(item.id, 1))}>Вниз</Button>
                            <Button size="sm" variant="ghost" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить</Button>
                          </View> : null}
                        </View>)}</View>}
-                      {canEdit ? <View style={styles.actions}><Input label="Новый пункт" value={newItem} onChangeText={setNewItem} maxLength={500} placeholder="Проверить сборку" disabled={busy} /><Button loading={busy} disabled={busy || !newItem.trim()} onPress={() => void run(async () => { await createTaskTemplateItem(template.id, newItem.trim(), undefined, expandedItems.length + 1); setNewItem(''); })}>Добавить пункт</Button></View> : null}
+                      {canEdit ? <View style={styles.actions}><Input label="Новый пункт" value={newItem} onChangeText={setNewItem} maxLength={500} placeholder="Проверить сборку" disabled={busy} /><Button loading={busy} disabled={busy || !newItem.trim()} onPress={() => void run(async () => { await createTaskTemplateItem(template.id, newItem.trim()); setNewItem(''); })}>Добавить пункт</Button></View> : null}
                     </View>
                   ) : null}
                 </Card>

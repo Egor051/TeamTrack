@@ -1,6 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CacheEntry, OfflineOperationInput, SyncConflict } from '@/lib/local-cache/types';
+import { reconciliationContract } from './reconciliation-contract';
+
+reconciliationContract(async () => (await import('@/lib/local-cache/driver.native')).localCacheDriver);
 
 const state = vi.hoisted(() => ({ database: null as DatabaseSync | null }));
 

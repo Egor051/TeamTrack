@@ -327,15 +327,19 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
     });
     return applied;
   },
-  async reconcileOperation(userId, operationId, item, activeSnapshot) {
+  async reconcileOperation(userId, operationId, item, activeSnapshot, guards = []) {
     const db = await database();
     await exclusive(db, async (tx) => {
+      for (const guard of guards) {
+        const current = await tx.getFirstAsync<{ data: string }>('SELECT data FROM cache_entries WHERE user_id = ? AND cache_key = ?', [userId, guard.key]);
+        if ((current?.data ?? null) !== guard.data) throw new Error('Reconciliation snapshot superseded');
+      }
       const row = await tx.getFirstAsync<Omit<OfflineOperation, 'payload' | 'server_result'> & { payload: string; server_result: string | null }>(
         'SELECT * FROM pending_operations WHERE user_id = ? AND operation_id = ?', [userId, operationId],
       );
       if (!row) return;
       const operation: OfflineOperation = { ...row, payload: JSON.parse(row.payload) as OfflineOperation['payload'] };
-      if (operation.status !== 'synced_unreconciled' || operation.task_item_id !== item.id) throw new Error('Invalid reconciliation');
+      if (operation.status !== 'synced_unreconciled' || (item && operation.task_item_id !== item.id)) throw new Error('Invalid reconciliation');
       const keys = reconciledKeys(operation);
       const entries = await Promise.all(keys.map(async (key) =>
         await tx.getFirstAsync<CacheEntry>(

@@ -189,18 +189,21 @@ end $$;
 
 -- ---------------------------------------------------------------- history survives archiving
 
+-- Capture exact history IDs so this check also works on an upgrade database
+-- containing unrelated legacy audit rows and appended migration repair events.
+create temp table smoke_history_before as
+select array(select id from public.item_actions order by id) as item_action_ids,
+       array(select id from public.audit_log order by id) as audit_ids;
+
 update public.projects set status = 'archived', archived_at = now() where name = 'Apollo';
 
 do $$
-declare v_count int;
 begin
-    select count(*) into v_count from public.item_actions;
-    if v_count <> 1 then
-        raise exception 'FAIL: item_actions rows lost after archiving (count=%)', v_count;
+    if array(select id from public.item_actions order by id) is distinct from (select item_action_ids from smoke_history_before) then
+        raise exception 'FAIL: item_actions rows changed after archiving';
     end if;
-    select count(*) into v_count from public.audit_log;
-    if v_count <> 1 then
-        raise exception 'FAIL: audit_log rows lost after archiving (count=%)', v_count;
+    if array(select id from public.audit_log order by id) is distinct from (select audit_ids from smoke_history_before) then
+        raise exception 'FAIL: audit_log rows changed after archiving';
     end if;
 end $$;
 

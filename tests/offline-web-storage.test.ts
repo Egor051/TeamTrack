@@ -1,6 +1,9 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CacheEntry, OfflineOperationInput, SyncConflict } from '@/lib/local-cache/types';
+import { reconciliationContract } from './reconciliation-contract';
+
+reconciliationContract(async () => (await import('@/lib/local-cache/driver.web')).localCacheDriver);
 
 const name = 'tasktrace-local-cache';
 

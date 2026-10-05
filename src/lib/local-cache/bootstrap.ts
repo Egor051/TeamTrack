@@ -11,6 +11,7 @@ import type { CacheEntry } from './types';
 import { getUtcPlus3DayStart } from './day';
 import { getOfflineRuntime, startRuntimeOperation, cancelRuntimeOperation, publishBootstrapFacts, subscribeOfflineRuntime, type OperationTicket } from './runtime-state';
 import { requestOfflineWork } from './work-requests';
+import { cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
 
 const PAGE_SIZE = 500;
 const LEASE_MS = 45_000;
@@ -336,6 +337,10 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
   try {
     for (let restart = 0; restart < 3; restart++) {
       try {
+        // Fence the server snapshot before its first request. A pull in another
+        // tab can change membership as well as versions, including tombstones.
+        const snapshotBaseline = new Map((await step(() => localCacheDriver.listEntries(userId))).map((e) => [e.key, e.data]));
+        const accessBaseline = cacheAccessEpoch();
         const manifest = await manifestFor(userId, meta.scheme, undefined, signal);
         await ensureActive();
         meta.manifest = manifest;
@@ -379,6 +384,15 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             const guards: { key: string; data: string | null }[] = before.filter((e) => keys.has(e.key) || removed.includes(e.key)).map((e) => ({ key: e.key, data: e.data }));
             const beforeKeys = new Set(before.map((e) => e.key));
             for (const e of committed) if (!beforeKeys.has(e.key)) guards.push({ key: e.key, data: null });
+            guards.push({ key: 'sync:task-items:cursor', data: snapshotBaseline.get('sync:task-items:cursor') ?? null });
+            for (const guard of guards) if (/^(items:|task-stats:|last-editors:)/.test(guard.key))
+              guard.data = snapshotBaseline.get(guard.key) ?? null;
+            for (const e of committed) if (/^blocked(?:-task)?:/.test(e.key)) {
+              if (e.data === 'true') denyCacheAccess(userId, e.key);
+              else if (deniedSince(userId, e.key, accessBaseline)) throw Object.assign(new Error('Access changed during snapshot'), { code: '40001' });
+              const guard = guards.find((g) => g.key === e.key);
+              if (guard) guard.data = snapshotBaseline.get(e.key) ?? null;
+            }
             const batchEntries = new Map(before.map((e) => [e.key, e]));
             const batches: Record<string, string> = {};
             for (const name of names) {
@@ -394,8 +408,17 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             meta.verified = { basic: previousEvidence?.basic ?? null, extended: previousEvidence?.extended ?? null, [scheme]: evidence };
             if (scheme === 'basic' && previousEvidence?.extended && BASIC_DATASETS.some((name) =>
               previousEvidence.extended!.manifest.datasets[name]?.revision !== verified.datasets[name]?.revision)) meta.verified.extended = null;
-            try { await save(committed, removed, guards); break; }
-            catch (error) { meta.verified = previousEvidence; await ensureActive(); if (attempt === 2) throw error; }
+            try {
+              await save(committed, removed, guards);
+              for (const entry of committed) snapshotBaseline.set(entry.key, entry.data);
+              for (const entry of committed) if (/^blocked(?:-task)?:/.test(entry.key) && entry.data === 'false') confirmCacheAccess(userId, entry.key, accessBaseline);
+              break;
+            } catch (error) {
+              meta.verified = previousEvidence; await ensureActive();
+              // Re-reading the CAS baseline would bless the same stale snapshot.
+              // Restart from a new server manifest instead.
+              throw Object.assign(new Error('Local snapshot changed during preparation'), { code: '40001', cause: error });
+            }
           }
           for (const e of committed) if (!await step(() => localCacheDriver.get(userId, e.key))) throw new Error('Проверка локального snapshot не пройдена.');
         };
@@ -441,7 +464,17 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
                   return administrators.has(task.project_id) ? [] : [`task-overrides:${task.id}`];
                 });
               }
-              if (visible.length || revokedOverrides.length) await save(visible, revokedOverrides);
+              if (visible.length || revokedOverrides.length) {
+                const visibilityGuards = visible.filter((e) => /^(blocked(?:-task)?:|project:|task:|task-role:)/.test(e.key))
+                  .map((e) => ({ key: e.key, data: snapshotBaseline.get(e.key) ?? null }));
+                for (const e of visible) if (/^blocked(?:-task)?:/.test(e.key)) {
+                  if (e.data === 'true') denyCacheAccess(userId, e.key);
+                  else if (deniedSince(userId, e.key, accessBaseline)) throw Object.assign(new Error('Access changed during snapshot'), { code: '40001' });
+                }
+                try { await save(visible, revokedOverrides, visibilityGuards); }
+                catch (error) { throw Object.assign(new Error('Visibility changed during snapshot'), { code: '40001', cause: error }); }
+                for (const e of visible) snapshotBaseline.set(e.key, e.data);
+              }
             } catch (error) {
               if ((BASIC_DATASETS as readonly string[]).includes(name) || snapshotConflict(error) || isExplicitAccessError(error) || signal.aborted) throw error;
               await ensureActive();

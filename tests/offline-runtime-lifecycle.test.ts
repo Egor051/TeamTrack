@@ -60,6 +60,30 @@ describe('authoritative offline operation lifecycle', () => {
   });
 });
 describe('one recovery pipeline', () => {
+  it('AUD-12: an edit arriving during sync survives the following preparation failure', async () => {
+    let finish!: () => void;
+    deps.sync = vi.fn(async (): Promise<void> => undefined).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    deps.prepare = vi.fn(async () => { ready(); throw new Error('storage failed'); });
+    coordinator = createOfflineCoordinator('a', deps);
+    await coordinator.request('freshness'); await tick();
+    expect(deps.sync).toHaveBeenCalledOnce();
+    void coordinator.request('mutations'); finish(); await tick(0);
+    await tick(5100);
+    expect(deps.sync).toHaveBeenCalledTimes(2);
+  });
+  it.each(['busy', 'error', 'backoff'])('AUD-12: a queued mutation survives preparation %s and a newly fresh snapshot', async (outcome) => {
+    let finish!: () => void;
+    deps.prepare = vi.fn(async () => { await new Promise<void>((resolve) => { finish = resolve; });
+      ready(); if (outcome === 'error') throw new Error('storage failed'); return 'busy' as const;
+    });
+    if (outcome === 'backoff') deps.delay = () => { ready(); void coordinator!.request('mutations'); return 1000; };
+    coordinator = createOfflineCoordinator('a', deps);
+    await coordinator.request('freshness'); await tick();
+    expect(deps.sync).toHaveBeenCalledOnce();
+    if (outcome !== 'backoff') { void coordinator.request('mutations'); finish(); await tick(0); }
+    await tick(5100);
+    expect(deps.sync).toHaveBeenCalledTimes(2);
+  });
   it('online startup verifies backend/session, syncs, prepares and reaches ready in order', async () => {
     const order: string[] = [];
     deps.probe = vi.fn(async () => { order.push('backend'); }); deps.session = vi.fn(async () => { order.push('session'); return true; });

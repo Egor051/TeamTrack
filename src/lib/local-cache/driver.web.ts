@@ -397,7 +397,7 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
       });
     } finally { db.close(); }
   },
-  async reconcileOperation(userId, operationId, item, activeSnapshot) {
+  async reconcileOperation(userId, operationId, item, activeSnapshot, guards = []) {
     const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
@@ -407,11 +407,15 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB reconciliation failed'));
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB reconciliation aborted'));
+        for (const guard of guards) {
+          const request = cache.get(entryKey(userId, guard.key));
+          request.onsuccess = () => { if (((request.result as CacheEntry | undefined)?.data ?? null) !== guard.data) tx.abort(); };
+        }
         const operationRequest = outbox.index('by_operation_id').get(operationId);
         operationRequest.onsuccess = () => {
           const operation = operationRequest.result as OfflineOperation | undefined;
           if (!operation || operation.user_id !== userId) return;
-          if (operation.status !== 'synced_unreconciled' || operation.task_item_id !== item.id) {
+          if (operation.status !== 'synced_unreconciled' || (item && operation.task_item_id !== item.id)) {
             tx.abort();
             return;
           }

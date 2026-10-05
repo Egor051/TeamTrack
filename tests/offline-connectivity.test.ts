@@ -21,8 +21,13 @@ import { AbortController as NativeAbortController } from 'abort-controller';
 import { probeSupabase } from '@/lib/supabase/connectivity-probe';
 import { GoTrueClient } from '@supabase/auth-js';
 import { listProjectDailyProgress, getUtcPlus3DayStart } from '@/features/projects/projects';
+import { cacheAccessEpoch, confirmCacheAccess } from '@/lib/local-cache/access-state';
 
 beforeEach(async () => {
+  // The seeded cache belongs to a fresh authorized fixture, not the preceding
+  // test's confirmed 401/403 (which now survives storage failures in memory).
+  confirmCacheAccess('user-a', 'cache:projects:active', cacheAccessEpoch());
+  confirmCacheAccess('user-a', 'blocked:project-a', cacheAccessEpoch());
   f.from.mockReset();
   f.user = 'user-a'; vi.stubGlobal('navigator', { onLine: true });
   f.persisted.mockImplementation(async () => f.user ? { user: { id: f.user }, expires_at: 1 } : null);

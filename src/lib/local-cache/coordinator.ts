@@ -24,6 +24,8 @@ export function createOfflineCoordinator(userId: string, deps: CoordinatorDepend
   let timer: ReturnType<typeof setTimeout> | null = null;
   let running: { ticket: OperationTicket; promise: Promise<void> } | null = null;
   let queued: OfflineWorkReason | null = null;
+  let mutationsRequested = 0;
+  let mutationsSynced = 0;
   let retryFailures = 0;
   const clearTimer = () => { if (timer) clearTimeout(timer); timer = null; };
   const schedule = (reason: OfflineWorkReason, delay = 400) => {
@@ -70,7 +72,11 @@ export function createOfflineCoordinator(userId: string, deps: CoordinatorDepend
       // server data without rolling back the outbox or newer pulled versions.
       // A preparation lease/backoff must not postpone capability checks or
       // replay of pending edits after startup/reconnect.
-      if (due || reason === 'mutations') await wait(() => deps.sync(recovery), 5 * 60_000);
+      if (due || reason === 'mutations' || mutationsRequested > mutationsSynced) {
+        const generation = mutationsRequested;
+        await wait(() => deps.sync(recovery), 5 * 60_000);
+        mutationsSynced = generation;
+      }
       if (meta && due) {
         const delay = manual || transportRecovery ? 0 : deps.delay(meta);
         if (delay > 0) { schedule(reason, delay + 50); ticket.finish('partial'); return; }
@@ -105,6 +111,10 @@ export function createOfflineCoordinator(userId: string, deps: CoordinatorDepend
   return {
     request(reason: OfflineWorkReason): Promise<void> {
       if (disposed) return Promise.resolve();
+      // Mutation demand is independent of preparation/backoff scheduling.
+      // An edit arriving during an await requires a later sync even if another
+      // tab has made the account snapshot fresh by then.
+      if (reason === 'mutations') mutationsRequested += 1;
       if (reason === 'retry' || reason === 'scheme') { clearTimer(); queued = null; cancel(); return run(reason); }
       if (reason === 'reconnect') { if (running) return run(reason); clearTimer(); queued = null; return run(reason); }
       if (running) return run(reason);

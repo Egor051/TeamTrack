@@ -11,6 +11,8 @@ import { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 import { usesLocalReads } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
 import { uiRead } from '@/lib/supabase/ui-read';
+import { cacheAccessEpoch } from '@/lib/local-cache/access-state';
+import { taskAuditEntityIds } from './task-audit';
 export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -71,10 +73,10 @@ function chunks<T>(values: T[], size = 100): T[][] {
   return result;
 }
 
-async function listProjectsOnline(status: 'active' | 'archived'): Promise<ProjectWithRole[]> {
+async function listProjectsOnline(status?: 'active' | 'archived'): Promise<ProjectWithRole[]> {
   const projects = await fetchAll<Project>((from, to) => {
     let query = supabase.from('projects').select('*').order('created_at', { ascending: false }).range(from, to);
-    query = query.eq('status', status);
+    if (status) query = query.eq('status', status);
     return query;
   });
   if (!projects.length) return [];
@@ -96,11 +98,17 @@ async function listProjectsOnline(status: 'active' | 'archived'): Promise<Projec
 }
 
 export async function listProjects(status: 'active' | 'archived' = 'active'): Promise<ProjectWithRole[]> {
+  const accessBaseline = cacheAccessEpoch();
   const userId = await activeCacheUserId();
   const previous = userId ? await getCached<ProjectWithRole[]>(userId, `projects:${status}`) : null;
-  const projects = await readThroughCache(`projects:${status}`, () => listProjectsOnline(status), { filterCached: filterBlockedProjects });
+  let visible: ProjectWithRole[] | null = null;
+  const projects = await readThroughCache(`projects:${status}`, async () => {
+    // Absence from a status tab is not evidence of lost membership.
+    visible = await listProjectsOnline(); return visible.filter((project) => project.status === status);
+  }, { filterCached: filterBlockedProjects });
   if (!isCachedResult(projects) && userId && await activeCacheUserId() === userId) {
-    await reconcileVisibleProjects(userId, previous ?? [], projects);
+    await reconcileVisibleProjects(userId, previous ?? [], visible ?? projects, accessBaseline);
+    return filterBlockedProjects(userId, projects);
   }
   return projects;
 }
@@ -175,11 +183,15 @@ async function getProjectOnline(projectId: string): Promise<ProjectWithRole> {
 }
 
 export async function listProjectTasks(projectId: string): Promise<Task[]> {
+  const accessBaseline = cacheAccessEpoch();
   assertUuid(projectId, 'project id');
   const userId = await activeCacheUserId();
   const previous = userId ? await getCached<Task[]>(userId, `tasks:${projectId}`) : null;
   const tasks = await readThroughCache(`tasks:${projectId}`, () => fetchAll<Task>((from, to) => supabase.from('tasks').select('*').eq('project_id', projectId).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)), { projectId, filterCached: filterBlockedTasks });
-  if (!isCachedResult(tasks) && userId && await activeCacheUserId() === userId) await reconcileVisibleTasks(userId, previous ?? [], tasks);
+  if (!isCachedResult(tasks) && userId && await activeCacheUserId() === userId) {
+    await reconcileVisibleTasks(userId, previous ?? [], tasks, accessBaseline);
+    return filterBlockedTasks(userId, tasks);
+  }
   return tasks;
 }
 
@@ -324,10 +336,13 @@ export async function listTaskAudit(projectId: string, taskId: string): Promise<
 async function listTaskAuditOnline(projectId: string, taskId: string): Promise<AuditEntry[]> {
   assertUuid(projectId, 'project id'); assertUuid(taskId, 'task id');
   const items = await fetchAll<{ id: string }>((from, to) => supabase.from('task_items').select('id').eq('task_id', taskId).range(from, to));
-  const entityIds = [taskId, ...items.map((item) => item.id)];
   const taskResult = await uiRead(supabase.from('tasks').select('id').eq('id', taskId).eq('project_id', projectId).maybeSingle());
   if (taskResult.error) throw taskResult.error;
   if (!taskResult.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
+  const snapshots = await fetchAll<AuditEntry>((from, to) => supabase.from('audit_log').select('*')
+    .eq('project_id', projectId).eq('entity_type', 'task_item')
+    .or(`old_data->>task_id.eq.${taskId},new_data->>task_id.eq.${taskId}`).range(from, to));
+  const entityIds = taskAuditEntityIds(taskId, items.map((item) => item.id), snapshots);
   return (await Promise.all(chunks(entityIds).map((ids) => fetchAll<AuditEntry>((from, to) => supabase.from('audit_log').select('*').eq('project_id', projectId).in('entity_id', ids).order('created_at', { ascending: false }).range(from, to))))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
@@ -513,6 +528,10 @@ export async function updateTaskTemplate(templateId: string, name: string, descr
 export async function deleteTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('archive_task_template', { p_template_id: templateId })); }
 export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
 export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
+export async function moveTaskTemplateItem(itemId: string, direction: -1 | 1) {
+  assertUuid(itemId, 'template item id');
+  return requireSuccess(await supabase.rpc('move_task_template_item', { p_item_id: itemId, p_direction: direction }));
+}
 export async function deleteTaskTemplateItem(itemId: string) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('delete_task_template_item', { p_item_id: itemId })); }
 
 export async function archiveTask(taskId: string) {

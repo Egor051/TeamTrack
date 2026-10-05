@@ -794,6 +794,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      move_task_template_item: {
+        Args: { p_item_id: string; p_direction: number }
+        Returns: undefined
+      }
     }
     Enums: {
       audit_action:
