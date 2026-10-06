@@ -13,7 +13,7 @@ vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventLi
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: 'user-a' }, session: { access_token: 'test' } } }) }));
 vi.mock('@/features/auth/auth', () => ({ getCurrentSession: async () => ({ data: { session: { user: { id: 'user-a' } } }, error: null }) }));
 vi.mock('@react-native-community/netinfo', () => ({ default: { addEventListener: () => () => undefined } }));
-vi.mock('@/lib/local-cache/sync', () => ({ syncPendingOperations: async () => undefined, cancelPendingSync: () => undefined }));
+vi.mock('@/lib/local-cache/sync', () => ({ syncPendingOperations: async () => undefined, pendingSyncDelay: () => 0, cancelPendingSync: () => undefined }));
 vi.mock('@/lib/local-cache/status', () => ({ getSyncState: async () => ({ pendingCount: 0, lastErrorKind: null }) }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeMany: (specs: typeof f.specs) => { f.specs = specs; return f.unsubscribe; } }));
 vi.mock('@/lib/local-cache/bootstrap', () => ({ BOOTSTRAP_REFRESH_MS: 300_000, runAccountBootstrap: f.run,

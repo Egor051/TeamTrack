@@ -5,9 +5,9 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { getCurrentSession } from '@/features/auth/auth';
 import { reportBrowserConnectivity, revalidateConnectivity, subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 import { subscribeMany } from '@/lib/supabase/realtime';
-import { BOOTSTRAP_REFRESH_MS, bootstrapDelay, cancelAccountBootstrap, getBootstrapMetadata,
+import { bootstrapDelay, cancelAccountBootstrap, getBootstrapMetadata,
   resumeAccountBootstrap, retryAccountBootstrap, runAccountBootstrap, subscribeBootstrap } from './bootstrap';
-import { cancelPendingSync, syncPendingOperations } from './sync';
+import { cancelPendingSync, pendingSyncDelay, syncPendingOperations } from './sync';
 import { createOfflineCoordinator } from './coordinator';
 import { registerOfflineWork, requestOfflineWork } from './work-requests';
 import { getSyncState } from './status';
@@ -19,6 +19,9 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
   const token = state.session?.access_token ?? null;
   useEffect(() => {
     if (!userId) return;
+    let nativeActive = AppState.currentState !== 'background' && AppState.currentState !== 'inactive';
+    const foregroundActive = () => Platform.OS === 'web'
+      ? typeof document === 'undefined' || document.visibilityState === 'visible' : nativeActive;
     const coordinator = createOfflineCoordinator(userId, {
       local: usesLocalReads, probe: revalidateConnectivity,
       session: async () => { const { data, error } = await getCurrentSession(); return !error && data.session?.user.id === userId; },
@@ -26,14 +29,16 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
       prepare: (mode, force) => mode === 'retry' ? retryAccountBootstrap(userId)
         : mode === 'resume' ? resumeAccountBootstrap(userId) : runAccountBootstrap(userId, force),
       sync: (force) => syncPendingOperations(userId, force),
+      syncDelay: () => pendingSyncDelay(userId), foreground: foregroundActive,
       syncNeeded: async () => {
         const snapshot = await getSyncState(userId);
-        return snapshot.pendingCount > 0 || Boolean(snapshot.lastErrorKind && snapshot.lastErrorKind !== 'disabled');
+        return snapshot.conflictCount === 0 && snapshot.failedCount === 0
+          && (snapshot.pendingCount > 0 || Boolean(snapshot.lastErrorKind && snapshot.lastErrorKind !== 'disabled'));
       },
       cancelPreparation: () => cancelAccountBootstrap(userId), cancelSync: () => cancelPendingSync(userId),
-      delay: bootstrapDelay, refreshMs: BOOTSTRAP_REFRESH_MS, preloadEnabled: Platform.OS === 'web',
+      delay: bootstrapDelay, preloadEnabled: Platform.OS === 'web',
     });
-    const registration = registerOfflineWork(userId, (reason) => coordinator.request(reason));
+    const registration = registerOfflineWork(userId, (reason, delayMs) => coordinator.request(reason, delayMs));
     const readModels = subscribeReadModelCommits((commit) => {
       if (commit.userId === userId && commit.source === 'read' && commit.keys.some((key) => key.startsWith('projects:') || key.startsWith('my-tasks:')))
         void coordinator.request('invalidation');
@@ -47,9 +52,10 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
       else if (next.isConnected === true) reportBrowserConnectivity(true);
     });
     const foreground = () => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') void coordinator.request('freshness');
+      if (foregroundActive()) void coordinator.request('freshness');
     };
     const appState = AppState.addEventListener('change', (next) => {
+      nativeActive = next === 'active';
       if (next === 'active') { if (Platform.OS !== 'web') void revalidateConnectivity(); foreground(); }
     });
     let connected = false;
@@ -61,13 +67,12 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
       } },
     })));
     const metadata = subscribeBootstrap((id) => { if (id === userId) void coordinator.request('freshness'); });
-    const interval = setInterval(foreground, BOOTSTRAP_REFRESH_MS);
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', foreground); window.addEventListener('pageshow', foreground);
       document.addEventListener('visibilitychange', foreground);
     }
     return () => {
-      registration(); readModels(); connectivity(); nativeNetwork(); realtime(); metadata(); appState.remove(); clearInterval(interval);
+      registration(); readModels(); connectivity(); nativeNetwork(); realtime(); metadata(); appState.remove();
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', foreground); window.removeEventListener('pageshow', foreground);
         document.removeEventListener('visibilitychange', foreground);

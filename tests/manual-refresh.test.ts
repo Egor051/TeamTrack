@@ -20,7 +20,7 @@ beforeEach(() => {
     metadata: vi.fn(async () => structuredClone(meta)), syncNeeded: vi.fn(async () => needed),
     sync: vi.fn(async () => { needed = false; return { outcome: 'success' as const, error: null }; }),
     prepare: vi.fn(async () => { ready(); return 'settled' as const; }),
-    cancelPreparation: vi.fn(), cancelSync: vi.fn(), delay: (value) => Math.max(0, (value.retry?.next_retry_at ?? 0) - Date.now()), refreshMs: 300_000, preloadEnabled: true };
+    cancelPreparation: vi.fn(), cancelSync: vi.fn(), delay: (value) => Math.max(0, (value.retry?.next_retry_at ?? 0) - Date.now()), preloadEnabled: true };
   coordinator = createOfflineCoordinator('a', deps);
   unregister = registerOfflineWork('a', (reason) => coordinator.request(reason));
 });

@@ -38,7 +38,7 @@ function failedReason(operation: OfflineOperation): string {
   return 'Сервер отклонил изменение.';
 }
 
-export function RealtimeIndicator({ status }: { status: RealtimeStatus }) {
+export function RealtimeIndicator({ status, compact = false }: { status: RealtimeStatus; compact?: boolean }) {
   const { colors: theme } = useTheme();
   const { state: auth } = useAuth();
   const userId = auth.isLoading ? null : auth.user?.id ?? null;
@@ -98,6 +98,7 @@ export function RealtimeIndicator({ status }: { status: RealtimeStatus }) {
   };
   const content = <><View style={[styles.dot, { backgroundColor: theme[tone] }]} />
     <ThemedText type="caption" accessibilityLiveRegion="polite"
+      numberOfLines={compact ? 1 : undefined}
       style={[styles.label, tone !== 'success' && { color: theme[tone], fontWeight: '600' }]}>{text}</ThemedText></>;
   return <View style={styles.container}>
     {canExpand ? <Pressable accessibilityRole="button" accessibilityLabel={text}

@@ -65,6 +65,9 @@ export function cancelPendingSync(userId: string): void {
 }
 
 function scheduleRetry(userId: string, until: number): void {
+  if (requestOfflineWork(userId, 'sync-retry', Math.max(25, until - Date.now()))) {
+    clearRetry(userId); return;
+  }
   const existing = retryTimers.get(userId);
   if (existing && existing.until <= until) return;
   if (existing) clearTimeout(existing.timer);
@@ -76,6 +79,10 @@ function scheduleRetry(userId: string, until: number): void {
   }, Math.max(25, until - Date.now()));
   if (typeof timer === 'object' && 'unref' in timer) timer.unref();
   retryTimers.set(userId, { timer, until });
+}
+
+export function pendingSyncDelay(userId: string): number {
+  return Math.max(0, (backoff.get(userId)?.until ?? 0) - Date.now());
 }
 
 function clearRetry(userId: string): void {
@@ -322,7 +329,8 @@ async function run(userId: string, ctx: SyncContext, allowedConflict?: SyncConfl
     const delay = capabilities.available ? RUNTIME_CONFIG_TTL_MS : Math.min(60_000, 5_000 * 2 ** (failures - 1));
     const until = Date.now() + delay;
     backoff.set(userId, { failures, until });
-    scheduleRetry(userId, until);
+    if (!capabilities.available || (await ctx.wait(() => listPendingOperations(userId)))
+      .some((row) => row.status === 'pending' || row.status === 'synced_unreconciled')) scheduleRetry(userId, until);
     return false;
   }
   const client = await clientFor(userId, ctx);

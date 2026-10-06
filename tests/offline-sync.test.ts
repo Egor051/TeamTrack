@@ -162,7 +162,8 @@ vi.mock('@/lib/local-cache/outbox', async (importOriginal) => ({
     .sort((a, b) => a.sequence - b.sequence),
 }));
 
-import { chooseMine, syncPendingOperations } from '@/lib/local-cache/sync';
+import { cancelPendingSync, chooseMine, syncPendingOperations } from '@/lib/local-cache/sync';
+import { registerOfflineWork } from '@/lib/local-cache/work-requests';
 import { chooseServer, unresolvedConflicts } from '@/lib/local-cache/conflicts';
 
 function operation(sequence: number, type: OfflineOperation['type'], payload: OfflineOperation['payload']): OfflineOperation {
@@ -193,6 +194,25 @@ beforeEach(() => {
 });
 
 describe('Phase 5 offline replay', () => {
+  it('disabled sync with no queued work does not schedule endless capability checks', async () => {
+    const work = vi.fn(async (_reason: string, _delayMs?: number) => undefined); const unregister = registerOfflineWork('user-a', work);
+    try {
+      state.configSync = false;
+      await syncPendingOperations('user-a', true);
+      expect(work).not.toHaveBeenCalled();
+    } finally { unregister(); cancelPendingSync('user-a'); }
+  });
+  it('worker retries delegate their deadline to the account coordinator', async () => {
+    const work = vi.fn(async (_reason: string, _delayMs?: number) => undefined); const unregister = registerOfflineWork('user-a', work);
+    try {
+      state.operations = [operation(1, 'set_task_item_percentage', { percentage: 40 })];
+      state.configSync = false; state.configAvailable = false;
+      await syncPendingOperations('user-a', true);
+      expect(work).toHaveBeenCalledWith('sync-retry', expect.any(Number));
+      expect(work.mock.calls[0][1]).toBeGreaterThan(0);
+      expect(state.calls).toEqual([]);
+    } finally { unregister(); cancelPendingSync('user-a'); }
+  });
   it('foreground freshness passes stay quiet, while pending mutations advertise synchronization', async () => {
     await syncPendingOperations('user-a', true); state.updates = [];
     for (let i = 0; i < 3; i++) await syncPendingOperations('user-a', true);

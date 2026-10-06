@@ -352,7 +352,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
         const manifest = await manifestFor(userId, meta.scheme, undefined, signal);
         await ensureActive();
         meta.manifest = manifest;
-        const reusable: Partial<Record<Dataset, { revision: string; offsets: Set<number> }>> = {};
+        const reusable: Partial<Record<Dataset, Map<number, string>>> = {};
         for (const name of requiredDatasets(meta.scheme)) {
           const version = manifest.datasets[name]!;
           const old = meta.datasets[name];
@@ -361,20 +361,33 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             meta.extended_ready = false;
             continue;
           }
-          if (!old || old.revision !== version.revision || old.count !== version.count) {
-            if (old?.pages) reusable[name] = { revision: old.revision, offsets: new Set(version.pages.flatMap((hash, page) =>
-              hash === old.pages[page] && page * PAGE_SIZE < old.offset
-                ? [page * PAGE_SIZE] : [])) };
-            meta.datasets[name] = { ...version, offset: 0, status: 'pending' };
+          // Inventory pages before downloading. A missing/corrupt page does
+          // not discard the intact pages of the same dataset, and interrupted
+          // offsets cannot conceal an earlier page evicted from IndexedDB.
+          const pages = new Map<number, string>();
+          for (let offset = 0; offset < version.count; offset += PAGE_SIZE) {
+            const candidates = [batchKey(name, version.revision, offset)];
+            if (old?.pages[offset / PAGE_SIZE] === version.pages[offset / PAGE_SIZE])
+              candidates.push(batchKey(name, old.revision, offset));
+            for (const key of candidates) {
+              const data = snapshotBaseline.get(key);
+              if (!data) continue;
+              const expected = meta.verified?.basic?.batches?.[key] ?? meta.verified?.extended?.batches?.[key];
+              if (expected !== undefined && expected !== checksum(data)) continue;
+              try {
+                const page: unknown = JSON.parse(data);
+                if (!Array.isArray(page) || page.length !== Math.min(PAGE_SIZE, version.count - offset)) continue;
+                pages.set(offset, data); break;
+              } catch { /* Invalid staging pages must be fetched again. */ }
+            }
+          }
+          reusable[name] = pages;
+          const complete = old?.revision === version.revision && old.count === version.count
+            && old.status === 'complete' && pages.size === version.pages.length;
+          meta.datasets[name] = { ...version, offset: complete ? version.count : 0, status: complete ? 'complete' : 'pending' };
+          if (!complete) {
             if ((BASIC_DATASETS as readonly string[]).includes(name)) meta.basic_ready = false;
             meta.extended_ready = false;
-          } else if (old.status === 'complete') {
-            try { await step(() => readDataset(userId, name, meta)); }
-            catch {
-              meta.datasets[name] = { ...version, offset: 0, status: 'pending' };
-              if ((BASIC_DATASETS as readonly string[]).includes(name)) meta.basic_ready = false;
-              meta.extended_ready = false;
-            }
           }
         }
         meta.offline_ready = meta.basic_ready;
@@ -443,14 +456,12 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
               while (state.offset < state.count) {
                 await ensureActive();
                 const offset = state.offset;
-                if (reusable[name]?.offsets.has(offset)) {
-                  const previous = await step(() => localCacheDriver.get(userId, batchKey(name, reusable[name]!.revision, offset)));
-                  const page = previous ? JSON.parse(previous.data) as unknown : null;
-                  if (Array.isArray(page) && page.length === Math.min(PAGE_SIZE, state.count - offset)) {
-                    state.offset += page.length;
-                    await save([cacheEntry(userId, batchKey(name, state.revision, offset), page)]);
-                    continue;
-                  }
+                const reusablePage = reusable[name]?.get(offset);
+                if (reusablePage) {
+                  const page = JSON.parse(reusablePage) as unknown[];
+                  state.offset += page.length;
+                  await save([cacheEntry(userId, batchKey(name, state.revision, offset), page)]);
+                  continue;
                 }
                 const { data, error } = await boundedOperation((deadline) => supabase.rpc('get_offline_account_page', { p_dataset: name, p_revision: state.revision,
                   p_offset: offset, p_limit: PAGE_SIZE, ...(manifest.snapshot_at ? { p_snapshot_at: manifest.snapshot_at } : {}) }).abortSignal(deadline), BOOTSTRAP_OPERATION_TIMEOUT_MS, signal);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createOfflineCoordinator, type CoordinatorDependencies } from '@/lib/local-cache/coordinator';
+import { createOfflineCoordinator, OFFLINE_TICK_MS, type CoordinatorDependencies } from '@/lib/local-cache/coordinator';
 import { initialBootstrap, type BootstrapMetadata } from '@/lib/local-cache/bootstrap-types';
 import { getNetworkFacts, getOfflineRuntime, invalidateOfflineRuntime, publishBootstrapFacts,
   startRuntimeOperation } from '@/lib/local-cache/runtime-state';
@@ -21,7 +21,7 @@ beforeEach(() => {
       if (local) meta = { ...meta, status: meta.basic_ready ? 'ready' : 'offline_waiting' };
       else ready(); return 'settled' as const;
     }), sync: vi.fn(async () => undefined), cancelPreparation: vi.fn(), cancelSync: vi.fn(),
-    delay: (m) => Math.max(0, (m.retry?.next_retry_at ?? 0) - Date.now()), refreshMs: 300_000, preloadEnabled: true };
+    delay: (m) => Math.max(0, (m.retry?.next_retry_at ?? 0) - Date.now()), preloadEnabled: true };
 });
 afterEach(() => { coordinator?.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('authoritative offline operation lifecycle', () => {
@@ -60,6 +60,77 @@ describe('authoritative offline operation lifecycle', () => {
   });
 });
 describe('one recovery pipeline', () => {
+  it('foreground ticks leave a fully ready cache quiet beyond its former refresh TTL', async () => {
+    ready(); deps.syncNeeded = vi.fn(async () => false);
+    coordinator = createOfflineCoordinator('a', deps);
+    await coordinator.request('freshness'); await tick(); await tick(10 * 60_000);
+    expect(deps.metadata).toHaveBeenCalledTimes(31);
+    expect(deps.session).not.toHaveBeenCalled(); expect(deps.probe).not.toHaveBeenCalled();
+    expect(deps.sync).not.toHaveBeenCalled(); expect(deps.prepare).not.toHaveBeenCalled();
+    expect(meta.status).toBe('ready'); expect(vi.getTimerCount()).toBe(1);
+  });
+  it('the safety tick discovers missing readiness and pending work without a UI event', async () => {
+    ready(); let pending = false; deps.syncNeeded = async () => pending;
+    deps.sync = vi.fn(async () => { pending = false; });
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('freshness'); await tick();
+    pending = true; meta.basic_ready = false; meta.status = 'partial';
+    await tick(OFFLINE_TICK_MS);
+    expect(deps.sync).toHaveBeenCalledOnce(); expect(deps.prepare).toHaveBeenCalledOnce();
+    expect(meta.basic_ready).toBe(true);
+  });
+  it('hidden tabs do no periodic work and recheck on foreground', async () => {
+    ready(); let visible = true; deps.foreground = () => visible;
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('freshness'); await tick();
+    visible = false; await tick(120_000); expect(deps.metadata).toHaveBeenCalledOnce();
+    meta.basic_ready = false; visible = true; await coordinator.request('freshness'); await tick();
+    expect(deps.prepare).toHaveBeenCalledOnce(); expect(meta.basic_ready).toBe(true);
+  });
+  it('queued offline edits wait quietly for reconnect instead of spinning completion ticks', async () => {
+    ready(); local = true;
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('mutations'); await tick();
+    await tick(60_000); expect(deps.metadata).toHaveBeenCalledTimes(4);
+    expect(deps.sync).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(1);
+    local = false; await coordinator.request('reconnect'); expect(deps.sync).toHaveBeenCalledOnce();
+  });
+  it('a long foreground return checks pull once without reloading a complete cache', async () => {
+    ready(); coordinator = createOfflineCoordinator('a', deps);
+    await coordinator.request('freshness'); await tick(); await tick(10 * 60_000);
+    expect(deps.sync).not.toHaveBeenCalled();
+    await coordinator.request('freshness'); await tick(); expect(deps.sync).toHaveBeenCalledOnce();
+    for (let i = 0; i < 50; i++) await coordinator.request('freshness'); await tick();
+    expect(deps.sync).toHaveBeenCalledOnce(); expect(deps.prepare).not.toHaveBeenCalled();
+  });
+  it('foreground bursts cannot bypass escalating recovery backoff, but edits sync promptly', async () => {
+    deps.prepare = vi.fn(async () => { meta.status = 'error'; meta.error = 'quota'; return 'settled' as const; });
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('freshness'); await tick();
+    expect(deps.prepare).toHaveBeenCalledOnce();
+    for (let i = 0; i < 50; i++) await coordinator.request('freshness');
+    await coordinator.request('mutations'); await tick();
+    expect(deps.sync).toHaveBeenCalledTimes(2); expect(deps.prepare).toHaveBeenCalledOnce();
+    await tick(4650); expect(deps.prepare).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 50; i++) await coordinator.request('freshness');
+    await tick(9000); expect(deps.prepare).toHaveBeenCalledTimes(2);
+    await tick(1050); expect(deps.prepare).toHaveBeenCalledTimes(3);
+  });
+  it('manual Refresh and trigger bursts join a live pipeline without concurrent workers', async () => {
+    let release!: () => void; let active = 0; let peak = 0;
+    deps.sync = vi.fn(async () => { peak = Math.max(peak, ++active); await new Promise<void>((resolve) => { release = resolve; }); active--; });
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('freshness'); await tick();
+    const refresh = coordinator.request('manual-refresh');
+    expect(coordinator.request('manual-refresh')).toBe(refresh);
+    for (let i = 0; i < 50; i++) void coordinator.request('freshness');
+    release(); await refresh; expect(peak).toBe(1); expect(meta.basic_ready).toBe(true);
+    expect(deps.sync).toHaveBeenCalledOnce();
+  });
+  it('sync retry deadlines share the tick timer and do not wait for recovery backoff', async () => {
+    ready(); meta.basic_ready = false;
+    meta.retry = { failures: 4, next_retry_at: Date.now() + 300_000 };
+    deps.sync = vi.fn(async () => undefined);
+    coordinator = createOfflineCoordinator('a', deps); await coordinator.request('freshness'); await tick();
+    await coordinator.request('sync-retry', 3000); await tick(3000);
+    expect(deps.sync).toHaveBeenCalledOnce(); expect(deps.prepare).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+  });
   it('AUD-12: an edit arriving during sync survives the following preparation failure', async () => {
     let finish!: () => void;
     deps.sync = vi.fn(async (): Promise<void> => undefined).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));

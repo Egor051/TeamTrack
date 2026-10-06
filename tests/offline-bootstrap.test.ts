@@ -82,6 +82,20 @@ async function stored(key: string) { const d = (await import('@/lib/local-cache/
 function pages(name?: string) { return f.rpc.mock.calls.filter(([rpc, args]) => rpc === 'get_offline_account_page' && (!name || args.p_dataset === name)); }
 
 describe('account bootstrap', () => {
+  it.each(['missing', 'corrupt'])('recovery downloads only the %s page of a multi-page dataset', async (damage) => {
+    const item = f.rows.items[0] as Record<string, unknown>;
+    f.rows.items = Array.from({ length: 1001 }, (_, index) => ({ ...item, id: `item-${index}`, position: index }));
+    const b = await run();
+    const driver = (await import('@/lib/local-cache/driver.web')).localCacheDriver;
+    const { batchKey } = await import('@/lib/local-cache/bootstrap-types');
+    const key = batchKey('items', revision('items'), 500);
+    if (damage === 'missing') await driver.remove(f.user, key);
+    else { const entry = (await driver.get(f.user, key))!; const rows = JSON.parse(entry.data); rows[0].id = 'corrupted'; await driver.put({ ...entry, data: JSON.stringify(rows) }); }
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
+    f.rpc.mockClear(); await advance(b); await b.runAccountBootstrap(f.user);
+    expect(pages().map(([, args]) => [args.p_dataset, args.p_offset])).toEqual([['items', 500]]);
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+  });
   it('AUD-02: bootstrap keeps history of a hard-deleted item and its earlier events', async () => {
     f.rows.history = [
       { id: 1, project_id: projectId, entity_type: 'task_item', entity_id: 'deleted-item', action: 'updated', old_data: { percentage: 0 }, new_data: { percentage: 50 }, created_at: stamp },

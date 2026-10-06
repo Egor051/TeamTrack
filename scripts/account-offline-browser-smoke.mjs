@@ -265,6 +265,34 @@ async function lifecycleRegressions(taskId) {
   check(browser('get', 'url') === base + '/projects', 'Tab switch lost the projects page');
   console.log('PASS ready + focus/visibility/tab switching without false syncing');
 }
+async function schedulerRegressions() {
+  browser('eval', `window.__scheduler={requests:[],active:0,peak:0};window.__schedulerFetch=window.fetch;window.fetch=async function(input,init){const url=String(input.url||input);const p=window.__scheduler;if(!url.includes('/rest/v1/')&&!url.includes('/auth/v1/'))return window.__schedulerFetch(input,init);p.requests.push({url,args:JSON.parse(init?.body||'{}')});p.peak=Math.max(p.peak,++p.active);try{return await window.__schedulerFetch(input,init)}finally{p.active--}};true`);
+  const geometry = () => JSON.parse(browser('eval', `(function(){const leaves=Array.from(document.querySelectorAll('*')).filter(e=>!e.children.length);const s=leaves.find(e=>e.textContent.startsWith('Синхронизация:'));const o=leaves.find(e=>e.textContent.startsWith('Офлайн:'));const b=Array.from(document.querySelectorAll('[role="button"]')).find(e=>e.textContent==='Обновить');let block=s;while(block&&!block.contains(o))block=block.parentElement;const sr=s.getBoundingClientRect(),or=o.getBoundingClientRect(),br=b.getBoundingClientRect(),r=block.getBoundingClientRect();return {stacked:or.top>sr.top,aligned:Math.abs(sr.left-or.left)<2,centered:Math.abs((r.top+r.height/2)-(br.top+br.height/2))<2,width:r.width,height:r.height,overflow:document.documentElement.scrollWidth>innerWidth}})()`));
+  const desktop = geometry();
+  check(desktop.stacked && desktop.aligned && desktop.centered && !desktop.overflow, `Desktop status layout: ${JSON.stringify(desktop)}`);
+  browser('screenshot', resolve(root, '.expo/scheduler-projects-desktop.png'));
+  browser('set', 'viewport', '390', '844');
+  const mobile = geometry(); check(mobile.stacked && mobile.aligned && !mobile.overflow, `Mobile status layout: ${JSON.stringify(mobile)}`);
+  browser('screenshot', resolve(root, '.expo/scheduler-projects-mobile.png'));
+  browser('set', 'viewport', '1365', '900');
+  browser('eval', 'window.__scheduler.requests=[];true');
+  await new Promise((resolve) => setTimeout(resolve, 45_000));
+  const idle = JSON.parse(browser('eval', 'window.__scheduler.requests'));
+  check(idle.length === 0, `Ready foreground ticks made HTTP requests: ${JSON.stringify(idle)}`);
+  const started = Date.now();
+  const damaged = `${userId}:bootstrap:batch:items:${metadata().datasets.items.revision}:0`;
+  browser('eval', `(async function(){const db=await new Promise(ok=>{const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=()=>ok(r.result)});try{await new Promise((ok,no)=>{const tx=db.transaction('entries','readwrite');tx.objectStore('entries').delete(${JSON.stringify(damaged)});tx.oncomplete=ok;tx.onerror=()=>no(tx.error)})}finally{db.close()}return true})()`);
+  await eventually(() => metadata()?.basic_ready && !metadata()?.lease && Date.parse(metadata().last_successful_sync_at) >= started, 'automatic missing-page recovery', 45_000);
+  await has('Офлайн: готово');
+  const recovery = JSON.parse(browser('eval', 'window.__scheduler.requests'));
+  const pages = recovery.filter(r => r.url.includes('/rpc/get_offline_account_page'));
+  check(pages.length === 1 && pages[0].args.p_dataset === 'items' && pages[0].args.p_offset === 0, `Recovery downloaded unrelated pages: ${JSON.stringify(recovery)}`);
+  const restored = geometry();
+  check(restored.width === desktop.width && restored.height === desktop.height, 'Readiness recovery changed the status block size');
+  browser('eval', 'window.fetch=window.__schedulerFetch;true');
+  writeFileSync(resolve(root, '.expo/scheduler-browser.json'), JSON.stringify({ desktop, mobile, idle_seconds: 45, idle_requests: idle.length, recovered_pages: pages.map(p => p.args) }, null, 2));
+  console.log('PASS 20s scheduler idle without HTTP, automatic targeted missing-page recovery, stable desktop/390px layout');
+}
 try {
   console.log('Building production PWA with WRITE=true, SYNC=true against local Supabase...');
   // process env overrides .env; no file or feature-flag changes.
@@ -307,7 +335,11 @@ try {
   browser('screenshot', resolve(root,'.expo/account-offline-basic.png'));
   console.log('PASS automatic basic bootstrap, independent projects indicators and PWA assets');
   await eventually(() => runtimeSnapshot()?.value?.write_enabled === true && runtimeSnapshot()?.value?.sync_enabled === true, 'confirmed runtime capabilities');
+  if (process.argv.includes('--scheduler-only')) {
+    await schedulerRegressions();
+  } else {
   await lifecycleRegressions(taskId);
+  await schedulerRegressions();
   if (process.argv.includes('--storm-soak') || process.argv.includes('--storm-burst')) await stormSoak(itemId);
 
   // None of these routes was opened before switching offline.
@@ -434,6 +466,7 @@ try {
   const consoleLog = browser('console');
   writeFileSync(resolve(root, '.expo/account-offline-console.log'), consoleLog);
   check(!/unhandled.*rejection|uncaught|maximum update depth|cannot update a component|state update on an unmounted|indexeddb.*(?:exception|quotaexceeded)/i.test(consoleLog), `Browser console regression: ${consoleLog}`);
+  }
   console.log('Account offline browser smoke passed');
 } catch (error) {
   try { console.error('Failed page:', body()); console.error('Failed metadata:', JSON.stringify(metadata())); browser('screenshot', resolve(root, '.expo/account-offline-failure.png')); } catch { /* browser failed */ }
