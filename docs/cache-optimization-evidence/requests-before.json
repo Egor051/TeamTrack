@@ -1,0 +1,324 @@
+{
+  "baseline": true,
+  "environment": "Local Supabase + production PWA, warm Basic cache, Chromium",
+  "scenarios": [
+    {
+      "name": "open /projects",
+      "requests": 22,
+      "endpoints": {
+        "/auth/v1/user": 3,
+        "/rest/v1/notifications": 1,
+        "/rest/v1/project_members": 5,
+        "/rest/v1/projects": 3,
+        "/rest/v1/rpc/get_my_profile": 1,
+        "/rest/v1/rpc/get_offline_runtime_config": 2,
+        "/rest/v1/rpc/pull_task_item_changes_v2": 2,
+        "/rest/v1/task_assignees": 5
+      },
+      "probes": 2
+    },
+    {
+      "name": "open project",
+      "requests": 27,
+      "endpoints": {
+        "/auth/v1/user": 5,
+        "/rest/v1/project_members": 7,
+        "/rest/v1/projects": 5,
+        "/rest/v1/rpc/get_my_profile": 1,
+        "/rest/v1/rpc/get_offline_runtime_config": 2,
+        "/rest/v1/rpc/pull_task_item_changes_v2": 2,
+        "/rest/v1/task_assignees": 3,
+        "/rest/v1/task_items": 1,
+        "/rest/v1/tasks": 1
+      },
+      "probes": 2
+    },
+    {
+      "name": "project -> task",
+      "requests": 89,
+      "endpoints": {
+        "/auth/v1/user": 7,
+        "/rest/v1/profiles": 7,
+        "/rest/v1/project_members": 16,
+        "/rest/v1/projects": 7,
+        "/rest/v1/rpc/get_my_profile": 1,
+        "/rest/v1/rpc/get_my_task_role": 7,
+        "/rest/v1/rpc/get_offline_account_manifest": 2,
+        "/rest/v1/rpc/get_offline_runtime_config": 4,
+        "/rest/v1/rpc/list_task_item_last_editors": 7,
+        "/rest/v1/rpc/list_task_member_overrides": 7,
+        "/rest/v1/rpc/pull_task_item_changes_v2": 4,
+        "/rest/v1/task_assignees": 9,
+        "/rest/v1/task_items": 2,
+        "/rest/v1/tasks": 9
+      },
+      "probes": 2
+    },
+    {
+      "name": "task -> project",
+      "requests": 24,
+      "endpoints": {
+        "/auth/v1/user": 4,
+        "/rest/v1/project_members": 6,
+        "/rest/v1/projects": 4,
+        "/rest/v1/rpc/get_my_profile": 1,
+        "/rest/v1/rpc/get_offline_runtime_config": 2,
+        "/rest/v1/rpc/pull_task_item_changes_v2": 2,
+        "/rest/v1/task_assignees": 3,
+        "/rest/v1/task_items": 1,
+        "/rest/v1/tasks": 1
+      },
+      "probes": 2
+    },
+    {
+      "name": "realtime one item",
+      "requests": 6,
+      "endpoints": {
+        "/auth/v1/user": 1,
+        "/rest/v1/project_members": 1,
+        "/rest/v1/projects": 1,
+        "/rest/v1/task_assignees": 1,
+        "/rest/v1/task_items": 1,
+        "/rest/v1/tasks": 1
+      },
+      "probes": 0
+    },
+    {
+      "name": "foreground unchanged",
+      "requests": 0,
+      "endpoints": {},
+      "probes": 0
+    },
+    {
+      "name": "manual refresh",
+      "requests": 4,
+      "endpoints": {
+        "/auth/v1/user": 1,
+        "/rest/v1/project_members": 1,
+        "/rest/v1/projects": 1,
+        "/rest/v1/task_assignees": 1
+      },
+      "probes": 0
+    },
+    {
+      "name": "offline recovery",
+      "requests": 19,
+      "endpoints": {
+        "/auth/v1/user": 3,
+        "/rest/v1/project_members": 4,
+        "/rest/v1/projects": 3,
+        "/rest/v1/rpc/get_my_profile": 1,
+        "/rest/v1/rpc/get_offline_runtime_config": 2,
+        "/rest/v1/rpc/pull_task_item_changes_v2": 2,
+        "/rest/v1/task_assignees": 4
+      },
+      "probes": 4
+    }
+  ],
+  "storage": [
+    {
+      "name": "warm-basic",
+      "bytes": 36491,
+      "categories": {
+        "assignees": {
+          "bytes": 360,
+          "records": 2
+        },
+        "blocked": {
+          "bytes": 362,
+          "records": 2
+        },
+        "blocked-task": {
+          "bytes": 372,
+          "records": 2
+        },
+        "bootstrap": {
+          "bytes": 8637,
+          "records": 1
+        },
+        "bootstrap-pages": {
+          "bytes": 8910,
+          "records": 10
+        },
+        "daily-audit": {
+          "bytes": 2969,
+          "records": 2
+        },
+        "items": {
+          "bytes": 3679,
+          "records": 6
+        },
+        "members": {
+          "bytes": 1172,
+          "records": 2
+        },
+        "my-tasks": {
+          "bytes": 179,
+          "records": 1
+        },
+        "profile": {
+          "bytes": 360,
+          "records": 1
+        },
+        "project": {
+          "bytes": 1079,
+          "records": 2
+        },
+        "projects": {
+          "bytes": 1027,
+          "records": 2
+        },
+        "runtime": {
+          "bytes": 375,
+          "records": 1
+        },
+        "sync": {
+          "bytes": 340,
+          "records": 2
+        },
+        "task": {
+          "bytes": 1217,
+          "records": 2
+        },
+        "task-overrides": {
+          "bytes": 370,
+          "records": 2
+        },
+        "task-role": {
+          "bytes": 374,
+          "records": 2
+        },
+        "task-stats": {
+          "bytes": 1780,
+          "records": 4
+        },
+        "tasks": {
+          "bytes": 1223,
+          "records": 2
+        },
+        "template": {
+          "bytes": 784,
+          "records": 1
+        },
+        "template-items": {
+          "bytes": 495,
+          "records": 1
+        },
+        "templates": {
+          "bytes": 427,
+          "records": 1
+        }
+      },
+      "estimate": {
+        "quota": 10739737246,
+        "usage": 2319006,
+        "usageDetails": {
+          "caches": 2175232,
+          "indexedDB": 126976,
+          "serviceWorkerRegistrations": 16798
+        }
+      },
+      "records": 51
+    },
+    {
+      "name": "after-scenarios",
+      "bytes": 35943,
+      "categories": {
+        "assignees": {
+          "bytes": 360,
+          "records": 2
+        },
+        "blocked-task": {
+          "bytes": 186,
+          "records": 1
+        },
+        "bootstrap": {
+          "bytes": 8637,
+          "records": 1
+        },
+        "bootstrap-pages": {
+          "bytes": 8910,
+          "records": 10
+        },
+        "daily-audit": {
+          "bytes": 2969,
+          "records": 2
+        },
+        "items": {
+          "bytes": 3679,
+          "records": 6
+        },
+        "members": {
+          "bytes": 1172,
+          "records": 2
+        },
+        "my-tasks": {
+          "bytes": 179,
+          "records": 1
+        },
+        "profile": {
+          "bytes": 360,
+          "records": 1
+        },
+        "project": {
+          "bytes": 1079,
+          "records": 2
+        },
+        "projects": {
+          "bytes": 1027,
+          "records": 2
+        },
+        "runtime": {
+          "bytes": 375,
+          "records": 1
+        },
+        "sync": {
+          "bytes": 340,
+          "records": 2
+        },
+        "task": {
+          "bytes": 1217,
+          "records": 2
+        },
+        "task-overrides": {
+          "bytes": 370,
+          "records": 2
+        },
+        "task-role": {
+          "bytes": 374,
+          "records": 2
+        },
+        "task-stats": {
+          "bytes": 1780,
+          "records": 4
+        },
+        "tasks": {
+          "bytes": 1223,
+          "records": 2
+        },
+        "template": {
+          "bytes": 784,
+          "records": 1
+        },
+        "template-items": {
+          "bytes": 495,
+          "records": 1
+        },
+        "templates": {
+          "bytes": 427,
+          "records": 1
+        }
+      },
+      "estimate": {
+        "quota": 10739737246,
+        "usage": 2319006,
+        "usageDetails": {
+          "caches": 2175232,
+          "indexedDB": 126976,
+          "serviceWorkerRegistrations": 16798
+        }
+      },
+      "records": 48
+    }
+  ]
+}

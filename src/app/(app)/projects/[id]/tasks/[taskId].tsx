@@ -1,3 +1,5 @@
+import { isReadAccessPending } from '@/lib/local-cache/read-freshness';
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -131,6 +133,7 @@ export default function TaskScreen() {
 
   const load = useCallback(async () => {
     if (!id || !taskId || !user) return;
+    if (isReadAccessPending(`task:${taskId}`)) { setTask(null); setLoadedUserId(null); setEffectiveTaskRole(null); setItems([]); setSummaryItems([]); }
     const request = ++requestRef.current;
     setLoadError("");
     let supplementaryOffline = false;
@@ -236,6 +239,7 @@ export default function TaskScreen() {
     setOfflineForEdits(true);
   }, [id, taskId, user, showArchivedItems]);
 
+  const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { projectId: id, taskId });
   useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
@@ -255,14 +259,12 @@ export default function TaskScreen() {
     useCallback(() => {
       if (!taskId || !id) return;
       void permissionVersion;
-      const onEvent = () => {
-        void load();
-      };
+      const onEvent = scheduleRefresh;
       const onStatus = (next: RealtimeStatus) => {
         setStatus(next);
         if (next === "connected" && !realtimeConnectedRef.current) {
           realtimeConnectedRef.current = true;
-          void load();
+          scheduleRefresh();
         } else if (next !== "connected") {
           realtimeConnectedRef.current = false;
         }
@@ -295,7 +297,7 @@ export default function TaskScreen() {
             }]
           : []),
       ]);
-    }, [id, taskId, user, load, permissionVersion]),
+    }, [id, taskId, user, permissionVersion, scheduleRefresh]),
   );
 
   async function run(fn: () => Promise<unknown>, target = "task"): Promise<boolean> {
@@ -422,7 +424,7 @@ export default function TaskScreen() {
   const overrideByUserId = new Map(taskMemberOverrides.map((entry) => [entry.user_id, entry.role_override]));
 
   if (!user || loadedUserId !== user.id) {
-    return <Screen padded={false} centerContent={false}>{loadError ? <ErrorState message={loadError} onRetry={load} /> : <LoadingState label="Загружаем этап..." />}</Screen>;
+    return <Screen padded={false} centerContent={false}>{loadError ? <ErrorState message={loadError} onRetry={refreshFromServer} /> : <LoadingState label="Загружаем этап..." />}</Screen>;
   }
 
   return (
@@ -446,13 +448,13 @@ export default function TaskScreen() {
             }
           />
         {loadError && !task ? (
-          <ErrorState message={loadError} onRetry={load} />
+          <ErrorState message={loadError} onRetry={refreshFromServer} />
         ) : !task ? (
           <LoadingState label="Загружаем этап..." />
         ) : (
           <>
             {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
-            {loadError ? <Card><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить данные</Button></Card> : null}
+            {loadError ? <Card><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить данные</Button></Card> : null}
             {actionError?.target === "task" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
             {taskEditing ? <Card>
               <Input label="Название" value={editTaskTitle} onChangeText={setEditTaskTitle} maxLength={500} placeholder="Название этапа" disabled={busy} />
@@ -486,7 +488,7 @@ export default function TaskScreen() {
               <View style={styles.sectionTitle}><ThemedText type="h2">Чек-лист</ThemedText><ThemedText type="small">{showArchivedItems ? "Архивные пункты доступны для просмотра." : "Отмечайте готовые пункты или уточняйте прогресс в деталях."}</ThemedText></View>
               {canEditChecklist ? <SegmentedControl value={currentView} accessibilityLabel="Пункты чек-листа" options={[{ value: "active", label: "Активные" }, { value: "archived", label: "Архив" }]} onChange={(value) => { if (busy) return; setShowArchivedItems(value === "archived"); setExpandedItem(null); setEditing(null); setCommentEditing(null); setActionError(null); }} /> : null}
             </View>
-            {loadedView !== currentView ? (loadError ? <View style={styles.feedback}><ThemedText type="small">Выбранный список пунктов не загрузился.</ThemedText><Button size="sm" variant="outline" onPress={() => void load()}>Повторить</Button></View> : <LoadingState label={showArchivedItems ? "Загружаем архив…" : "Загружаем чек-лист…"} />) : !visibleItems.length ? (
+            {loadedView !== currentView ? (loadError ? <View style={styles.feedback}><ThemedText type="small">Выбранный список пунктов не загрузился.</ThemedText><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Повторить</Button></View> : <LoadingState label={showArchivedItems ? "Загружаем архив…" : "Загружаем чек-лист…"} />) : !visibleItems.length ? (
               <EmptyState
                 title={showArchivedItems ? "Архив чек-листа пуст" : "Чек-лист пуст"}
                 description={showArchivedItems ? "Здесь появятся пункты после архивации." : canEditChecklist ? "Добавьте первый пункт, чтобы разбить этап на последовательные шаги." : "Участники проекта ещё не добавили пункты в этот этап."}

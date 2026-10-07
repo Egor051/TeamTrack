@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { TaskItem } from '@/lib/supabase/client';
 
 const state = vi.hoisted(() => ({ reply: null as null | (() => void) }));
-vi.mock('@/lib/supabase/client', () => ({ supabase: { from: (table: string) => {
+vi.mock('@/lib/supabase/client', () => ({ supabase: { auth: { getSession: async () => ({ data: { session: { user: { id: 'user' } } }, error: null }) }, from: (table: string) => {
   const query = { select: () => query, eq: () => query, order: () => query, range: () => query,
     maybeSingle: async () => ({ data: { id: 'task' }, error: null }),
     then: (resolve: (value: unknown) => void) => new Promise<void>((done) => {
@@ -12,12 +12,6 @@ vi.mock('@/lib/supabase/client', () => ({ supabase: { from: (table: string) => {
   if (table !== 'tasks' && table !== 'task_items') throw new Error(table);
   return query;
 } } }));
-vi.mock('@/lib/local-cache/cache', async () => {
-  const { localCacheDriver } = await import('@/lib/local-cache/driver');
-  return { activeCacheUserId: async () => 'user', getCached: async (_user: string, key: string) => {
-    const entry = await localCacheDriver.get('user', key); return entry ? JSON.parse(entry.data) : null;
-  } };
-});
 vi.mock('@/lib/local-cache/outbox', () => ({ applyPendingOperations: (rows: unknown) => rows, listPendingOperations: async () => [] }));
 vi.mock('@/lib/local-cache/sync', () => ({ announceSyncChange: vi.fn(), subscribeSyncChanges: vi.fn() }));
 vi.mock('@/lib/local-cache/status', () => ({ getSyncState: vi.fn(), subscribeSyncState: vi.fn() }));

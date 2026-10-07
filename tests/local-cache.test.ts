@@ -13,6 +13,7 @@ const fixtures = vi.hoisted(() => {
     put: vi.fn(),
     putIfUnchanged: vi.fn(),
     remove: vi.fn(),
+    commitCacheBatch: vi.fn(), listEntries: vi.fn(),
   };
 });
 
@@ -21,7 +22,7 @@ vi.mock('@/lib/supabase/client', () => ({
 }));
 vi.mock('@/features/auth/auth', () => ({ getCurrentUser: vi.fn() }));
 vi.mock('@/lib/local-cache/driver', () => ({
-  localCacheDriver: { get: fixtures.get, put: fixtures.put, putIfUnchanged: fixtures.putIfUnchanged, remove: fixtures.remove },
+  localCacheDriver: { get: fixtures.get, put: fixtures.put, putIfUnchanged: fixtures.putIfUnchanged, remove: fixtures.remove, commitCacheBatch: fixtures.commitCacheBatch, listEntries: fixtures.listEntries },
 }));
 
 import { filterBlockedProjects, isCachedResult, readThroughCache } from '@/lib/local-cache/cache';
@@ -29,6 +30,7 @@ import { getProject, getTask, listProjectTasks, listProjects } from '@/features/
 import { reportConnectivitySuccess } from '@/lib/connectivity/state';
 import { getCurrentUser } from '@/features/auth/auth';
 import { cacheAccessEpoch, confirmCacheAccess } from '@/lib/local-cache/access-state';
+import { clearReadFreshness } from '@/lib/local-cache/read-freshness';
 import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 
 const networkError = { message: 'TypeError: Failed to fetch', status: 0, code: '' };
@@ -38,6 +40,7 @@ beforeEach(() => {
   // Each fixture starts with independent confirmed permissions.
   for (const key of ['blocked:project-1', 'blocked:00000000-0000-4000-8000-000000000002', 'blocked-task:00000000-0000-4000-8000-000000000001'])
     confirmCacheAccess('user-a', key, cacheAccessEpoch());
+  clearReadFreshness();
   fixtures.records.clear();
   fixtures.userId = 'user-a';
   fixtures.writeFails = false;
@@ -54,6 +57,14 @@ beforeEach(() => {
     if (fixtures.writeFails) throw new Error('storage unavailable');
     const key = `${entry.user_id}:${entry.key}`;
     if (((fixtures.records.get(key) as CacheEntry | undefined)?.data ?? null) === expectedData) fixtures.records.set(key, entry);
+  });
+  fixtures.listEntries.mockImplementation(async (user: string, prefix = '') => [...fixtures.records.values()].filter((row) => (row as CacheEntry).user_id === user && (row as CacheEntry).key.startsWith(prefix)));
+  fixtures.commitCacheBatch.mockImplementation(async (user: string, entries: CacheEntry[], remove: string[], guards: { key: string; data: string | null }[]) => {
+    if (fixtures.writeFails) throw new Error('storage unavailable');
+    if (guards.some((g) => ((fixtures.records.get(user + ':' + g.key) as CacheEntry | undefined)?.data ?? null) !== g.data)) return false;
+    for (const key of remove) fixtures.records.delete(user + ':' + key);
+    for (const entry of entries) fixtures.records.set(user + ':' + entry.key, entry);
+    return true;
   });
   fixtures.remove.mockImplementation(async (userId: string, key: string) => {
     fixtures.records.delete(`${userId}:${key}`);
@@ -99,7 +110,7 @@ describe('read-through cache', () => {
           ? statusFilter && statusFilter !== row.status ? [] : [row] : [{ project_id: projectId, role: 'owner' }], error: null }).then(resolve) };
       return query;
     });
-    await listProjects(status);
+    await listProjects(status, { forceRefresh: true });
     const detail = { select: () => detail, eq: () => detail, maybeSingle: async () => ({ data: null, error: networkError }) };
     fixtures.from.mockReturnValue(detail);
     expect(await getProject(projectId)).toEqual(saved);
@@ -170,10 +181,10 @@ describe('read-through cache', () => {
   });
 
   it('does not save a response under the old account after a session switch', async () => {
-    await readThroughCache('projects:active', async () => {
+    await expect(readThroughCache('projects:active', async () => {
       fixtures.userId = 'user-b';
       return project;
-    });
+    })).rejects.toThrow('Сеанс изменился');
     expect(fixtures.records.has('user-a:projects:active')).toBe(false);
     expect(fixtures.records.has('user-b:projects:active')).toBe(false);
   });
@@ -192,7 +203,7 @@ describe('read-through cache', () => {
     listQuery.range.mockReturnValue(listQuery);
     listQuery.eq.mockReturnValue(listQuery);
     fixtures.from.mockReturnValue(listQuery);
-    expect(await listProjects('active')).toEqual([]);
+    expect(await listProjects('active', { forceRefresh: true })).toEqual([]);
 
     const detailQuery = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(async () => ({ data: null, error: networkError })) };
     detailQuery.select.mockReturnValue(detailQuery);
@@ -216,7 +227,7 @@ describe('read-through cache', () => {
     listQuery.order.mockReturnValue(listQuery);
     listQuery.range.mockReturnValue(listQuery);
     fixtures.from.mockReturnValue(listQuery);
-    expect(await listProjectTasks(projectId)).toEqual([]);
+    expect(await listProjectTasks(projectId, { forceRefresh: true })).toEqual([]);
 
     const detailQuery = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(async () => ({ data: null, error: networkError })) };
     detailQuery.select.mockReturnValue(detailQuery);
@@ -244,12 +255,12 @@ describe('read-through cache', () => {
     fixtures.from.mockReturnValue(query);
     expect(await getTask(taskId, projectId)).toEqual(task);
     response = { data: null, error: networkError };
-    const offline = await getTask(taskId, projectId);
+    const offline = await getTask(taskId, projectId, { forceRefresh: true });
     expect(offline).toEqual(task);
     expect(isCachedResult(offline)).toBe(true);
     response = { data: null, error: { message: 'permission denied', status: 403, code: '42501' } };
     reportConnectivitySuccess();
-    await expect(getTask(taskId, projectId)).rejects.toMatchObject({ status: 403 });
+    await expect(getTask(taskId, projectId, { forceRefresh: true })).rejects.toMatchObject({ status: 403 });
   });
 
   it('reads a saved entry after a simulated app restart', async () => {

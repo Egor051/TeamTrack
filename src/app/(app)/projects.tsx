@@ -24,6 +24,8 @@ import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { RealtimeIndicator } from '@/components/ui/realtime-indicator';
 import { OfflineReadyIndicator } from '@/components/ui/offline-ready-indicator';
 import { subscribeTable, type RealtimeStatus } from '@/lib/supabase/realtime';
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
+import { invalidateReadModels, isReadAccessPending } from '@/lib/local-cache/read-freshness';
 
 const roleLabels: Record<ProjectWithRole['role'], string> = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
 
@@ -60,6 +62,9 @@ export default function ProjectsScreen() {
   const refreshing = refreshingScope === scope;
   const load = useCallback(async (cacheOnly = false) => {
     const request = ++requestRef.current;
+    if (isReadAccessPending(`projects:${view}`) || isReadAccessPending(`my-tasks:${userId}`)) {
+      setProjects([]); setMyTasks([]); setLoadedScope(null); setOffline(false);
+    }
     if (!cacheOnly) { setLoading(true); setFeedback({ scope, text: '' }); }
     try {
       const [projectsResult, tasksResult] = await Promise.allSettled([
@@ -84,6 +89,7 @@ export default function ProjectsScreen() {
       if (request === requestRef.current) setLoading(false);
     }
   }, [archived, userId, scope, view]);
+  const { scheduleRefresh } = useReadModelUpdates(load, { view: 'overview', userId });
   const refresh = useCallback((): Promise<void> => {
     if (refreshRef.current?.scope === scope) return refreshRef.current.promise;
     setRefreshingScope(scope);
@@ -92,6 +98,7 @@ export default function ProjectsScreen() {
       try {
         let result = userId ? await requestOfflineWork(userId, 'manual-refresh') : null;
         if (activeScope.current !== scope) return;
+        if (userId) await invalidateReadModels(userId, [`projects:${view}`, `my-tasks:${userId}`], 'refresh');
         await load();
         if (activeScope.current !== scope) return;
         // Foreground reads can discover structural changes even when Realtime
@@ -108,7 +115,7 @@ export default function ProjectsScreen() {
       setRefreshingScope((previous) => previous === scope ? null : previous);
     });
     refreshRef.current = { scope, promise }; return promise;
-  }, [load, scope, userId]);
+  }, [load, scope, userId, view]);
   useOnlineRecovery(load);
   useFocusEffect(useCallback(() => { if (!userId) return; void permissionVersion; void load(); return () => { requestRef.current += 1; }; }, [load, permissionVersion, userId]));
   useFocusEffect(useCallback(() => {
@@ -120,8 +127,10 @@ export default function ProjectsScreen() {
   }, [load, userId, view]));
   useFocusEffect(useCallback(() => {
     if (!userId) return;
-    return subscribeTable('task_items', { userId, onEvent: () => void load(), onStatus: setStatus });
-  }, [load, userId]));
+    const cleanups = ['task_items', 'tasks', 'projects', 'task_assignees'].map((table) =>
+      subscribeTable(table, { userId, onEvent: scheduleRefresh, onStatus: setStatus }));
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [scheduleRefresh, userId]));
   useFocusEffect(useCallback(() => {
     if (!userId) return;
     let active = true;

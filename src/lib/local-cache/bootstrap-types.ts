@@ -45,3 +45,4 @@ export function bootstrapProgress(meta: BootstrapMetadata): number {
   return Math.floor(100 * (completed + (verified ? 1 : 0)) / (names.length + 2));
 }
 export const batchKey = (name: Dataset, revision: string, offset: number) => `bootstrap:batch:${name}:${revision}:${offset}`;
+export const pageKey = (name: Dataset, hash: string) => `bootstrap:page:${name}:${hash}`;

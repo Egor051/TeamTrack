@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/features/auth/auth';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import type { Database, Profile, Project, Task, TaskItem } from '@/lib/supabase/client';
 import { selectDailyProgress, type DailyProgressSummary } from '@/features/projects/history-format';
-import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isCachedResult, isSupersededResult, isTransportFailure, readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
+import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, getCached, inheritCachedResult, isTransportFailure, readCachedModel as readThroughCache, reconcileVisibleProjects, reconcileVisibleTasks } from '@/lib/local-cache/cache';
 import { applyPendingOperations, listPendingOperations } from '@/lib/local-cache/outbox';
 import { buildSyncEnabled } from '@/lib/local-cache/runtime-config';
 import { ChecklistLocalRepository } from '@/lib/local-cache/repository';
@@ -11,8 +11,9 @@ import { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 import { usesLocalReads } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
 import { uiRead } from '@/lib/supabase/ui-read';
-import { cacheAccessEpoch } from '@/lib/local-cache/access-state';
 import { taskAuditEntityIds } from './task-audit';
+import { invalidateRealtimeModels } from '@/lib/local-cache/read-freshness';
+import { localCacheDriver } from '@/lib/local-cache/driver';
 export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -40,6 +41,39 @@ export type ProjectDailyProgress = { stages: ProjectDailyProgressStage[]; entrie
 export type { Task, TaskItem };
 
 type SupabaseResult<T> = { data: T | null; error: { message: string } | null };
+
+async function mutationRpc<Name extends keyof Database['public']['Functions']>(name: Name, args: Database['public']['Functions'][Name]['Args']) {
+  const userId = await activeCacheUserId();
+  const result = await supabase.rpc(name, args);
+  if (result.error) return result;
+  if (!userId || await activeCacheUserId() !== userId) return result;
+  try {
+    const parameters = args as Record<string, unknown>;
+    let taskId = typeof parameters.p_task_id === 'string' ? parameters.p_task_id : undefined;
+    let projectId = typeof parameters.p_project_id === 'string' ? parameters.p_project_id : undefined;
+    const itemId = parameters.p_task_item_id;
+    if (!taskId && typeof itemId === 'string') {
+      for (const entry of await localCacheDriver.listEntries(userId, 'items:')) {
+        const item = (JSON.parse(entry.data) as TaskItem[]).find((row) => row.id === itemId);
+        if (item) { taskId = item.task_id; break; }
+      }
+    }
+    if (!projectId && taskId) projectId = (await getCached<Task>(userId, `task:${taskId}`))?.project_id;
+    const table = name !== 'create_task_from_template' && /template/.test(name) ? 'task_templates'
+      : /project.*member|member.*role|ownership/.test(name) ? 'project_members'
+      : /task.*override/.test(name) ? 'task_members' : /assignee/.test(name) ? 'task_assignees'
+      : /task_item/.test(name) ? 'task_items' : /project/.test(name) ? 'projects' : 'tasks';
+    // Mutation success remains successful even if local invalidation storage is
+    // unavailable; the synchronous volatile fence is installed before its I/O.
+    await invalidateRealtimeModels(userId, table, { projectId, taskId }, name.startsWith('hard_delete') ? 'DELETE' : 'UPDATE')
+      .catch((error) => console.warn('[TaskTrace] mutation cache invalidation failed', error));
+  } catch (error) {
+    // Cache damage cannot turn an acknowledged server mutation into a failure.
+    await invalidateRealtimeModels(userId, 'tasks', {}).catch(() => undefined);
+    console.warn('[TaskTrace] mutation cache lookup failed', error);
+  }
+  return result;
+}
 
 async function requireData<T>(result: SupabaseResult<T>): Promise<NonNullable<T>> {
   if (result.error) throw result.error;
@@ -97,19 +131,16 @@ async function listProjectsOnline(status?: 'active' | 'archived'): Promise<Proje
   });
 }
 
-export async function listProjects(status: 'active' | 'archived' = 'active'): Promise<ProjectWithRole[]> {
-  const accessBaseline = cacheAccessEpoch();
+export async function listProjects(status: 'active' | 'archived' = 'active', request: { forceRefresh?: boolean } = {}): Promise<ProjectWithRole[]> {
   const userId = await activeCacheUserId();
   const previous = userId ? await getCached<ProjectWithRole[]>(userId, `projects:${status}`) : null;
   let visible: ProjectWithRole[] | null = null;
   const projects = await readThroughCache(`projects:${status}`, async () => {
     // Absence from a status tab is not evidence of lost membership.
     visible = await listProjectsOnline(); return visible.filter((project) => project.status === status);
-  }, { filterCached: filterBlockedProjects });
-  if (!isCachedResult(projects) && !isSupersededResult(projects) && userId && await activeCacheUserId() === userId) {
-    await reconcileVisibleProjects(userId, previous ?? [], visible ?? projects, accessBaseline);
-    return filterBlockedProjects(userId, projects);
-  }
+  }, { ...request, filterCached: filterBlockedProjects,
+    onServerCommit: async (rows, owner, accessBaseline) => { await reconcileVisibleProjects(owner, previous ?? [], visible ?? rows, accessBaseline); } });
+  if (userId && await activeCacheUserId() === userId) return inheritCachedResult(projects, await filterBlockedProjects(userId, projects));
   return projects;
 }
 
@@ -161,9 +192,9 @@ async function listOwnedProjectsOnline(): Promise<ProjectWithRole[]> {
   return [...active, ...archived];
 }
 
-export async function getProject(projectId: string): Promise<ProjectWithRole> {
+export async function getProject(projectId: string, request: { forceRefresh?: boolean } = {}): Promise<ProjectWithRole> {
   assertUuid(projectId, 'project id');
-  return readThroughCache(`project:${projectId}`, () => getProjectOnline(projectId), { projectId, clearProjectBlockOnSuccess: true });
+  return readThroughCache(`project:${projectId}`, () => getProjectOnline(projectId), { ...request, projectId, clearProjectBlockOnSuccess: true });
 }
 
 async function getProjectOnline(projectId: string): Promise<ProjectWithRole> {
@@ -182,16 +213,13 @@ async function getProjectOnline(projectId: string): Promise<ProjectWithRole> {
   return { ...(project as Project), role: membershipResult.data.role as ProjectRole };
 }
 
-export async function listProjectTasks(projectId: string): Promise<Task[]> {
-  const accessBaseline = cacheAccessEpoch();
+export async function listProjectTasks(projectId: string, request: { forceRefresh?: boolean } = {}): Promise<Task[]> {
   assertUuid(projectId, 'project id');
   const userId = await activeCacheUserId();
   const previous = userId ? await getCached<Task[]>(userId, `tasks:${projectId}`) : null;
-  const tasks = await readThroughCache(`tasks:${projectId}`, () => fetchAll<Task>((from, to) => supabase.from('tasks').select('*').eq('project_id', projectId).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)), { projectId, filterCached: filterBlockedTasks });
-  if (!isCachedResult(tasks) && !isSupersededResult(tasks) && userId && await activeCacheUserId() === userId) {
-    await reconcileVisibleTasks(userId, previous ?? [], tasks, accessBaseline);
-    return filterBlockedTasks(userId, tasks);
-  }
+  const tasks = await readThroughCache(`tasks:${projectId}`, () => fetchAll<Task>((from, to) => supabase.from('tasks').select('*').eq('project_id', projectId).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)), { ...request, projectId, filterCached: filterBlockedTasks,
+    onServerCommit: async (rows, owner, accessBaseline) => { await reconcileVisibleTasks(owner, previous ?? [], rows, accessBaseline); } });
+  if (userId && await activeCacheUserId() === userId) return inheritCachedResult(tasks, await filterBlockedTasks(userId, tasks));
   return tasks;
 }
 
@@ -254,10 +282,10 @@ async function listMyTasksOnline(userId: string): Promise<MyTask[]> {
   return tasks.filter((task) => names.has(task.project_id)).map((task) => ({ ...task, project_name: names.get(task.project_id) || null }));
 }
 
-export async function createTask(projectId: string, title: string, description?: string) { assertUuid(projectId, 'project id'); return requireData(await supabase.rpc('create_task', { p_project_id: projectId, p_title: title, ...(description ? { p_description: description } : {}) })); }
-export async function createTaskFromTemplate(projectId: string, templateId: string, title?: string, description?: string) { assertUuid(projectId, 'project id'); assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_from_template', { p_project_id: projectId, p_template_id: templateId, ...(title !== undefined ? { p_title: title } : {}), ...(description !== undefined ? { p_description: description } : {}) })); }
-export async function moveTask(taskId: string, direction: -1 | 1) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('move_task', { p_task_id: taskId, p_direction: direction })); }
-export async function getTask(taskId: string, projectId?: string): Promise<Task> {
+export async function createTask(projectId: string, title: string, description?: string) { assertUuid(projectId, 'project id'); return requireData(await mutationRpc('create_task', { p_project_id: projectId, p_title: title, ...(description ? { p_description: description } : {}) })); }
+export async function createTaskFromTemplate(projectId: string, templateId: string, title?: string, description?: string) { assertUuid(projectId, 'project id'); assertUuid(templateId, 'template id'); return requireData(await mutationRpc('create_task_from_template', { p_project_id: projectId, p_template_id: templateId, ...(title !== undefined ? { p_title: title } : {}), ...(description !== undefined ? { p_description: description } : {}) })); }
+export async function moveTask(taskId: string, direction: -1 | 1) { assertUuid(taskId, 'task id'); return requireSuccess(await mutationRpc('move_task', { p_task_id: taskId, p_direction: direction })); }
+export async function getTask(taskId: string, projectId?: string, request: { forceRefresh?: boolean } = {}): Promise<Task> {
   assertUuid(taskId, 'task id'); if (projectId !== undefined) assertUuid(projectId, 'project id');
   return readThroughCache(`task:${taskId}`, async () => {
     let query = supabase.from('tasks').select('*').eq('id', taskId);
@@ -266,7 +294,7 @@ export async function getTask(taskId: string, projectId?: string): Promise<Task>
     if (result.error) throw result.error;
     if (!result.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return result.data;
-  }, { taskId, projectId, clearTaskBlockOnSuccess: true, filterCached: async (_userId, task) => {
+  }, { ...request, taskId, projectId, clearTaskBlockOnSuccess: true, filterCached: async (_userId, task) => {
     if (projectId && task.project_id !== projectId) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return task;
   } });
@@ -281,8 +309,7 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
       return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode);
     const local = await ChecklistLocalRepository.getEffectiveTaskItems(localUserId, taskId, normalizedMode);
     if (local) {
-      if (!usesLocalReads()) void ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode).catch(() => undefined);
-      return local;
+      return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode, false);
     }
     return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode);
   }
@@ -297,13 +324,13 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
   const operations = await listPendingOperations(userId, taskId);
   return inheritCachedResult(confirmed, applyPendingOperations(confirmed, operations, userId, taskId));
 }
-export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
-export async function updateTask(taskId: string, title: string, description: string) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('update_task', { p_task_id: taskId, p_title: title, p_description: description })); }
-export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 10000) throw new Error('Комментарий слишком длинный (максимум 10000 символов).'); return requireSuccess(await supabase.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '' })); }
-export async function setTaskItemPercentage(itemId: string, percentage: number) { assertUuid(itemId, 'task item id'); if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) throw new Error('Процент должен быть целым числом от 0 до 100.'); return requireData(await supabase.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage })); }
-export async function archiveTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('archive_task_item', { p_task_item_id: itemId })); }
-export async function setTaskItemState(itemId: string, completed: boolean) { assertUuid(itemId, 'task item id'); return requireData(await supabase.rpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed })); }
-export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await supabase.rpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
+export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
+export async function updateTask(taskId: string, title: string, description: string) { assertUuid(taskId, 'task id'); return requireSuccess(await mutationRpc('update_task', { p_task_id: taskId, p_title: title, p_description: description })); }
+export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 10000) throw new Error('Комментарий слишком длинный (максимум 10000 символов).'); return requireSuccess(await mutationRpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '' })); }
+export async function setTaskItemPercentage(itemId: string, percentage: number) { assertUuid(itemId, 'task item id'); if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) throw new Error('Процент должен быть целым числом от 0 до 100.'); return requireData(await mutationRpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage })); }
+export async function archiveTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('archive_task_item', { p_task_item_id: itemId })); }
+export async function setTaskItemState(itemId: string, completed: boolean) { assertUuid(itemId, 'task item id'); return requireData(await mutationRpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed })); }
+export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await mutationRpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
 export async function getMyTaskRole(taskId: string): Promise<ProjectRole> {
   assertUuid(taskId, 'task id');
   return readThroughCache(`task-role:${taskId}`, async () => requireData(await uiRead(supabase.rpc('get_my_task_role', { p_task_id: taskId }))), { taskId });
@@ -317,14 +344,14 @@ export async function listTaskMemberOverrides(taskId: string): Promise<TaskMembe
 }
 export async function setTaskMemberOverride(taskId: string, userId: string, role: TaskChecklistRole) {
   assertUuid(taskId, 'task id'); assertUuid(userId, 'user id');
-  return requireSuccess(await supabase.rpc('set_task_member_override', { p_task_id: taskId, p_user_id: userId, p_role: role }));
+  return requireSuccess(await mutationRpc('set_task_member_override', { p_task_id: taskId, p_user_id: userId, p_role: role }));
 }
 export async function clearTaskMemberOverride(taskId: string, userId: string) {
   assertUuid(taskId, 'task id'); assertUuid(userId, 'user id');
-  return requireSuccess(await supabase.rpc('clear_task_member_override', { p_task_id: taskId, p_user_id: userId }));
+  return requireSuccess(await mutationRpc('clear_task_member_override', { p_task_id: taskId, p_user_id: userId }));
 }
-export async function addTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('add_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
-export async function removeTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('remove_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
+export async function addTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await mutationRpc('add_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
+export async function removeTaskAssignee(taskId: string, userId: string) { assertUuid(taskId, 'task id'); assertUuid(userId, 'user id'); return requireSuccess(await mutationRpc('remove_task_assignee', { p_task_id: taskId, p_user_id: userId })); }
 export async function listTaskAssignees(taskId: string): Promise<string[]> { assertUuid(taskId, 'task id'); return readThroughCache(`assignees:${taskId}`, async () => { const rows = await fetchAll<{ user_id: string }>((from, to) => supabase.from('task_assignees').select('user_id').eq('task_id', taskId).range(from, to)); return rows.map((r) => r.user_id); }, { taskId }); }
 export async function listTaskHistory(taskId: string): Promise<ItemAction[]> { assertUuid(taskId, 'task id'); return fetchAll<ItemAction>((from, to) => supabase.from('item_actions').select('*').eq('task_id', taskId).order('created_at', { ascending: false }).range(from, to)); }
 export async function listTaskAudit(projectId: string, taskId: string): Promise<AuditEntry[]> {
@@ -399,9 +426,13 @@ export async function listProjectDailyProgress(projectId: string): Promise<Proje
     if (usesLocalReads()) throw new ConnectivityUnavailableError();
     // Preserve the existing bulk online query; offline uses the same confirmed
     // per-task snapshots and pending overlays without per-task network calls.
-    items = (await Promise.all(chunks(tasks.map((task) => task.id)).map((ids) => fetchAll<TaskItem>((from, to) => supabase
-      .from('task_items').select('*').in('task_id', ids).order('position', { ascending: true })
-      .order('id', { ascending: true }).range(from, to))))).flat();
+    const userId = await activeCacheUserId();
+    const saved = userId ? await Promise.all(tasks.map((task) => ChecklistLocalRepository.getEffectiveTaskItems(userId, task.id, 'all'))) : [];
+    items = saved.length === tasks.length && saved.every((rows) => rows !== null)
+      ? (await Promise.all(tasks.map((task) => listTaskItems(task.id, 'all')))).flat()
+      : (await Promise.all(chunks(tasks.map((task) => task.id)).map((ids) => fetchAll<TaskItem>((from, to) => supabase
+        .from('task_items').select('*').in('task_id', ids).order('position', { ascending: true })
+        .order('id', { ascending: true }).range(from, to))))).flat();
   } catch (error) {
     const userId = await activeCacheUserId();
     if (!userId || !isTransportFailure(error)) throw error;
@@ -479,69 +510,69 @@ async function listProjectMembersOnline(projectId: string): Promise<ProjectMembe
     return [{ ...m, profile: byId.get(m.user_id) ?? null }];
   });
 }
-export async function transferProjectOwnership(projectId: string, userId: string) { assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('transfer_project_ownership', { p_project_id: projectId, p_new_owner_id: userId })); }
+export async function transferProjectOwnership(projectId: string, userId: string) { assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await mutationRpc('transfer_project_ownership', { p_project_id: projectId, p_new_owner_id: userId })); }
 
 export async function createProject(name: string, description?: string) {
-  return requireData(await supabase.rpc('create_project', { p_name: name, ...(description ? { p_description: description } : {}) }));
+  return requireData(await mutationRpc('create_project', { p_name: name, ...(description ? { p_description: description } : {}) }));
 }
 
 export async function addProjectMember(projectId: string, userId: string, role: ProjectRole) {
-  assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('add_project_member', { p_project_id: projectId, p_user_id: userId, p_role: role }));
+  assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await mutationRpc('add_project_member', { p_project_id: projectId, p_user_id: userId, p_role: role }));
 }
 
 export async function addProjectMemberByIdentifier(projectId: string, identifier: string, role: ProjectRole) {
   assertUuid(projectId, 'project id');
   if (typeof identifier !== 'string' || !identifier.trim()) throw new Error('Укажите email или ник пользователя.');
-  return requireSuccess(await supabase.rpc('add_project_member_by_identifier', { p_project_id: projectId, p_identifier: identifier.trim(), p_role: role }));
+  return requireSuccess(await mutationRpc('add_project_member_by_identifier', { p_project_id: projectId, p_identifier: identifier.trim(), p_role: role }));
 }
 
 export async function changeMemberRole(projectId: string, userId: string, role: ProjectRole) {
-  assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('change_member_role', { p_project_id: projectId, p_user_id: userId, p_new_role: role }));
+  assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await mutationRpc('change_member_role', { p_project_id: projectId, p_user_id: userId, p_new_role: role }));
 }
 
 export async function removeProjectMember(projectId: string, userId: string) {
-  assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await supabase.rpc('remove_project_member', { p_project_id: projectId, p_user_id: userId }));
+  assertUuid(projectId, 'project id'); assertUuid(userId, 'user id'); return requireSuccess(await mutationRpc('remove_project_member', { p_project_id: projectId, p_user_id: userId }));
 }
 
 export async function archiveProject(projectId: string) {
-  assertUuid(projectId, 'project id'); return requireSuccess(await supabase.rpc('archive_project', { p_project_id: projectId }));
+  assertUuid(projectId, 'project id'); return requireSuccess(await mutationRpc('archive_project', { p_project_id: projectId }));
 }
 
 export async function restoreProject(projectId: string) {
-  assertUuid(projectId, 'project id'); return requireSuccess(await supabase.rpc('restore_project', { p_project_id: projectId }));
+  assertUuid(projectId, 'project id'); return requireSuccess(await mutationRpc('restore_project', { p_project_id: projectId }));
 }
 
 export async function updateProject(projectId: string, name: string, description: string) {
   assertUuid(projectId, 'project id');
-  return requireSuccess(await supabase.rpc('update_project', { p_project_id: projectId, p_name: name, p_description: description }));
+  return requireSuccess(await mutationRpc('update_project', { p_project_id: projectId, p_name: name, p_description: description }));
 }
 
 export async function listTaskTemplates(): Promise<TaskTemplate[]> { return readThroughCache('templates', async () => requireData(await uiRead(supabase.rpc('list_task_templates')))); }
 export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> { assertUuid(templateId, 'template id'); return readThroughCache(`template-items:${templateId}`, async () => { const rows = await requireData(await uiRead(supabase.rpc('list_task_template_items', { p_template_id: templateId }))); return rows.map((row) => ({ ...row, position: row.template_position })); }); }
 export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return readThroughCache(`template:${templateId}`, async () => requireData(await uiRead(supabase.rpc('get_task_template', { p_template_id: templateId })))); }
-export async function createTaskTemplate(name: string, description?: string) { return requireData(await supabase.rpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
-export async function updateTaskTemplate(templateId: string, name: string, description: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description })); }
+export async function createTaskTemplate(name: string, description?: string) { return requireData(await mutationRpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
+export async function updateTaskTemplate(templateId: string, name: string, description: string) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description })); }
 /**
  * User-facing deletion keeps the existing soft-delete backend contract: the
  * template is marked archived and immediately disappears from all listings.
  */
-export async function deleteTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await supabase.rpc('archive_task_template', { p_template_id: templateId })); }
-export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await supabase.rpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
-export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
+export async function deleteTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('archive_task_template', { p_template_id: templateId })); }
+export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await mutationRpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
+export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number) { assertUuid(itemId, 'template item id'); return requireSuccess(await mutationRpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
 export async function moveTaskTemplateItem(itemId: string, direction: -1 | 1) {
   assertUuid(itemId, 'template item id');
-  return requireSuccess(await supabase.rpc('move_task_template_item', { p_item_id: itemId, p_direction: direction }));
+  return requireSuccess(await mutationRpc('move_task_template_item', { p_item_id: itemId, p_direction: direction }));
 }
-export async function deleteTaskTemplateItem(itemId: string) { assertUuid(itemId, 'template item id'); return requireSuccess(await supabase.rpc('delete_task_template_item', { p_item_id: itemId })); }
+export async function deleteTaskTemplateItem(itemId: string) { assertUuid(itemId, 'template item id'); return requireSuccess(await mutationRpc('delete_task_template_item', { p_item_id: itemId })); }
 
 export async function archiveTask(taskId: string) {
-  assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('archive_task', { p_task_id: taskId }));
+  assertUuid(taskId, 'task id'); return requireSuccess(await mutationRpc('archive_task', { p_task_id: taskId }));
 }
 
-export async function hardDeleteProject(projectId: string) { assertUuid(projectId, 'project id'); return requireSuccess(await supabase.rpc('hard_delete_project', { p_project_id: projectId })); }
-export async function hardDeleteTask(taskId: string) { assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('hard_delete_task', { p_task_id: taskId })); }
-export async function hardDeleteTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await supabase.rpc('hard_delete_task_item', { p_task_item_id: itemId })); }
+export async function hardDeleteProject(projectId: string) { assertUuid(projectId, 'project id'); return requireSuccess(await mutationRpc('hard_delete_project', { p_project_id: projectId })); }
+export async function hardDeleteTask(taskId: string) { assertUuid(taskId, 'task id'); return requireSuccess(await mutationRpc('hard_delete_task', { p_task_id: taskId })); }
+export async function hardDeleteTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('hard_delete_task_item', { p_task_item_id: itemId })); }
 
 export async function restoreTask(taskId: string) {
-  assertUuid(taskId, 'task id'); return requireSuccess(await supabase.rpc('restore_task', { p_task_id: taskId }));
+  assertUuid(taskId, 'task id'); return requireSuccess(await mutationRpc('restore_task', { p_task_id: taskId }));
 }

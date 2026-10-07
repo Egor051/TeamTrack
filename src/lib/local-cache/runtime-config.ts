@@ -15,7 +15,6 @@ type Snapshot = { user_id: string; value: RemoteConfig | null; fetched_at: numbe
 type Capabilities = { write: boolean; sync: boolean; available: boolean };
 type RefreshResult = { capabilities: Capabilities; confirmed: boolean };
 const unavailable: Capabilities = { write: false, sync: false, available: false };
-const refreshed = new Set<string>();
 const blocked = new Set<string>();
 const inFlight = new Map<string, Promise<RefreshResult>>();
 let generation = 0;
@@ -27,8 +26,8 @@ export function clearRuntimeConfig(userId?: string): void {
   // Invalidate pending responses during logout/account changes. Durable cache
   // remains user-scoped, following the existing offline-cache retention policy.
   generation += 1;
-  if (userId) { refreshed.delete(userId); blocked.delete(userId); inFlight.delete(userId); }
-  else { refreshed.clear(); blocked.clear(); inFlight.clear(); }
+  if (userId) { blocked.delete(userId); inFlight.delete(userId); }
+  else { blocked.clear(); inFlight.clear(); }
 }
 
 function validate(value: unknown): RemoteConfig {
@@ -74,7 +73,7 @@ async function persist(candidate: Snapshot, expectedGeneration: number): Promise
     if (current) {
       const revision = current.value && candidate.value
         ? compareRevision(current.value.updated_at, candidate.value.updated_at) : 0;
-      if (revision > 0 || (revision === 0 && current.fetched_at > candidate.fetched_at)) return current;
+      if (revision > 0 || (revision === 0 && current.fetched_at <= Date.now() && current.fetched_at > candidate.fetched_at)) return current;
     }
     if (await activeCacheUserId() !== candidate.user_id || generation !== expectedGeneration) return null;
     const entry: CacheEntry = { user_id: candidate.user_id, key: RUNTIME_CONFIG_KEY,
@@ -105,8 +104,8 @@ export async function runtimeCapabilities(userId: string, forceRefresh = false,
   if (usesLocalReads())
     return requireServer || blocked.has(userId) ? unavailable : effective(current);
   let pending = joinedRefresh ?? inFlight.get(userId);
-  if (!pending && !forceRefresh && !requireServer && refreshed.has(userId) && !blocked.has(userId)
-    && current && Date.now() - current.fetched_at < RUNTIME_CONFIG_TTL_MS) return effective(current);
+  if (!pending && !forceRefresh && !requireServer && !blocked.has(userId)
+    && current && Date.now() >= current.fetched_at && Date.now() - current.fetched_at < RUNTIME_CONFIG_TTL_MS) return effective(current);
 
   if (!pending) {
     const expectedGeneration = generation;
@@ -122,7 +121,7 @@ export async function runtimeCapabilities(userId: string, forceRefresh = false,
         const saved = await persist({ user_id: userId, value, fetched_at: fetchedAt }, expectedGeneration);
         if (!saved || await activeCacheUserId() !== userId || generation !== expectedGeneration)
           return { capabilities: unavailable, confirmed: false };
-        refreshed.add(userId); blocked.delete(userId);
+        blocked.delete(userId);
         return { capabilities: effective(saved), confirmed: saved.value !== null };
       } catch (error) {
         if (await activeCacheUserId() !== userId || generation !== expectedGeneration)
@@ -131,7 +130,7 @@ export async function runtimeCapabilities(userId: string, forceRefresh = false,
           return { capabilities: blocked.has(userId) ? unavailable
             : effective(snapshot(await getCached<unknown>(userId, RUNTIME_CONFIG_KEY), userId)), confirmed: false };
         }
-        blocked.add(userId); refreshed.delete(userId);
+        blocked.add(userId);
         // A denial tombstone survives reload; never resurrect a former true
         // after 401/403, invalid JWT or a malformed/business server reply.
         try { await persist({ user_id: userId, value: null, fetched_at: fetchedAt }, expectedGeneration); }

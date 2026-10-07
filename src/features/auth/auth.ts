@@ -172,6 +172,18 @@ export function getCurrentSession() {
  * Get the current user synchronously.
  */
 export async function getCurrentUser() {
+  // Identity selects a user namespace/filter. It never grants server access;
+  // every online query/mutation is still authenticated and checked by RLS/RPC.
+  const { data, error } = await getReadSession();
+  const session = data.session;
+  if (error) return { data: { user: null }, error };
+  if (!session || (!usesLocalReads() && session.expires_at && session.expires_at * 1000 <= Date.now()))
+    return { data: { user: null }, error: Object.assign(new Error('Требуется авторизация.'), { status: 401 }) };
+  return { data: { user: session.user }, error: null };
+}
+
+/** Obtain a fresh Auth user record when authoritative verification is needed. */
+export async function getVerifiedCurrentUser() {
   if (usesLocalReads()) {
     const { data, error } = await getReadSession();
     return { data: { user: data.session?.user ?? null }, error };

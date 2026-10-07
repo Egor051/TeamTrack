@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase/client';
 import { subscribeTable, type RealtimeStatus } from '@/lib/supabase/realtime';
 import type { Database } from '@/types/database.types';
-import { activeCacheUserId, getCached, inheritCachedResult, isExplicitAccessError, isTransportFailure } from '@/lib/local-cache/cache';
+import { activeCacheUserId, getCached, inheritCachedResult, isCachedResult, isExplicitAccessError, isTransportFailure, readCachedModel } from '@/lib/local-cache/cache';
 import { localCacheDriver } from '@/lib/local-cache/driver';
 import { usesLocalReads } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
@@ -9,6 +9,9 @@ import { boundedOperation } from '@/lib/connectivity/deadline';
 import { uiRead, UI_READ_TIMEOUT_MS } from '@/lib/supabase/ui-read';
 import { cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from '@/lib/local-cache/access-state';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
+import { invalidateReadModels } from '@/lib/local-cache/read-freshness';
+import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
+import { createReadRefreshScheduler } from '@/lib/local-cache/refresh-scheduler';
 
 export type Notification = Database['public']['Tables']['notifications']['Row'];
 
@@ -30,6 +33,23 @@ export function stageNotificationText(value: string): string {
 
 export type NotificationPage = { rows: Notification[]; offline: boolean; hasMore: boolean; limited: boolean };
 type NotificationWindow = { rows: Notification[]; read_limit: number };
+async function readNotificationWindow(): Promise<NotificationWindow> {
+  return readCachedModel('notifications:window', async () => {
+    // Match the bootstrap window: all unread + the latest 100 read notices.
+    // A paginated route read must never truncate the verified offline model.
+    const unread: Notification[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await uiRead(supabase.from('notifications').select('*').eq('is_read', false)
+        .order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + 499));
+      if (error) throw error;
+      unread.push(...(data ?? [])); if ((data?.length ?? 0) < 500) break;
+    }
+    const { data, error } = await uiRead(supabase.from('notifications').select('*').eq('is_read', true)
+      .order('created_at', { ascending: false }).order('id', { ascending: false }).range(0, 99));
+    if (error) throw error;
+    return { rows: [...unread, ...(data ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)), read_limit: 100 };
+  });
+}
 async function notificationRead<T>(online: () => Promise<T>, cached: (window: NotificationWindow) => T): Promise<T> {
   const userId = await activeCacheUserId();
   const baseline = cacheAccessEpoch(); const key = 'cache:notifications:window';
@@ -56,6 +76,11 @@ async function notificationRead<T>(online: () => Promise<T>, cached: (window: No
   }
 }
 export async function fetchNotificationPage(limit = 100, offset = 0): Promise<NotificationPage> {
+  if (offset === 0 && limit <= 100) {
+    const window = await readNotificationWindow();
+    const offline = isCachedResult(window);
+    return { rows: inheritCachedResult(window, window.rows.slice(0, limit)), offline, hasMore: offline ? window.rows.length > limit : window.rows.length >= limit, limited: offline };
+  }
   return notificationRead<NotificationPage>(async () => {
     const { data, error } = await uiRead(supabase.from('notifications').select('*').order('created_at', { ascending: false }).range(offset, offset + limit - 1));
     if (error) throw error;
@@ -69,20 +94,32 @@ export async function fetchNotifications(limit = 100, offset = 0) {
   return (await fetchNotificationPage(limit, offset)).rows;
 }
 export async function fetchUnreadCount() {
-  return notificationRead(async () => {
+  const userId = await activeCacheUserId();
+  // The overview badge does not need to download or persist complete notices.
+  // Extended preparation/the notifications route already own a useful window.
+  if (userId && await getCached<NotificationWindow>(userId, 'notifications:window'))
+    return (await readNotificationWindow()).rows.filter((n) => !n.is_read).length;
+  return readCachedModel('notifications:unread-count', async () => {
     const { count, error } = await uiRead(supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false));
     if (error) throw error;
     return count ?? 0;
-  }, (window) => window.rows.filter((n) => !n.is_read).length);
+  });
 }
 export async function markAsRead(id: string) {
   const { error } = await supabase.rpc('mark_notification_read', { p_notification_id: id });
   if (error) throw error;
+  const userId = await activeCacheUserId(); if (userId) await invalidateReadModels(userId, ['notifications:']);
 }
 export async function markAllAsRead() {
   const { error } = await supabase.rpc('mark_all_notifications_read');
   if (error) throw error;
+  const userId = await activeCacheUserId(); if (userId) await invalidateReadModels(userId, ['notifications:']);
 }
 export function subscribeToNotifications(userId: string, onChange: () => void, onStatus?: (status: RealtimeStatus) => void) {
-  return subscribeTable('notifications', { userId, onEvent: onChange, onStatus });
+  const refresh = createReadRefreshScheduler(async () => { onChange(); });
+  const realtime = subscribeTable('notifications', { userId, onEvent: () => refresh.request(), onStatus });
+  const models = subscribeReadModelCommits((commit) => {
+    if (commit.userId === userId && commit.keys.some((key) => key === 'notifications:window' || key === 'notifications:unread-count')) refresh.request();
+  });
+  return () => { realtime(); models(); refresh.dispose(); };
 }

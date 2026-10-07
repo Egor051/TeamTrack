@@ -18,7 +18,7 @@ vi.mock('@/features/auth/auth', () => ({
   requestPasswordReset: vi.fn(), updatePassword: vi.fn(), refreshSession: vi.fn(),
 }));
 vi.mock('@/lib/local-cache/cache', () => ({ activeCacheUserId: async () => f.user, putCached: f.put,
-  readThroughCache: async () => ({ id: f.user, display_name: `Profile ${f.user}` }),
+  readCachedModel: async () => ({ id: f.user, display_name: `Profile ${f.user}` }),
 }));
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';

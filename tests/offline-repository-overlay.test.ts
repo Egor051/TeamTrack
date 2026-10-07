@@ -10,7 +10,7 @@ vi.mock('@/lib/supabase/client', () => ({ supabase: { from: vi.fn() } }));
 vi.mock('@/features/auth/auth', () => ({ getCurrentUser: vi.fn() }));
 vi.mock('@/lib/local-cache/cache', () => ({
   activeCacheUserId: async () => 'user-a',
-  readThroughCache: async (key: string) => state.values.get(key),
+  readCachedModel: async (key: string) => state.values.get(key),
   inheritCachedResult: (_source: unknown, value: unknown) => value,
   isCachedResult: () => false,
   filterBlockedProjects: vi.fn(), filterBlockedTasks: vi.fn(), getCached: vi.fn(), putCached: vi.fn(),

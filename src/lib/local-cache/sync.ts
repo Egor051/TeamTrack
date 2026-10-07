@@ -37,7 +37,8 @@ export function announceSyncChange(userId: string): void {
 }
 const sameUser = async (userId: string) => await activeCacheUserId() === userId;
 const SYNC_REQUEST_TIMEOUT_MS = 20_000;
-type SyncContext = { ticket: OperationTicket; storage: LocalCacheDriver; wait: <T>(work: () => PromiseLike<T>) => Promise<T> };
+type SyncContext = { ticket: OperationTicket; storage: LocalCacheDriver; wait: <T>(work: () => PromiseLike<T>) => Promise<T>;
+  confirmedAt?: number; pushed?: boolean; reconciled?: boolean };
 function syncContext(ticket: OperationTicket): SyncContext {
   const wait = async <T,>(work: () => PromiseLike<T>): Promise<T> => {
     ticket.assertCurrent();
@@ -112,6 +113,7 @@ async function send(client: SupabaseClient<Database>, operation: OfflineOperatio
   if (!validSyncVersion(operation.expected_version)) throw new Error('Operation has no confirmed server version');
   const common = { p_operation_id: operation.operation_id, p_task_item_id: operation.task_item_id,
     p_expected_version: operation.expected_version };
+  ctx.pushed = true;
   const response = await syncRead(operation.type === 'set_task_item_state'
     ? client.rpc('apply_task_item_state_operation_v2', { ...common,
       p_completed: (operation.payload as { completed: boolean }).completed })
@@ -147,6 +149,7 @@ async function taskSnapshot(client: SupabaseClient<Database>, taskId: string, ct
 }
 
 async function reconcile(client: SupabaseClient<Database>, operation: OfflineOperation, ctx: SyncContext): Promise<void> {
+  ctx.reconciled = true;
   if (!await ctx.wait(() => sameUser(operation.user_id))) throw new Error('Session changed');
   const before = await ctx.storage.listEntries(operation.user_id);
   const guards = [...reconciledKeys(operation), 'sync:task-items:cursor'].map((key) => ({ key, data: before.find((entry) => entry.key === key)?.data ?? null }));
@@ -255,10 +258,6 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
     const operations = await ctx.wait(() => listPendingOperations(userId));
     total ??= operations.length;
     updateSyncState(userId, { progress: { done: completed, total } }, ctx.ticket);
-    if (completed % 20 === 0 && !(await ctx.wait(() => runtimeCapabilities(userId, true, { requireServer: true }))).sync) {
-      updateSyncState(userId, { lastErrorKind: 'disabled' }, ctx.ticket);
-      return false;
-    }
     const oldest = allowedConflict
       ? operations.find((row) => allowedConflict.operation_ids.includes(row.operation_id))
       : operations[0];
@@ -274,6 +273,12 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
     if (oldest.status === 'synced_unreconciled') {
       try { await reconcile(client, oldest, ctx); completed += 1; } catch { return false; }
       continue;
+    }
+    if (!ctx.confirmedAt || Date.now() - ctx.confirmedAt >= RUNTIME_CONFIG_TTL_MS || (completed > 0 && completed % 20 === 0)) {
+      if (!(await ctx.wait(() => runtimeCapabilities(userId, true, { requireServer: true }))).sync) {
+        updateSyncState(userId, { lastErrorKind: 'disabled' }, ctx.ticket); return false;
+      }
+      ctx.confirmedAt = Date.now();
     }
     if (!validSyncVersion(oldest.expected_version)) {
       if (oldest.depends_on_operation_id) return false;
@@ -322,7 +327,9 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
 
 async function run(userId: string, ctx: SyncContext, allowedConflict?: SyncConflict): Promise<boolean> {
   if (!offlineSyncEnabled() || !await ctx.wait(() => sameUser(userId))) return false;
-  const capabilities = await ctx.wait(() => runtimeCapabilities(userId, true, { requireServer: true }));
+  const replay = !!allowedConflict || (await ctx.wait(() => listPendingOperations(userId))).some((row) => row.status === 'pending');
+  const capabilities = await ctx.wait(() => runtimeCapabilities(userId, false, { requireServer: replay }));
+  if (replay && capabilities.sync) ctx.confirmedAt = Date.now();
   if (!capabilities.sync) {
     updateSyncState(userId, { lastErrorKind: capabilities.available ? 'disabled' : 'config-unavailable' }, ctx.ticket);
     const failures = capabilities.available ? 0 : Math.min((backoff.get(userId)?.failures ?? 0) + 1, 5);
@@ -350,7 +357,7 @@ async function run(userId: string, ctx: SyncContext, allowedConflict?: SyncConfl
   const pushed = await push(client, userId, ctx, allowedConflict);
   if (allowedConflict) return pushed;
   if (!await ctx.wait(() => sameUser(userId))) return false;
-  await pull(client, userId, ctx);
+  if (ctx.pushed || ctx.reconciled) await pull(client, userId, ctx);
   if (!await ctx.wait(() => sameUser(userId))) return false;
   const remaining = await ctx.wait(() => listPendingOperations(userId));
   const conflicts = await ctx.wait(() => unresolvedConflicts(userId));

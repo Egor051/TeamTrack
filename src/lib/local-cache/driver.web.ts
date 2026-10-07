@@ -124,7 +124,8 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
     resolve();
   }),
   listEntries: (userId, prefix = '') => transact<CacheEntry[]>('readonly', (store, resolve) => {
-    const request = store.getAll();
+    const first = entryKey(userId, prefix);
+    const request = store.getAll(IDBKeyRange.bound(first, `${first}\uffff`));
     request.onsuccess = () => resolve((request.result as CacheEntry[])
       .filter((entry) => entry.user_id === userId && entry.key.startsWith(prefix)));
   }),

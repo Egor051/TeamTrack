@@ -1,3 +1,5 @@
+import { isReadAccessPending } from '@/lib/local-cache/read-freshness';
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -68,6 +70,7 @@ export default function ProjectScreen() {
   }, [id]);
   const load = useCallback(async () => {
     if (!id) return;
+    if (isReadAccessPending(`project:${id}`)) { setProject(null); setTasks([]); }
     const request = ++requestRef.current;
     setLoading(true);
     setLoadError("");
@@ -103,6 +106,7 @@ export default function ProjectScreen() {
       if (request === requestRef.current) setLoading(false);
     }
   }, [id, archived]);
+  const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { projectId: id });
   useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
@@ -122,7 +126,7 @@ export default function ProjectScreen() {
         setStatus(next);
         if (next === "connected" && !realtimeConnectedRef.current) {
           realtimeConnectedRef.current = true;
-          void load();
+          scheduleRefresh();
         } else if (next !== "connected") {
           realtimeConnectedRef.current = false;
         }
@@ -132,7 +136,7 @@ export default function ProjectScreen() {
           table: "projects",
           options: {
             projectId: id,
-            onEvent: () => void load(),
+            onEvent: scheduleRefresh,
             onStatus,
           },
         },
@@ -140,7 +144,7 @@ export default function ProjectScreen() {
           table: "tasks",
           options: {
             projectId: id,
-            onEvent: () => void load(),
+            onEvent: scheduleRefresh,
             onStatus,
           },
         },
@@ -148,7 +152,7 @@ export default function ProjectScreen() {
           table: "project_members",
           options: {
             projectId: id,
-            onEvent: () => void load(),
+            onEvent: scheduleRefresh,
             onStatus,
           },
         },
@@ -156,13 +160,13 @@ export default function ProjectScreen() {
           table: "task_items",
           options: {
             projectId: id,
-            onEvent: () => void load(),
+            onEvent: scheduleRefresh,
             onStatus,
           },
         },
       ];
       return subscribeMany(specs);
-    }, [id, load, permissionVersion]),
+    }, [id, permissionVersion, scheduleRefresh]),
   );
   async function archive() {
     if (busyRef.current) return;
@@ -248,7 +252,7 @@ export default function ProjectScreen() {
         refreshControl={
           <RefreshControl
             refreshing={loading}
-            onRefresh={load}
+            onRefresh={refreshFromServer}
             tintColor={theme.primary}
           />
         }
@@ -313,7 +317,7 @@ export default function ProjectScreen() {
           <View style={styles.actions}><Button onPress={() => void restore()} loading={busy} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
         ) : null}
          {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
-         {loadError && project ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить проект</Button></View> : null}
+         {loadError && project ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить проект</Button></View> : null}
          {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
          {project ? (
            <Card muted>
@@ -374,7 +378,7 @@ export default function ProjectScreen() {
           </View>
         </View>
         {loadError && !project ? (
-          <ErrorState message={loadError} onRetry={load} />
+          <ErrorState message={loadError} onRetry={refreshFromServer} />
         ) : loading && !tasks.length ? (
           <LoadingState />
         ) : loadError ? null : !tasks.length ? (

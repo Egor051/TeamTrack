@@ -58,7 +58,14 @@ describe('permission realtime invalidation', () => {
     const receive = subscriptions[0].on.mock.calls[0][2];
     receive({ payload: { table: 'task_members', operation: 'UPDATE' } });
     receive({ payload: { table: 'projects', operation: 'UPDATE' } });
+    receive({ payload: { table: 'task_assignees', operation: 'UPDATE' } });
+    receive({ payload: { table: 'task_items', operation: 'UPDATE' } });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    receive({ payload: { table: 'project_members', operation: 'DELETE' } });
     expect(onChange).toHaveBeenCalledTimes(2);
+    receive({ payload: { table: 'tasks', operation: 'DELETE' } });
+    receive({ payload: { table: 'projects', operation: 'DELETE' } });
+    expect(onChange).toHaveBeenCalledTimes(4);
 
     cleanup();
     expect(removeChannel).toHaveBeenCalledOnce();

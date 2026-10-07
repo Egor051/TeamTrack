@@ -1,3 +1,5 @@
+import { isReadAccessPending } from '@/lib/local-cache/read-freshness';
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -38,6 +40,7 @@ export default function ProjectDailyProgressScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
+    if (isReadAccessPending(`project:${id}`)) { setProgress(null); setLoaded(false); }
     const request = ++requestRef.current;
     setLoading(true);
     setError("");
@@ -63,6 +66,7 @@ export default function ProjectDailyProgressScreen() {
     }
   }, [id]);
 
+  const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { projectId: id });
   useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
@@ -76,12 +80,12 @@ export default function ProjectDailyProgressScreen() {
     useCallback(() => {
       if (!id) return;
       void permissionVersion;
-      const onEvent = () => void load();
+      const onEvent = scheduleRefresh;
       const onStatus = (next: RealtimeStatus) => {
         setStatus(next);
         if (next === "connected" && !realtimeConnectedRef.current) {
           realtimeConnectedRef.current = true;
-          void load();
+          scheduleRefresh();
         } else if (next !== "connected") {
           realtimeConnectedRef.current = false;
         }
@@ -91,7 +95,7 @@ export default function ProjectDailyProgressScreen() {
         { table: "tasks", options: { projectId: id, onEvent, onStatus } },
         { table: "task_items", options: { projectId: id, onEvent, onStatus } },
       ]);
-    }, [id, load, permissionVersion]),
+    }, [id, permissionVersion, scheduleRefresh]),
   );
 
   const hasProgress = Boolean(progress?.entries.length);
@@ -101,7 +105,7 @@ export default function ProjectDailyProgressScreen() {
         contentContainerStyle={[styles.content, compact && styles.compactContent]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFromServer()} tintColor={theme.primary} />}
       >
         <PageHeader
           title="Прогресс дня"
@@ -109,11 +113,11 @@ export default function ProjectDailyProgressScreen() {
           onBack={() => router.replace(`/projects/${id}` as never)}
           backLabel="К проекту"
           breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: "Прогресс дня" }]}
-          actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void load()}>Обновить</Button></>}
+          actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void refreshFromServer()}>Обновить</Button></>}
         />
-        {error && loaded ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить прогресс</Button></View> : null}
+        {error && loaded ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить прогресс</Button></View> : null}
         {error && !loaded ? (
-          <ErrorState message={error} onRetry={load} />
+          <ErrorState message={error} onRetry={refreshFromServer} />
         ) : loading && !loaded ? (
           <LoadingState label="Загружаем прогресс дня..." />
         ) : !hasProgress ? (

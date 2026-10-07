@@ -1,3 +1,5 @@
+import { isReadAccessPending } from '@/lib/local-cache/read-freshness';
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -65,6 +67,7 @@ export default function MembersScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
+    if (isReadAccessPending(`project:${id}`)) { setCurrentRole(null); setMembers([]); }
     const request = ++requestRef.current;
     setLoading(true);
     setLoadError('');
@@ -84,6 +87,7 @@ export default function MembersScreen() {
     }
   }, [id]);
 
+  const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { projectId: id });
   useOnlineRecovery(load);
   useFocusEffect(useCallback(() => {
     void permissionVersion;
@@ -99,16 +103,16 @@ export default function MembersScreen() {
     const onStatus = (next: RealtimeStatus) => {
       if (next === 'connected' && !realtimeConnectedRef.current) {
         realtimeConnectedRef.current = true;
-        void load();
+        scheduleRefresh();
       } else if (next !== 'connected') {
         realtimeConnectedRef.current = false;
       }
     };
     return subscribeMany([
-      { table: 'projects', options: { projectId: id, onEvent: () => void load(), onStatus } },
-      { table: 'project_members', options: { projectId: id, onEvent: () => void load(), onStatus } },
+      { table: 'projects', options: { projectId: id, onEvent: scheduleRefresh, onStatus } },
+      { table: 'project_members', options: { projectId: id, onEvent: scheduleRefresh, onStatus } },
     ]);
-  }, [id, load, permissionVersion]));
+  }, [id, permissionVersion, scheduleRefresh]));
 
   const canManage = (currentRole === 'owner' || currentRole === 'admin') && projectStatus === 'active';
   const manageableRoleOptions = currentRole === 'owner'
@@ -186,11 +190,11 @@ export default function MembersScreen() {
           </View>
         </Card>
       ) : null}
-      {loadError && !members.length ? <ErrorState message={loadError} onRetry={load} /> : loading && !members.length ? <LoadingState label="Загружаем участников…" /> : !members.length ? (
+      {loadError && !members.length ? <ErrorState message={loadError} onRetry={refreshFromServer} /> : loading && !members.length ? <LoadingState label="Загружаем участников…" /> : !members.length ? (
         <EmptyState title="Участников пока нет" description="Добавьте людей, с которыми будете работать над проектом." />
       ) : (
         <>
-          {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить участников</Button></View> : null}
+          {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить участников</Button></View> : null}
           <View style={styles.list}>
           <View style={styles.sectionHeader}>
             <ThemedText type="h2">Участники · {members.length}</ThemedText>

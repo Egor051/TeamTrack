@@ -73,7 +73,6 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     put(`task-role:${task.id}`, roleMap.get(task.id));
     put(`assignees:${task.id}`, (assigneesByTask.get(task.id) ?? []).map((a) => a.user_id));
     const all = (itemsByTask.get(task.id) ?? []).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
-    put(`items:${task.id}:all`, all);
     put(`items:${task.id}:active`, all.filter((i) => !i.is_archived));
     put(`items:${task.id}:archived`, all.filter((i) => i.is_archived));
     const project = projectMap.get(task.project_id);

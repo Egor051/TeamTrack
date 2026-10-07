@@ -100,6 +100,14 @@ async function setConfig(write, sync) {
 function persistedCapabilities() {
   return JSON.parse(browser('eval', '(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open("tasktrace-local-cache");r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{return await new Promise(function(ok,no){const r=db.transaction("entries").objectStore("entries").getAll();r.onsuccess=function(){const entry=r.result.find(function(e){return e.key==="runtime:offline-capabilities"});ok(entry?JSON.parse(entry.data).value:null)};r.onerror=function(){no(r.error)}})}finally{db.close()}})()'));
 }
+async function reloadAfterRuntimeTtl() {
+  const fetchedAt = JSON.parse(browser('eval', '(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open("tasktrace-local-cache");r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{return await new Promise(function(ok,no){const r=db.transaction("entries").objectStore("entries").getAll();r.onsuccess=function(){const entry=r.result.find(function(e){return e.key==="runtime:offline-capabilities"});ok(entry?JSON.parse(entry.data).fetched_at:null)};r.onerror=function(){no(r.error)}})}finally{db.close()}})()'));
+  check(Number.isFinite(fetchedAt) && fetchedAt > 0, 'Missing runtime confirmation before TTL probe');
+  // Ordinary startup reuses a fresh persisted confirmation. Wait for the real
+  // TTL to pass before testing a new remote value; do not alter its timestamp.
+  await sleep(Math.max(0, fetchedAt + 60_001 - Date.now()));
+  browser('reload');
+}
 async function percentage(itemId) {
   const result = await db.query('select percentage from public.task_items where id = $1', [itemId]);
   return result.rows[0]?.percentage;
@@ -225,7 +233,7 @@ try {
 
   if (!uxOnly) {
     await setConfig(false, true);
-    browser('reload');
+    await reloadAfterRuntimeTtl();
     await bodyEventually('Оконные блоки установлены');
     // Cached UI can render before recovery. Test an actually confirmed denial
     // rather than switching offline before the capability response arrives.
@@ -238,8 +246,9 @@ try {
     await setConfig(true, true);
     console.log('PASS remote write kill switch');
 
-    browser('reload');
+    await reloadAfterRuntimeTtl();
     await bodyEventually('Оконные блоки установлены');
+    await eventually(() => persistedCapabilities()?.write_enabled === true, 'confirmed remote write enable');
     await bodyEventually('Синхронизация: подключено');
     browser('wait', '1800');
     const beforeReceipts = await receiptCount(fixture.aEmail);

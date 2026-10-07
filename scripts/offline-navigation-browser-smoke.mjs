@@ -161,6 +161,45 @@ async function runPerformance(taskId) {
   writeFileSync(file, JSON.stringify(report, null, 2));
   console.log(`Timing report: ${file}`);
 }
+
+async function runRequestMeasurements(taskId, itemId) {
+  const baseline = process.argv.includes('--baseline');
+  const report = { baseline, environment: 'Local Supabase + production PWA, warm Basic cache, Chromium', scenarios: [], storage: [] };
+  const start = () => browser('eval', 'window.__navigationProbe.start(null);true');
+  const settle = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await eventually(() => {
+      const events = JSON.parse(browser('eval', 'window.__navigationProbe.events'));
+      return events.filter((e) => e.event === 'network_started').length
+        === events.filter((e) => e.event === 'network_finished' || e.event === 'network_failed').length;
+    }, 'settled request window');
+  };
+  const capture = async (name, action) => {
+    start(); await action(); await settle();
+    const events = JSON.parse(browser('eval', 'window.__navigationProbe.events'));
+    const requests = events.filter((e) => e.event === 'network_started').map((e) => e.key.split('?')[0]);
+    const endpoints = Object.fromEntries([...new Set(requests)].sort().map((key) => [key, requests.filter((r) => r === key).length]));
+    const row = { name, requests: requests.length, endpoints, probes: events.filter((e) => e.event === 'connectivity_probe_started').length };
+    report.scenarios.push(row); console.log(JSON.stringify(row));
+  };
+  const spa = async (route, text) => {
+    browser('eval', `history.pushState(null,'',${JSON.stringify(route)});dispatchEvent(new PopStateEvent('popstate'));true`);
+    await has(text);
+  };
+  const storage = () => JSON.parse(browser('eval', `(async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});try{const all=await new Promise((ok,no)=>{const r=db.transaction('entries').objectStore('entries').getAll();r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});const rows=all.filter(e=>e.user_id===${JSON.stringify(userId)});const categories={};for(const e of rows){const kind=e.key.startsWith('bootstrap:page:')||e.key.startsWith('bootstrap:batch:')?'bootstrap-pages':e.key.split(':')[0];const v=categories[kind]??={records:0,bytes:0};v.records++;v.bytes+=new TextEncoder().encode(JSON.stringify(e)).length}return{records:rows.length,bytes:rows.reduce((n,e)=>n+new TextEncoder().encode(JSON.stringify(e)).length,0),categories,estimate:await navigator.storage.estimate()}}finally{db.close()}})()`));
+  report.storage.push({ name: 'warm-basic', ...storage() });
+  await capture('open /projects', async () => { browser('reload'); await has('Офлайн основной проект'); });
+  await capture('open project', () => spa(`/projects/${projectId}`, 'Основной этап'));
+  await capture('project -> task', () => spa(`/projects/${projectId}/tasks/${taskId}`, 'Сохранённый комментарий'));
+  await capture('task -> project', () => spa(`/projects/${projectId}`, 'Основной этап'));
+  await capture('realtime one item', async () => { await value(owner.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 41 })); });
+  await capture('foreground unchanged', async () => { browser('eval', "dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));true"); });
+  await spa('/projects', 'Офлайн основной проект'); await settle();
+  await capture('manual refresh', async () => { browser('click', ref(browser('snapshot','-i'), 'button "Обновить"')); });
+  await capture('offline recovery', async () => { browser('set','offline','on'); await new Promise((resolve) => setTimeout(resolve, 500)); browser('set','offline','off'); await has('Офлайн основной проект'); });
+  report.storage.push({ name: 'after-scenarios', ...storage() });
+  writeFileSync(resolve(root, `.expo/cache-requests-${baseline ? 'before' : 'after'}.json`), JSON.stringify(report, null, 2));
+}
 try {
   await db.connect();
   originalConfig = (await db.query('select write_enabled, sync_enabled, updated_at::text as updated_at from private.offline_runtime_config')).rows[0];
@@ -198,7 +237,8 @@ try {
   console.log('PASS automatic basic bootstrap, independent projects indicators and PWA assets');
   await eventually(() => runtimeSnapshot()?.value?.write_enabled === true && runtimeSnapshot()?.value?.sync_enabled === true, 'confirmed runtime capabilities');
 
-  await runPerformance(taskId);
+  if (process.argv.includes('--requests')) await runRequestMeasurements(taskId, itemId);
+  else await runPerformance(taskId);
 } catch (error) {
   try { console.error('Failed page:', body()); browser('screenshot', resolve(root, '.expo/account-offline-failure.png')); } catch { /* browser failed */ }
   throw error;

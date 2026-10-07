@@ -7,6 +7,8 @@ vi.mock('expo-router', async () => { const React = await import('react'); return
   useFocusEffect: (callback: () => void) => React.useEffect(callback, [callback]) }; });
 vi.mock('@/features/auth/PermissionProvider', () => ({ usePermissionVersion: () => f.version }));
 vi.mock('@/lib/connectivity/use-online-recovery', () => ({ useOnlineRecovery: () => undefined }));
+vi.mock('@/lib/local-cache/read-freshness', () => ({ isReadAccessPending: () => false }));
+vi.mock('@/lib/local-cache/use-read-model-updates', () => ({ useReadModelUpdates: (load: () => Promise<void>) => ({ scheduleRefresh: load, refreshFromServer: load }) }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeMany: f.subscribe }));
 vi.mock('@/features/projects/projects', () => ({ getProject: async () => ({ name: 'Project', status: 'active', role: 'owner' }), listProjectMembers: async () => [] }));
 vi.mock('@/components/ui/screen', () => ({ Screen: () => null }));

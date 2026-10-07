@@ -120,13 +120,36 @@ describe('persistent user-scoped runtime capabilities', () => {
     expect(remote.rpc).toHaveBeenCalledTimes(1);
   });
 
-  it('refreshes after TTL online, and on startup even for a fresh persisted snapshot', async () => {
+  it('refreshes after TTL online and reuses a fresh persisted snapshot after startup', async () => {
     await runtimeCapabilities('user-a');
     await runtimeCapabilities('user-a'); expect(remote.rpc).toHaveBeenCalledTimes(1);
     vi.spyOn(Date, 'now').mockReturnValue(Date.now() + RUNTIME_CONFIG_TTL_MS + 1);
     await runtimeCapabilities('user-a'); expect(remote.rpc).toHaveBeenCalledTimes(2);
-    vi.restoreAllMocks(); clearRuntimeConfig();
-    await runtimeCapabilities('user-a'); expect(remote.rpc).toHaveBeenCalledTimes(3);
+    clearRuntimeConfig();
+    await runtimeCapabilities('user-a'); expect(remote.rpc).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+  it('a future persisted timestamp cannot suppress a server check or retain an allow after denial', async () => {
+    await runtimeCapabilities('user-a');
+    const entry = (await localCacheDriver.get('user-a', RUNTIME_CONFIG_KEY))!;
+    const saved = JSON.parse(entry.data);
+    await localCacheDriver.put({ ...entry, data: JSON.stringify({ ...saved, fetched_at: Date.now() + RUNTIME_CONFIG_TTL_MS }) });
+    clearRuntimeConfig(); remote.rpc.mockClear();
+    remote.rpc.mockResolvedValue({ data: null, error: { message: 'Denied' }, status: 403 });
+    expect(await runtimeCapabilities('user-a')).toEqual(disabled);
+    expect(remote.rpc).toHaveBeenCalledOnce(); expect((await persisted())?.value).toBeNull();
+    vi.stubGlobal('navigator', { onLine: false }); clearRuntimeConfig();
+    expect(await runtimeCapabilities('user-a')).toEqual(disabled);
+  });
+  it('fresh empty syncs reuse runtime config and pull once each; a queued mutation verifies the server again', async () => {
+    await runtimeCapabilities('user-a'); await seedItems(); remote.rpc.mockClear(); remote.replay.mockClear();
+    await syncPendingOperations('user-a', true); await syncPendingOperations('user-a', true);
+    expect(remote.rpc).not.toHaveBeenCalled();
+    expect(remote.replay.mock.calls.map(([name]) => name)).toEqual(['pull_task_item_changes_v2', 'pull_task_item_changes_v2']);
+    vi.stubGlobal('navigator', { onLine: false }); await edit(); vi.stubGlobal('navigator', { onLine: true });
+    remote.replay.mockClear(); await syncPendingOperations('user-a', true);
+    expect(remote.rpc).toHaveBeenCalledOnce();
+    expect(remote.replay.mock.calls.map(([name]) => name)).toEqual(['pull_task_item_changes_v2', 'apply_task_item_percentage_operation_v2', 'pull_task_item_changes_v2']);
   });
 
   it.each(['Failed to fetch', 'fetch failed', 'Network request failed', 'DNS network error', 'timeout'])(

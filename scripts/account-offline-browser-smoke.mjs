@@ -280,8 +280,8 @@ async function schedulerRegressions() {
   const idle = JSON.parse(browser('eval', 'window.__scheduler.requests'));
   check(idle.length === 0, `Ready foreground ticks made HTTP requests: ${JSON.stringify(idle)}`);
   const started = Date.now();
-  const damaged = `${userId}:bootstrap:batch:items:${metadata().datasets.items.revision}:0`;
-  browser('eval', `(async function(){const db=await new Promise(ok=>{const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=()=>ok(r.result)});try{await new Promise((ok,no)=>{const tx=db.transaction('entries','readwrite');tx.objectStore('entries').delete(${JSON.stringify(damaged)});tx.oncomplete=ok;tx.onerror=()=>no(tx.error)})}finally{db.close()}return true})()`);
+  const damaged = `${userId}:bootstrap:page:items:${metadata().datasets.items.pages[0]}`;
+  browser('eval', `(async function(){const db=await new Promise(ok=>{const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=()=>ok(r.result)});try{await new Promise((ok,no)=>{const tx=db.transaction('entries','readwrite');const store=tx.objectStore('entries');const read=store.get(${JSON.stringify(damaged)});read.onsuccess=()=>{if(!read.result){no(new Error('Missing damage fixture'));tx.abort();return}store.delete(${JSON.stringify(damaged)})};tx.oncomplete=ok;tx.onerror=()=>no(tx.error)})}finally{db.close()}return true})()`);
   await eventually(() => metadata()?.basic_ready && !metadata()?.lease && Date.parse(metadata().last_successful_sync_at) >= started, 'automatic missing-page recovery', 45_000);
   await has('Офлайн: готово');
   const recovery = JSON.parse(browser('eval', 'window.__scheduler.requests'));

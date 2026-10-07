@@ -1,0 +1,132 @@
+{
+  "fixture": "1001 items, 690 byte comments, Basic, fake IndexedDB, 20 reload cycles",
+  "pageWrites": 0,
+  "samples": [
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    },
+    {
+      "records": 49,
+      "pages": 13,
+      "bytes": 1847602,
+      "allCopies": 0
+    }
+  ]
+}

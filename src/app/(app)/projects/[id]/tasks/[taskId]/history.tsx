@@ -1,3 +1,5 @@
+import { isReadAccessPending } from '@/lib/local-cache/read-freshness';
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -75,6 +77,7 @@ export default function History() {
   const realtimeConnectedRef = useRef(false);
   const load = useCallback(async () => {
     if (!id || !taskId) return;
+    if (isReadAccessPending(`task:${taskId}`)) { setAudit([]); setItems([]); setMembers([]); setLoaded(false); }
     const request = ++requestRef.current;
     setLoading(true);
     setError("");
@@ -109,6 +112,7 @@ export default function History() {
       if (request === requestRef.current) setLoading(false);
     }
   }, [id, taskId]);
+  const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { projectId: id, taskId });
   useOnlineRecovery(load);
   useFocusEffect(
     useCallback(() => {
@@ -127,7 +131,7 @@ export default function History() {
         setStatus(next);
         if (next === "connected" && !realtimeConnectedRef.current) {
           realtimeConnectedRef.current = true;
-          void load();
+          scheduleRefresh();
         } else if (next !== "connected") {
           realtimeConnectedRef.current = false;
         }
@@ -135,26 +139,26 @@ export default function History() {
       return subscribeMany([
         {
           table: "projects",
-          options: { projectId: id, onEvent: () => void load(), onStatus },
+          options: { projectId: id, onEvent: scheduleRefresh, onStatus },
         },
         {
           table: "tasks",
-          options: { taskId, onEvent: () => void load(), onStatus },
+          options: { taskId, onEvent: scheduleRefresh, onStatus },
         },
         {
           table: "task_items",
-          options: { taskId, onEvent: () => void load(), onStatus },
+          options: { taskId, onEvent: scheduleRefresh, onStatus },
         },
         {
           table: "task_members",
-          options: { taskId, onEvent: () => void load(), onStatus },
+          options: { taskId, onEvent: scheduleRefresh, onStatus },
         },
         {
           table: "task_assignees",
-          options: { taskId, onEvent: () => void load(), onStatus },
+          options: { taskId, onEvent: scheduleRefresh, onStatus },
         },
       ]);
-    }, [id, taskId, load, permissionVersion]),
+    }, [id, taskId, permissionVersion, scheduleRefresh]),
   );
   const fmt = (v: string) =>
     new Date(v).toLocaleString("ru-RU", {
@@ -185,7 +189,7 @@ export default function History() {
         contentContainerStyle={[styles.content, width < 700 && styles.compactContent]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFromServer()} tintColor={theme.primary} />}
       >
         <PageHeader
           title="История этапа"
@@ -193,12 +197,12 @@ export default function History() {
           onBack={() => router.dismissTo(`/projects/${id}/tasks/${taskId}` as never)}
           backLabel="К этапу"
           breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "История" }]}
-          actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void load()}>Обновить</Button></>}
+          actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void refreshFromServer()}>Обновить</Button></>}
         />
         {offline ? <Card><ThemedText type="small">Показана сохранённая история за последние 90 дней. Более старая история требует подключения.</ThemedText></Card> : null}
-        {error && loaded ? <Card><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить историю</Button></Card> : null}
+        {error && loaded ? <Card><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить историю</Button></Card> : null}
         {error && !loaded ? (
-          <ErrorState message={error} onRetry={load} />
+          <ErrorState message={error} onRetry={refreshFromServer} />
         ) : loading && !loaded ? (
           <LoadingState label="Загружаем историю..." />
         ) : !checklistHistory.length && !audit.length ? (

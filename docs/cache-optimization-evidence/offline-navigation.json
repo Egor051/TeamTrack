@@ -1,0 +1,92 @@
+{
+  "baseline": false,
+  "environment": "production static PWA / local Supabase / headless Chromium",
+  "offline": [
+    {
+      "route": "/projects",
+      "ms": 196,
+      "requests": 0,
+      "probeRequests": 0
+    },
+    {
+      "route": "/projects/:project",
+      "ms": 158,
+      "requests": 0,
+      "probeRequests": 0
+    },
+    {
+      "route": "/projects/:project/tasks/:task",
+      "ms": 74,
+      "requests": 0,
+      "probeRequests": 0
+    },
+    {
+      "route": "/projects/:project/members",
+      "ms": 70,
+      "requests": 0,
+      "probeRequests": 0
+    },
+    {
+      "route": "/templates",
+      "ms": 72,
+      "requests": 0,
+      "probeRequests": 0
+    },
+    {
+      "route": "/profile",
+      "ms": 74,
+      "requests": 0,
+      "probeRequests": 0
+    },
+    {
+      "route": "/projects/:project/progress",
+      "ms": 135,
+      "requests": 0,
+      "probeRequests": 0
+    },
+    {
+      "route": "/projects/:project/tasks/:task/progress",
+      "ms": 88,
+      "requests": 0,
+      "probeRequests": 0
+    }
+  ],
+  "expiredSession": {
+    "route": "/projects",
+    "ms": 80,
+    "requests": 0,
+    "probeRequests": 0
+  },
+  "expiredProgress": {
+    "route": "/projects/:project/progress",
+    "ms": 92,
+    "requests": 0,
+    "probeRequests": 0
+  },
+  "degraded": [
+    {
+      "route": "/projects",
+      "ms": 88,
+      "requests": 5,
+      "probeRequests": 2
+    },
+    {
+      "route": "/projects/:project",
+      "ms": 36,
+      "requests": 0,
+      "probeRequests": 1
+    },
+    {
+      "route": "/projects/:project/tasks/:task",
+      "ms": 26,
+      "requests": 0,
+      "probeRequests": 1
+    }
+  ],
+  "recovery": {
+    "route": "/projects",
+    "ms": 65,
+    "requests": 9,
+    "probeRequests": 2
+  }
+}

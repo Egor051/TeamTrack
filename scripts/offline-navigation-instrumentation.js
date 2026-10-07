@@ -29,6 +29,11 @@
     } catch (error) { probe.record(probeRequest ? 'connectivity_probe_failed' : 'network_failed', key); throw error; }
   };
   const originalGet = IDBObjectStore.prototype.get;
+  const originalPut = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function(value, key) {
+    if (this.name === 'entries' && value?.key?.startsWith('bootstrap:')) probe.record('bootstrap_write', value.key);
+    return key === undefined ? originalPut.call(this, value) : originalPut.call(this, value, key);
+  };
   IDBObjectStore.prototype.get = function(key) {
     probe.record('cache_read_started', String(key));
     const request = originalGet.call(this, key);

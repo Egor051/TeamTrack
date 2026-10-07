@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client';
 import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
+import { currentReadAccount, invalidateReadModels, invalidateRealtimeModels } from '@/lib/local-cache/read-freshness';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 export type RealtimeEvent = {
@@ -69,8 +70,15 @@ function createSharedChannel(topic: string): SharedChannel {
   sharedChannels.set(topic, entry);
   entry.channel
     .on('broadcast', { event: 'invalidate' }, (payload) => {
+      if (sharedChannels.get(topic) !== entry) return;
       const event = asRealtimeEvent(payload);
       if (!event) return;
+      const userId = currentReadAccount();
+      if (userId) {
+        const [kind, id] = topic.split(':');
+        void invalidateRealtimeModels(userId, event.table, { ...(kind === 'project' ? { projectId: id } : kind === 'task' ? { taskId: id } : { userId: id }) }, event.eventType)
+          .catch((error) => console.warn('[TaskTrace] realtime invalidation failed', error));
+      }
       for (const listener of entry.listeners) {
         if (listener.table === event.table) listener.onEvent(event);
       }
@@ -136,19 +144,21 @@ export function subscribeMany(specs: { table: string; options: SubscriptionOptio
  */
 export function subscribeToPermissionChanges(
   userId: string,
-  onChange: () => void,
+  onChange: (event: RealtimeEvent) => void,
   onStatus?: (status: RealtimeStatus, message?: string) => void,
 ) {
-  const invalidate = () => {
+  const invalidate = (event: RealtimeEvent) => {
+    // The shared channel installs the fence once before dispatching listeners.
+    // Standalone consumers without AuthProvider still need the same fence.
+    if (currentReadAccount() !== userId) void invalidateReadModels(userId, undefined, 'access').catch((error) => console.warn('[TaskTrace] permission invalidation failed', error));
     closeResourceRealtimeChannels();
-    onChange();
+    onChange(event);
   };
   return subscribeMany([
-    { table: 'projects', options: { userId, onEvent: invalidate, onStatus } },
-    { table: 'tasks', options: { userId, onEvent: invalidate, onStatus } },
     { table: 'project_members', options: { userId, onEvent: invalidate, onStatus } },
     { table: 'task_members', options: { userId, onEvent: invalidate, onStatus } },
-    { table: 'task_assignees', options: { userId, onEvent: invalidate, onStatus } },
+    { table: 'projects', options: { userId, onEvent: (event) => { if (event.eventType === 'DELETE') invalidate(event); }, onStatus } },
+    { table: 'tasks', options: { userId, onEvent: (event) => { if (event.eventType === 'DELETE') invalidate(event); }, onStatus } },
   ]);
 }
 

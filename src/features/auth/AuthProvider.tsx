@@ -17,10 +17,12 @@ import {
 } from './auth';
 import { closeAllRealtimeChannels } from '@/lib/supabase/realtime';
 import { parseAuthCallbackUrl, stripAuthCallbackParams } from './auth-links';
-import { readThroughCache, activeCacheUserId, putCached } from '@/lib/local-cache/cache';
+import { readCachedModel as readThroughCache, activeCacheUserId, getCached, putCached } from '@/lib/local-cache/cache';
+import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { clearRuntimeConfig } from '@/lib/local-cache/runtime-config';
 import { uiRead } from '@/lib/supabase/ui-read';
 import { invalidateOfflineRuntime } from '@/lib/local-cache/runtime-state';
+import { clearReadFreshness, setReadAccount } from '@/lib/local-cache/read-freshness';
 
 type AuthContextType = {
   state: AuthState;
@@ -105,6 +107,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const scheduleSessionApply = (session: AuthState['session']) => {
       const nextUserId = session?.user?.id ?? null;
+      setReadAccount(nextUserId);
+      if (nextUserId !== runtimeUserId) clearReadFreshness();
       if (runtimeUserId && nextUserId !== runtimeUserId) invalidateOfflineRuntime(runtimeUserId);
       if (nextUserId !== runtimeUserId || !nextUserId) clearRuntimeConfig();
       runtimeUserId = nextUserId;
@@ -137,6 +141,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (next !== 'online') return;
       void restoreSession().catch(() => undefined);
     });
+    const models = subscribeReadModelCommits((commit) => {
+      if (!activeUserId || commit.userId !== activeUserId || !commit.keys.includes('profile:self')) return;
+      const currentGeneration = generation;
+      void getCached<Profile>(commit.userId, 'profile:self').then((profile) => {
+        if (!cancelled && generation === currentGeneration)
+          setState((prev) => prev.user?.id === commit.userId ? { ...prev, profile } : prev);
+      });
+    });
     const storageChanged = () => {
       if (!usesLocalReads()) return;
       void restoreSession().catch(() => undefined);
@@ -161,7 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       clearRuntimeConfig();
-      connectivity(); monitoring();
+      connectivity(); monitoring(); models();
       if (typeof window !== 'undefined') window.removeEventListener('storage', storageChanged);
       data.subscription.unsubscribe();
       linkSubscription.remove();

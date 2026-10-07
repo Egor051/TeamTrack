@@ -1,3 +1,4 @@
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
@@ -89,17 +90,18 @@ export default function NotificationsScreen() {
     }
   }, []);
 
+  const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { view: 'notifications', userId: user?.id });
   useOnlineRecovery(load);
   useFocusEffect(useCallback(() => {
     const timer = setTimeout(() => { void load(); }, 0);
     if (!user) return () => clearTimeout(timer);
-    const cleanup = subscribeToNotifications(user.id, () => { void load(); });
+    const cleanup = subscribeToNotifications(user.id, scheduleRefresh);
     return () => {
       clearTimeout(timer);
       requestRef.current += 1;
       cleanup();
     };
-  }, [load, user]));
+  }, [load, user, scheduleRefresh]));
 
   if (!user) return <LoadingState label="Завершаем сеанс..." />;
 
@@ -155,11 +157,11 @@ export default function NotificationsScreen() {
   }
 
   return <Screen padded={false} centerContent={false}>
-    <ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFromServer()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={!offline && items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll} onPress={() => void allRead()}>Прочитать все</Button> : null} />
       {offline ? <Card><ThemedText type="small">Показаны сохранённые уведомления: все непрочитанные и последние 100 прочитанных. Более старые уведомления и отметка прочтения требуют подключения.</ThemedText></Card> : null}
       {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к этапам и изменениях чек-листа." /> : <View style={styles.list}>
-        {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить уведомления</Button></View> : null}
+        {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить уведомления</Button></View> : null}
         {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
         {items.map((item) => <Card key={item.id} style={!item.is_read ? [styles.readCard, { borderColor: theme.primary }] : undefined}>
           <Pressable onPress={() => void read(item)} disabled={markingAll} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${notificationText(item, item.title)}`} accessibilityState={{ disabled: markingAll }} style={styles.pressableContent}>

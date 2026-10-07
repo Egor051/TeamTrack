@@ -1,3 +1,4 @@
+import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -85,6 +86,7 @@ export default function TemplatesScreen() {
     }
   }, [expandedId]);
 
+  const { refreshFromServer } = useReadModelUpdates(load, { view: 'templates' });
   useOnlineRecovery(load);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -138,7 +140,7 @@ export default function TemplatesScreen() {
     <Screen padded={false} centerContent={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <PageHeader title="Глобальные шаблоны" subtitle="Общие заготовки этапов" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Шаблоны' }]} />
-        {error ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void load()}>Обновить шаблоны</Button></View> : null}
+        {error ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить шаблоны</Button></View> : null}
         <Card>
           <ThemedText type="h2">Новый шаблон</ThemedText>
           <Input label="Название" value={createName} onChangeText={setCreateName} maxLength={200} placeholder="Подготовка релиза" disabled={busy} />

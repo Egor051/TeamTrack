@@ -18,6 +18,7 @@ vi.mock('@/lib/supabase/client', () => ({
 vi.mock('@/lib/local-cache/driver', async () => import('@/lib/local-cache/driver.web'));
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 import { putCached } from '@/lib/local-cache/cache';
+import { readAccountEpoch } from '@/lib/local-cache/read-freshness';
 let renderer: ReactTestRenderer | undefined;
 let api: ReturnType<typeof useAuth>;
 function Consumer() { api = useAuth(); return null; }
@@ -26,6 +27,22 @@ afterEach(async () => {
   renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks();
 });
 describe('offline AuthProvider startup', () => {
+  it('an SDK token refresh replaces credentials while preserving the account epoch and fresh cached profile', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('navigator', { onLine: true });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const initial = { user: { id: 'user-a' }, expires_at: Date.now() / 1000 + 3600, access_token: 'initial-test-token' };
+    f.stored = initial; f.session.mockReset().mockResolvedValue({ data: { session: initial }, error: null }); f.profile.mockClear();
+    await putCached('user-a', 'profile:self', { id: 'user-a', display_name: 'Cached profile' });
+    await act(async () => { renderer = create(createElement(AuthProvider, { children: createElement(Consumer) })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+    expect(api.state.session?.access_token).toBe(initial.access_token);
+    const epoch = readAccountEpoch();
+    const refreshed = { ...initial, access_token: 'refreshed-test-token', expires_at: initial.expires_at + 3600 };
+    f.stored = refreshed; f.session.mockResolvedValue({ data: { session: refreshed }, error: null });
+    await act(async () => { f.changed('TOKEN_REFRESHED', refreshed); await new Promise((resolve) => setTimeout(resolve, 25)); });
+    expect(api.state).toMatchObject({ user: { id: 'user-a' }, session: refreshed, profile: { display_name: 'Cached profile' }, isLoading: false, error: null });
+    expect(readAccountEpoch()).toBe(epoch); expect(f.profile).not.toHaveBeenCalled();
+  });
   it.each(['success', 'error'])('ignores a late initial session %s after a newer sign-in', async (outcome) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('navigator', { onLine: true });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

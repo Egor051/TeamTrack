@@ -1,0 +1,16 @@
+{
+  "environment": "Pure accountReadModels serializers, identical 1001-item fixture, 690-byte comments, 10 percent archived",
+  "baseline": "4810e3efe11b32bfb1e037869f3de36f4082e5ca",
+  "before": {
+    "records": 20,
+    "bytes": 1740455,
+    "itemRecords": 3,
+    "itemBytes": 1737451
+  },
+  "after": {
+    "records": 19,
+    "bytes": 871791,
+    "itemRecords": 2,
+    "itemBytes": 868787
+  }
+}

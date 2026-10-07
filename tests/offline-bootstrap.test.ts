@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountManifest, Dataset } from '@/lib/local-cache/bootstrap-types';
 import { BASIC_DATASETS, EXTENDED_DATASETS, BOOTSTRAP_KEY, initialBootstrap } from '@/lib/local-cache/bootstrap-types';
@@ -82,15 +83,134 @@ async function stored(key: string) { const d = (await import('@/lib/local-cache/
 function pages(name?: string) { return f.rpc.mock.calls.filter(([rpc, args]) => rpc === 'get_offline_account_page' && (!name || args.p_dataset === name)); }
 
 describe('account bootstrap', () => {
+  it('a Basic overview caches only the unread count and never materializes complete notifications for its badge', async () => {
+    await run(); const query = { select: vi.fn(() => query), eq: () => query,
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ count: 120, data: null, error: null }).then(resolve) };
+    f.from.mockReturnValue(query); f.from.mockClear();
+    const n = await import('@/features/notifications/notifications');
+    expect(await n.fetchUnreadCount()).toBe(120); expect(await n.fetchUnreadCount()).toBe(120);
+    expect(f.from).toHaveBeenCalledOnce(); expect(query.select).toHaveBeenCalledWith('id', { count: 'exact', head: true });
+    expect(await stored('notifications:window')).toBeNull(); expect(await stored('notifications:unread-count')).toBe(120);
+  });
+  it('migrates certified legacy revision pages once without downloading or dropping the old snapshot', async () => {
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const { batchKey } = await import('@/lib/local-cache/bootstrap-types'); const { checksum } = await import('@/lib/local-cache/bootstrap-pages');
+    const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!; const meta = JSON.parse(entry.data);
+    const batches: Record<string, string> = {};
+    for (const name of BASIC_DATASETS) {
+      for (let offset = 0; offset < f.rows[name].length; offset += 500) {
+        const key = batchKey(name, revision(name), offset); const data = JSON.stringify(f.rows[name].slice(offset, offset + 500)); batches[key] = checksum(data);
+        await driver.put({ user_id: f.user, key, data, last_synced_at: stamp, schema_version: 1 });
+      }
+    }
+    for (const page of await driver.listEntries(f.user, 'bootstrap:page:')) await driver.remove(f.user, page.key);
+    meta.verified.basic.batches = batches; await driver.put({ ...entry, data: JSON.stringify(meta) });
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true); f.rpc.mockClear();
+    await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect(pages()).toHaveLength(0); expect(await driver.listEntries(f.user, 'bootstrap:batch:')).toHaveLength(0);
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+  });
+  it('pending ACL checks revoke readiness; a fresh guarded server snapshot restores its own models', async () => {
+    const b = await run(); const freshness = await import('@/lib/local-cache/read-freshness');
+    await freshness.invalidateReadModels(f.user, undefined, 'access');
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
+    await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    expect(freshness.readInvalidation(f.user, `items:${taskId}:active`).kind).toBeNull();
+    expect(await stored(freshness.freshnessKey(`items:${taskId}:active`))).toBeNull();
+  });
+  it('an ACL event after manifest verification restarts the snapshot before clearing quarantine', async () => {
+    const b = await run(); const freshness = await import('@/lib/local-cache/read-freshness');
+    const rpc = f.rpc.getMockImplementation()!; let manifests = 0;
+    f.rpc.mockImplementation((name: string, args: Record<string, unknown>) => {
+      const query = rpc(name, args);
+      const result = async () => {
+        const value = await query;
+        if (name === 'get_offline_account_manifest' && ++manifests === 2) {
+          await freshness.invalidateReadModels(f.user, undefined, 'access');
+          f.rows.roles[0] = { task_id: taskId, role: 'viewer' };
+        }
+        return value;
+      };
+      return { abortSignal: () => result(), then: (...args: Parameters<ReturnType<typeof result>['then']>) => result().then(...args) };
+    });
+    await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect(manifests).toBeGreaterThanOrEqual(4);
+    expect(await stored(`task-role:${taskId}`)).toBe('viewer'); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+  });
+  it('20 reload/refresh cycles reuse unchanged content without page requests or writes and keep logical storage bounded', async () => {
+    const item = f.rows.items[0] as Record<string, unknown>;
+    f.rows.items = Array.from({ length: 1001 }, (_, index) => ({ ...item, id: `item-${index}`, position: index, comment: 'Representative comment '.repeat(30) }));
+    let b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const measure = async () => { const rows = await driver.listEntries(f.user); return { records: rows.length, pages: rows.filter((row) => row.key.startsWith('bootstrap:page:')).length,
+      bytes: rows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row)), 0), allCopies: rows.filter((row) => /^items:.*:all$/.test(row.key)).length }; };
+    const baseline = await measure(); const samples = [baseline];
+    let pageWrites = 0;
+    const commit = driver.commitCacheBatch.bind(driver);
+    vi.spyOn(driver, 'commitCacheBatch').mockImplementation(async (user, entries, remove, guards) => {
+      pageWrites += entries.filter((entry) => entry.key.startsWith('bootstrap:page:')).length;
+      return commit(user, entries, remove, guards);
+    });
+    for (let cycle = 0; cycle < 20; cycle++) {
+      f.rpc.mockClear(); await advance(b); await b.runAccountBootstrap(f.user, true);
+      expect(pages()).toHaveLength(0); samples.push(await measure());
+      vi.resetModules(); b = await import('@/lib/local-cache/bootstrap');
+      expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    }
+    expect(pageWrites).toBe(0); expect(samples.every((row) => row.records === baseline.records && row.pages === baseline.pages && row.allCopies === 0)).toBe(true);
+    expect(Math.max(...samples.map((row) => row.bytes)) - Math.min(...samples.map((row) => row.bytes))).toBeLessThan(4096);
+    writeFileSync('.expo/cache-storage-cycles.json', JSON.stringify({ fixture: '1001 items, 690 byte comments, Basic, fake IndexedDB, 20 reload cycles', pageWrites, samples }, null, 2));
+  });
+  it('one changed page writes only its replacement and collects the old content after commit', async () => {
+    const item = f.rows.items[0] as Record<string, unknown>;
+    f.rows.items = Array.from({ length: 1001 }, (_, index) => ({ ...item, id: `item-${index}`, position: index }));
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const before = await driver.listEntries(f.user, 'bootstrap:page:items:');
+    const commit = vi.spyOn(driver, 'commitCacheBatch'); f.rpc.mockClear();
+    f.rows.items[550] = { ...(f.rows.items[550] as object), comment: 'Changed page only', sync_version: 5 };
+    await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect(pages().map(([, args]) => [args.p_dataset, args.p_offset])).toEqual([['items', 500]]);
+    const writes = commit.mock.calls.flatMap(([, entries]) => entries).filter((entry) => entry.key.startsWith('bootstrap:page:'));
+    expect(writes).toHaveLength(1);
+    const after = await driver.listEntries(f.user, 'bootstrap:page:items:'); expect(after).toHaveLength(3);
+    expect(after.filter((row) => before.some((previous) => previous.key === row.key))).toHaveLength(2);
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+  });
+  it('an interrupted new revision retains the verified snapshot and resumes saved pages before collecting orphan staging', async () => {
+    const item = f.rows.items[0] as Record<string, unknown>;
+    f.rows.items = Array.from({ length: 1001 }, (_, index) => ({ ...item, id: `item-${index}`, position: index }));
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const oldItems = await stored(`items:${taskId}:active`);
+    f.rows.items[10] = { ...(f.rows.items[10] as object), comment: 'Staging page A' };
+    f.rows.items[550] = { ...(f.rows.items[550] as object), comment: 'Staging page B' };
+    f.failure = { dataset: 'items', offset: 500, error: transport };
+    await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true); expect(await stored(`items:${taskId}:active`)).toEqual(oldItems);
+    expect(await driver.listEntries(f.user, 'bootstrap:page:items:')).toHaveLength(4);
+    // A newer manifest makes the interrupted first page an orphan, but the
+    // unchanged last page and the previous verified pages remain intact.
+    f.rows.items[10] = { ...(f.rows.items[10] as object), comment: 'Replacement staging page A' };
+    f.failure = null; f.rpc.mockClear(); (await import('@/lib/connectivity/state')).reportConnectivitySuccess();
+    await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect(pages('items').map(([, args]) => args.p_offset)).toEqual([0, 500]);
+    expect(await driver.listEntries(f.user, 'bootstrap:page:items:')).toHaveLength(3);
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    // A subsequent interruption with the same manifest resumes the saved page.
+    f.rows.items[10] = { ...(f.rows.items[10] as object), comment: 'Same-manifest staging A' };
+    f.rows.items[550] = { ...(f.rows.items[550] as object), comment: 'Same-manifest staging B' };
+    f.failure = { dataset: 'items', offset: 500, error: transport }; await advance(b); await b.runAccountBootstrap(f.user, true);
+    f.failure = null; f.rpc.mockClear(); (await import('@/lib/connectivity/state')).reportConnectivitySuccess(); await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect(pages('items').map(([, args]) => args.p_offset)).toEqual([500]); expect(await driver.listEntries(f.user, 'bootstrap:page:items:')).toHaveLength(3);
+  });
   it.each(['missing', 'corrupt'])('recovery downloads only the %s page of a multi-page dataset', async (damage) => {
     const item = f.rows.items[0] as Record<string, unknown>;
     f.rows.items = Array.from({ length: 1001 }, (_, index) => ({ ...item, id: `item-${index}`, position: index }));
     const b = await run();
     const driver = (await import('@/lib/local-cache/driver.web')).localCacheDriver;
-    const { batchKey } = await import('@/lib/local-cache/bootstrap-types');
-    const key = batchKey('items', revision('items'), 500);
+    const { pageKey } = await import('@/lib/local-cache/bootstrap-types');
+    const key = pageKey('items', manifest(false).datasets.items!.pages![1]);
     if (damage === 'missing') await driver.remove(f.user, key);
-    else { const entry = (await driver.get(f.user, key))!; const rows = JSON.parse(entry.data); rows[0].id = 'corrupted'; await driver.put({ ...entry, data: JSON.stringify(rows) }); }
+    else { const entry = (await driver.get(f.user, key))!; const rows = JSON.parse(entry.data); rows.rows[0].id = 'corrupted'; await driver.put({ ...entry, data: JSON.stringify(rows) }); }
     expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
     f.rpc.mockClear(); await advance(b); await b.runAccountBootstrap(f.user);
     expect(pages().map(([, args]) => [args.p_dataset, args.p_offset])).toEqual([['items', 500]]);
@@ -216,8 +336,8 @@ describe('account bootstrap', () => {
   });
   it('redownloads a corrupted batch of the same length instead of certifying it again', async () => {
     const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
-    const entries = await driver.listEntries(f.user, 'bootstrap:batch:items:');
-    const batch = entries[0]; const rows = JSON.parse(batch.data); rows[0].comment = 'Corrupted disk value';
+    const entries = await driver.listEntries(f.user, 'bootstrap:page:items:');
+    const batch = entries[0]; const rows = JSON.parse(batch.data); rows.rows[0].comment = 'Corrupted disk value';
     await driver.put({ ...batch, data: JSON.stringify(rows) });
     expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
     f.rpc.mockClear(); await b.retryAccountBootstrap(f.user);
@@ -583,12 +703,15 @@ describe('account bootstrap', () => {
   it('keeps extended offline pagination bounded and never falls back after a known 403', async () => {
     const b = await run(); await b.selectOfflineScheme(f.user, 'extended'); await again(b);
     const notifications = await import('@/features/notifications/notifications');
+    (await import('@/lib/connectivity/state')).reportConnectivityFailure(new TypeError('Failed to fetch'));
     expect(await notifications.fetchNotificationPage(1, 0)).toMatchObject({ offline: true, limited: true, hasMore: false, rows: [{ title: 'Notice' }] });
     expect((await notifications.fetchNotificationPage(100, 100)).rows).toEqual([]);
     const projects = await import('@/features/projects/projects');
     expect(await projects.listTaskAudit(projectId, taskId)).toHaveLength(1);
     (await import('@/lib/connectivity/state')).reportConnectivitySuccess();
-    f.from.mockReturnValue({ select: () => ({ order: () => ({ range: async () => ({ data: null, error: { status: 403, message: 'Denied' } }) }) }) });
+    await (await import('@/lib/local-cache/read-freshness')).invalidateReadModels(f.user, ['notifications:'], 'refresh');
+    const deniedQuery = { select: () => deniedQuery, eq: () => deniedQuery, order: () => deniedQuery, range: async () => ({ data: null, error: { status: 403, message: 'Denied' } }) };
+    f.from.mockReturnValue(deniedQuery);
     await expect(notifications.fetchNotificationPage()).rejects.toMatchObject({ status: 403 });
     expect(await stored('notifications:window')).toBeNull();
   });
@@ -621,7 +744,7 @@ describe('account bootstrap', () => {
   });
   it('survives a missing saved batch, refuses a foreign manifest and serializes duplicate runners', async () => {
     const b = await run(); const driver = (await import('@/lib/local-cache/driver.web')).localCacheDriver;
-    const batches = await driver.listEntries(f.user, 'bootstrap:batch:items:');
+    const batches = await driver.listEntries(f.user, 'bootstrap:page:items:');
     await driver.remove(f.user, batches[0].key); f.rpc.mockClear();
     await advance(b);
     await Promise.all([b.runAccountBootstrap(f.user, true), b.runAccountBootstrap(f.user, true)]);

@@ -5,7 +5,7 @@ import { activeCacheUserId, isExplicitAccessError, isTransportFailure } from './
 import { localCacheDriver } from './driver';
 import { newOperationId } from './uuid';
 import { accountReadModels, cacheEntry, type AccountRows } from './bootstrap-models';
-import { BASIC_DATASETS, BOOTSTRAP_KEY, OFFLINE_BOOTSTRAP_VERSION, batchKey, bootstrapProgress,
+import { BASIC_DATASETS, BOOTSTRAP_KEY, OFFLINE_BOOTSTRAP_VERSION, pageKey, bootstrapProgress,
   initialBootstrap, requiredDatasets, type AccountManifest, type BootstrapMetadata, type Dataset, type OfflineScheme } from './bootstrap-types';
 import type { CacheEntry } from './types';
 import { getUtcPlus3DayStart } from './day';
@@ -13,6 +13,8 @@ import { getOfflineRuntime, startRuntimeOperation, cancelRuntimeOperation, publi
 import { requestOfflineWork } from './work-requests';
 import { announceReadModelCommit } from './read-model-events';
 import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
+import { checksum, contentPageEntry, storedPage, retainedBootstrapPages } from './bootstrap-pages';
+import { confirmReadFreshness, freshnessKey, isReadModelKey, readInvalidation, readInvalidationEpoch } from './read-freshness';
 
 const PAGE_SIZE = 500;
 const LEASE_MS = 45_000;
@@ -198,14 +200,11 @@ async function readDataset(userId: string, name: Dataset, meta: BootstrapMetadat
   const state = meta.datasets[name];
   if (!state || state.status !== 'complete' || state.offset !== state.count) throw new Error('Набор данных не завершён.');
   const rows: unknown[] = [];
+  const stored = new Map((await localCacheDriver.listEntries(userId, 'bootstrap:')).map((entry) => [entry.key, entry]));
   for (let offset = 0; offset < state.count; offset += PAGE_SIZE) {
-    const entry = await localCacheDriver.get(userId, batchKey(name, state.revision, offset));
-    if (!entry || entry.user_id !== userId) throw new Error('Сохранённый batch отсутствует.');
-    const expected = meta.verified?.basic?.batches?.[entry.key] ?? meta.verified?.extended?.batches?.[entry.key];
-    if (expected !== undefined && expected !== checksum(entry.data)) throw new Error('Сохранённый batch повреждён.');
-    const page: unknown = JSON.parse(entry.data);
-    if (!Array.isArray(page) || page.length !== Math.min(PAGE_SIZE, state.count - offset)) throw new Error('Сохранённый batch повреждён.');
-    rows.push(...page);
+    const page = storedPage(stored, name, state, offset);
+    if (!page) throw new Error('Сохранённая страница отсутствует или повреждена.');
+    rows.push(...page.rows);
   }
   return rows;
 }
@@ -229,11 +228,8 @@ async function verifyLocalReadiness(meta: BootstrapMetadata): Promise<Pick<Boots
         const version = manifest.datasets[name]; if (!version) return false;
         const values: unknown[] = [];
         for (let offset = 0; offset < version.count; offset += PAGE_SIZE) {
-          const entry = stored.get(batchKey(name, version.revision, offset)); if (!entry) return false;
-          if (certificate?.batches && certificate.batches[entry.key] !== checksum(entry.data)) return false;
-          const page: unknown = JSON.parse(entry.data);
-          if (!Array.isArray(page) || page.length !== Math.min(PAGE_SIZE, version.count - offset)) return false;
-          values.push(...page);
+          const page = storedPage(stored, name, version, offset, certificate); if (!page) return false;
+          values.push(...page.rows);
         }
         rows[name] = values;
       }
@@ -241,6 +237,8 @@ async function verifyLocalReadiness(meta: BootstrapMetadata): Promise<Pick<Boots
       const expected = accountReadModels(meta.user_id, rows, manifest, entries.filter((e) => e.key.startsWith('items:')));
       if (certificate && expected.some((entry) => !certificate.models.includes(entry.key))) return false;
       return expected.every((entry) => {
+        if (isReadModelKey(entry.key) && (readInvalidation(meta.user_id, entry.key).kind === 'access'
+          || (stored.has(freshnessKey(entry.key)) && JSON.parse(stored.get(freshnessKey(entry.key))!.data).kind === 'access'))) return false;
         const value = stored.get(entry.key);
         // Authorized foreground reads clear negative-access markers. Missing
         // `blocked=false` is equivalent to false, while a denial remains binding.
@@ -272,11 +270,6 @@ function modelCovers(actual: unknown, expected: unknown): boolean {
       ? value[key] === item : modelCovers(value[key], item));
   }
   return typeof expected === 'boolean' ? actual === expected : typeof actual === typeof expected;
-}
-function checksum(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index++) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
-  return (hash >>> 0).toString(16);
 }
 
 // Revoke direct-link fallback as soon as an authoritative visible list is
@@ -347,8 +340,11 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
       try {
         // Fence the server snapshot before its first request. A pull in another
         // tab can change membership as well as versions, including tombstones.
-        const snapshotBaseline = new Map((await step(() => localCacheDriver.listEntries(userId))).map((e) => [e.key, e.data]));
+        const snapshotEntries = await step(() => localCacheDriver.listEntries(userId));
+        const snapshotBaseline = new Map(snapshotEntries.map((e) => [e.key, e.data]));
+        const stored = new Map(snapshotEntries.map((e) => [e.key, e]));
         const accessBaseline = cacheAccessEpoch();
+        const freshnessBaseline = readInvalidationEpoch();
         const manifest = await manifestFor(userId, meta.scheme, undefined, signal);
         await ensureActive();
         meta.manifest = manifest;
@@ -366,24 +362,19 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
           // offsets cannot conceal an earlier page evicted from IndexedDB.
           const pages = new Map<number, string>();
           for (let offset = 0; offset < version.count; offset += PAGE_SIZE) {
-            const candidates = [batchKey(name, version.revision, offset)];
-            if (old?.pages[offset / PAGE_SIZE] === version.pages[offset / PAGE_SIZE])
-              candidates.push(batchKey(name, old.revision, offset));
-            for (const key of candidates) {
-              const data = snapshotBaseline.get(key);
-              if (!data) continue;
-              const expected = meta.verified?.basic?.batches?.[key] ?? meta.verified?.extended?.batches?.[key];
-              if (expected !== undefined && expected !== checksum(data)) continue;
-              try {
-                const page: unknown = JSON.parse(data);
-                if (!Array.isArray(page) || page.length !== Math.min(PAGE_SIZE, version.count - offset)) continue;
-                pages.set(offset, data); break;
-              } catch { /* Invalid staging pages must be fetched again. */ }
+            const content = storedPage(stored, name, version, offset);
+            if (content?.entry.key === pageKey(name, version.pages[offset / PAGE_SIZE])) pages.set(offset, content.entry.data);
+            else if (old?.pages[offset / PAGE_SIZE] === version.pages[offset / PAGE_SIZE]) {
+              const evidence = meta.verified?.basic?.manifest.datasets[name]?.revision === old.revision ? meta.verified.basic : meta.verified?.extended;
+              const legacy = storedPage(stored, name, old, offset, evidence);
+              if (legacy && evidence?.batches?.[legacy.entry.key] === checksum(legacy.entry.data))
+                pages.set(offset, contentPageEntry(userId, name, version.pages[offset / PAGE_SIZE], legacy.rows).data);
             }
           }
           reusable[name] = pages;
           const complete = old?.revision === version.revision && old.count === version.count
-            && old.status === 'complete' && pages.size === version.pages.length;
+            && old.status === 'complete' && pages.size === version.pages.length
+            && version.pages.every((hash) => stored.has(pageKey(name, hash)));
           meta.datasets[name] = { ...version, offset: complete ? version.count : 0, status: complete ? 'complete' : 'pending' };
           if (!complete) {
             if ((BASIC_DATASETS as readonly string[]).includes(name)) meta.basic_ready = false;
@@ -401,10 +392,20 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             const before = await step(() => localCacheDriver.listEntries(userId));
             committed = accountReadModels(userId, rows, verified, before);
             const keys = new Set(committed.map((e) => e.key));
-            const removed = before.filter((e) => /^(task-overrides:|template:|template-items:|daily-audit:)/.test(e.key) && !keys.has(e.key)).map((e) => e.key);
+            const removed = before.filter((e) => (/^(task-overrides:|template:|template-items:|daily-audit:)/.test(e.key) && !keys.has(e.key))
+              || /^items:.*:all$/.test(e.key)).map((e) => e.key);
+            const readKeys = committed.filter((e) => isReadModelKey(e.key)).map((e) => e.key);
+            if (readKeys.some((key) => readInvalidation(userId, key).version > freshnessBaseline))
+              throw Object.assign(new Error('Read invalidation changed during snapshot'), { code: '40001' });
+            removed.push(...readKeys.map(freshnessKey));
             const guards: { key: string; data: string | null }[] = before.filter((e) => keys.has(e.key) || removed.includes(e.key)).map((e) => ({ key: e.key, data: e.data }));
             const beforeKeys = new Set(before.map((e) => e.key));
             for (const e of committed) if (!beforeKeys.has(e.key)) guards.push({ key: e.key, data: null });
+            for (const key of readKeys.map(freshnessKey)) {
+              const guard = guards.find((g) => g.key === key);
+              if (guard) guard.data = snapshotBaseline.get(key) ?? null;
+              else guards.push({ key, data: snapshotBaseline.get(key) ?? null });
+            }
             guards.push({ key: 'sync:task-items:cursor', data: snapshotBaseline.get('sync:task-items:cursor') ?? null });
             for (const guard of guards) if (/^(items:|task-stats:|last-editors:)/.test(guard.key))
               guard.data = snapshotBaseline.get(guard.key) ?? null;
@@ -419,7 +420,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             for (const name of names) {
               const version = verified.datasets[name]!;
               for (let offset = 0; offset < version.count; offset += PAGE_SIZE) {
-                const key = batchKey(name, version.revision, offset); const entry = batchEntries.get(key);
+                const key = pageKey(name, version.pages[offset / PAGE_SIZE]); const entry = batchEntries.get(key);
                 if (!entry) throw new Error('Сохранённый batch отсутствует.');
                 batches[key] = checksum(entry.data);
               }
@@ -431,6 +432,9 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
               previousEvidence.extended!.manifest.datasets[name]?.revision !== verified.datasets[name]?.revision)) meta.verified.extended = null;
             try {
               await save(committed, removed, guards);
+              if (readKeys.some((key) => readInvalidation(userId, key).version > freshnessBaseline))
+                throw Object.assign(new Error('Read invalidation changed during commit'), { code: '40001' });
+              for (const key of readKeys) confirmReadFreshness(userId, key, freshnessBaseline);
               for (const entry of committed) snapshotBaseline.set(entry.key, entry.data);
               for (const entry of committed) if (/^blocked(?:-task)?:/.test(entry.key) && entry.data === 'false') confirmCacheAccess(userId, entry.key, accessBaseline);
               announceReadModelCommit(userId, committed.map((entry) => entry.key), 'preparation');
@@ -458,9 +462,11 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
                 const offset = state.offset;
                 const reusablePage = reusable[name]?.get(offset);
                 if (reusablePage) {
-                  const page = JSON.parse(reusablePage) as unknown[];
+                  const page = (JSON.parse(reusablePage) as { rows: unknown[] }).rows;
                   state.offset += page.length;
-                  await save([cacheEntry(userId, batchKey(name, state.revision, offset), page)]);
+                  const key = pageKey(name, state.pages[offset / PAGE_SIZE]);
+                  if (!stored.has(key)) { const entry = contentPageEntry(userId, name, state.pages[offset / PAGE_SIZE], page); await save([entry]); stored.set(key, entry); }
+                  else await save();
                   continue;
                 }
                 const { data, error } = await boundedOperation((deadline) => supabase.rpc('get_offline_account_page', { p_dataset: name, p_revision: state.revision,
@@ -470,7 +476,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
                 if (!page || page.revision !== state.revision || page.total !== state.count || page.offset !== offset
                   || !Array.isArray(page.rows) || page.rows.length !== Math.min(PAGE_SIZE, state.count - offset)) throw new Error('Неполная страница snapshot.');
                 state.offset += page.rows.length;
-                await save([cacheEntry(userId, batchKey(name, state.revision, offset), page.rows)]);
+                await save([contentPageEntry(userId, name, state.pages[offset / PAGE_SIZE], page.rows)]);
               }
               state.status = 'complete'; await save();
               const savedRows = await step(() => readDataset(userId, name, meta));
@@ -529,17 +535,9 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
         meta.completed_at = new Date().toISOString(); meta.last_successful_sync_at = meta.completed_at;
         meta.retry = optionalError ? { failures: 1, next_retry_at: Date.now() + BOOTSTRAP_REFRESH_MS, reason: optionalTransportFailure ? 'transport' : 'optional' } : null;
         // Old staging revisions are disposable; outbox/conflicts are separate.
-        const retained = new Set<string>();
-        for (const name of Object.keys(meta.datasets) as Dataset[]) {
-          const state = meta.datasets[name]!;
-          for (let offset = 0; offset < state.count; offset += PAGE_SIZE) retained.add(batchKey(name, state.revision, offset));
-        }
-        for (const evidence of Object.values(meta.verified ?? {})) if (evidence) {
-          for (const [name, version] of Object.entries(evidence.manifest.datasets)) {
-            for (let offset = 0; offset < version.count; offset += PAGE_SIZE) retained.add(batchKey(name as Dataset, version.revision, offset));
-          }
-        }
-        const obsolete = (await step(() => localCacheDriver.listEntries(userId, 'bootstrap:batch:'))).filter((e) => !retained.has(e.key)).map((e) => e.key);
+        const retained = retainedBootstrapPages(meta);
+        const obsolete = (await step(() => localCacheDriver.listEntries(userId, 'bootstrap:')))
+          .filter((e) => /^(bootstrap:page:|bootstrap:batch:)/.test(e.key) && !retained.has(e.key)).map((e) => e.key);
         await save([], obsolete);
         break;
       } catch (error) {
