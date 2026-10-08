@@ -14,7 +14,8 @@ import { requestOfflineWork } from './work-requests';
 import { announceReadModelCommit } from './read-model-events';
 import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
 import { checksum, contentPageEntry, storedPage, retainedBootstrapPages } from './bootstrap-pages';
-import { confirmReadFreshness, freshnessKey, isReadModelKey, readInvalidation, readInvalidationEpoch } from './read-freshness';
+import { confirmReadFreshness, freshnessKey, GLOBAL_ACL_KEY, isReadModelKey, readConfirmationEntries, readInvalidation, readInvalidationEpoch, storedReadInvalidation } from './read-freshness';
+import { migrateVerifiedCache } from './cache-format-migration';
 
 const PAGE_SIZE = 500;
 const LEASE_MS = 45_000;
@@ -89,8 +90,16 @@ async function readMetadata(userId: string): Promise<BootstrapMetadata> {
 export async function getBootstrapMetadata(userId: string): Promise<BootstrapMetadata> {
   const sequence = (reads.get(userId) ?? 0) + 1; reads.set(userId, sequence);
   const epoch = getOfflineRuntime(userId).epoch;
-  const meta = await readMetadata(userId);
-  const verified = await boundedOperation(() => verifyLocalReadiness(meta), BOOTSTRAP_OPERATION_TIMEOUT_MS);
+  let meta = await readMetadata(userId);
+  let verified = await boundedOperation(() => verifyLocalReadiness(meta), BOOTSTRAP_OPERATION_TIMEOUT_MS);
+  if (verified.basic_ready && (!meta.lease || meta.lease.expires_at <= Date.now()) && getOfflineRuntime(userId).operations.preparation?.phase !== 'running') {
+    const migrated = await boundedOperation((signal) => migrateVerifiedCache(userId, signal), BOOTSTRAP_OPERATION_TIMEOUT_MS)
+      .catch((error) => { console.warn('[TaskTrace] cache format migration deferred', error); return 'superseded' as const; });
+    if (migrated !== 'unchanged') {
+      meta = await readMetadata(userId);
+      verified = await boundedOperation(() => verifyLocalReadiness(meta), BOOTSTRAP_OPERATION_TIMEOUT_MS);
+    }
+  }
   const value = { ...meta, ...verified };
   const operation = getOfflineRuntime(userId).operations.preparation;
   const pipeline = getOfflineRuntime(userId).operations.pipeline;
@@ -238,7 +247,7 @@ async function verifyLocalReadiness(meta: BootstrapMetadata): Promise<Pick<Boots
       if (certificate && expected.some((entry) => !certificate.models.includes(entry.key))) return false;
       return expected.every((entry) => {
         if (isReadModelKey(entry.key) && (readInvalidation(meta.user_id, entry.key).kind === 'access'
-          || (stored.has(freshnessKey(entry.key)) && JSON.parse(stored.get(freshnessKey(entry.key))!.data).kind === 'access'))) return false;
+          || storedReadInvalidation(stored, entry.key).kind === 'access')) return false;
         const value = stored.get(entry.key);
         // Authorized foreground reads clear negative-access markers. Missing
         // `blocked=false` is equivalent to false, while a denial remains binding.
@@ -397,7 +406,8 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             const readKeys = committed.filter((e) => isReadModelKey(e.key)).map((e) => e.key);
             if (readKeys.some((key) => readInvalidation(userId, key).version > freshnessBaseline))
               throw Object.assign(new Error('Read invalidation changed during snapshot'), { code: '40001' });
-            removed.push(...readKeys.map(freshnessKey));
+            const global = snapshotEntries.find((e) => e.key === GLOBAL_ACL_KEY) ?? null;
+            if (!global) removed.push(...readKeys.map(freshnessKey));
             const guards: { key: string; data: string | null }[] = before.filter((e) => keys.has(e.key) || removed.includes(e.key)).map((e) => ({ key: e.key, data: e.data }));
             const beforeKeys = new Set(before.map((e) => e.key));
             for (const e of committed) if (!beforeKeys.has(e.key)) guards.push({ key: e.key, data: null });
@@ -406,6 +416,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
               if (guard) guard.data = snapshotBaseline.get(key) ?? null;
               else guards.push({ key, data: snapshotBaseline.get(key) ?? null });
             }
+            guards.push({ key: GLOBAL_ACL_KEY, data: snapshotBaseline.get(GLOBAL_ACL_KEY) ?? null });
             guards.push({ key: 'sync:task-items:cursor', data: snapshotBaseline.get('sync:task-items:cursor') ?? null });
             for (const guard of guards) if (/^(items:|task-stats:|last-editors:)/.test(guard.key))
               guard.data = snapshotBaseline.get(guard.key) ?? null;
@@ -431,11 +442,13 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             if (scheme === 'basic' && previousEvidence?.extended && BASIC_DATASETS.some((name) =>
               previousEvidence.extended!.manifest.datasets[name]?.revision !== verified.datasets[name]?.revision)) meta.verified.extended = null;
             try {
-              await save(committed, removed, guards);
+              const confirmations = readConfirmationEntries(userId, readKeys, global);
+              await save([...committed, ...confirmations], removed, guards);
               if (readKeys.some((key) => readInvalidation(userId, key).version > freshnessBaseline))
                 throw Object.assign(new Error('Read invalidation changed during commit'), { code: '40001' });
               for (const key of readKeys) confirmReadFreshness(userId, key, freshnessBaseline);
               for (const entry of committed) snapshotBaseline.set(entry.key, entry.data);
+              for (const entry of confirmations) snapshotBaseline.set(entry.key, entry.data);
               for (const entry of committed) if (/^blocked(?:-task)?:/.test(entry.key) && entry.data === 'false') confirmCacheAccess(userId, entry.key, accessBaseline);
               announceReadModelCommit(userId, committed.map((entry) => entry.key), 'preparation');
               break;

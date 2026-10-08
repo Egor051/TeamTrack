@@ -7,9 +7,9 @@ import { usesLocalReads } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
 import { boundedOperation } from '@/lib/connectivity/deadline';
 import { uiRead, UI_READ_TIMEOUT_MS } from '@/lib/supabase/ui-read';
-import { cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from '@/lib/local-cache/access-state';
+import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from '@/lib/local-cache/access-state';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
-import { invalidateReadModels } from '@/lib/local-cache/read-freshness';
+import { durableReadInvalidation, invalidateReadModels, readAccountEpoch, readInvalidation } from '@/lib/local-cache/read-freshness';
 import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { createReadRefreshScheduler } from '@/lib/local-cache/refresh-scheduler';
 
@@ -52,6 +52,9 @@ async function readNotificationWindow(): Promise<NotificationWindow> {
 }
 async function notificationRead<T>(online: () => Promise<T>, cached: (window: NotificationWindow) => T): Promise<T> {
   const userId = await activeCacheUserId();
+  const accountEpoch = readAccountEpoch();
+  const invalidation = userId ? readInvalidation(userId, 'notifications:window').version : 0;
+  const durable = userId ? await durableReadInvalidation(userId, 'notifications:window') : null;
   const baseline = cacheAccessEpoch(); const key = 'cache:notifications:window';
   const local = async (error: unknown): Promise<T> => {
     if (!userId || await activeCacheUserId() !== userId) throw error;
@@ -63,6 +66,9 @@ async function notificationRead<T>(online: () => Promise<T>, cached: (window: No
   if (usesLocalReads()) return local(new ConnectivityUnavailableError());
   try {
     const value = await boundedOperation(online, UI_READ_TIMEOUT_MS);
+    const current = userId ? await durableReadInvalidation(userId, 'notifications:window') : null;
+    if (readAccountEpoch() !== accountEpoch || (userId && (readInvalidation(userId, 'notifications:window').version !== invalidation
+      || current?.global?.data !== durable?.global?.data))) throw new Error('Доступ изменился во время загрузки.');
     if (userId && (await activeCacheUserId() !== userId || !confirmCacheAccess(userId, key, baseline)))
       throw new ResourceAccessDeniedError('Сеанс или доступ изменился во время загрузки.');
     return value;
@@ -95,15 +101,23 @@ export async function fetchNotifications(limit = 100, offset = 0) {
 }
 export async function fetchUnreadCount() {
   const userId = await activeCacheUserId();
-  // The overview badge does not need to download or persist complete notices.
-  // Extended preparation/the notifications route already own a useful window.
-  if (userId && await getCached<NotificationWindow>(userId, 'notifications:window'))
-    return (await readNotificationWindow()).rows.filter((n) => !n.is_read).length;
-  return readCachedModel('notifications:unread-count', async () => {
+  const epoch = readAccountEpoch();
+  try { return await readCachedModel('notifications:unread-count', async () => {
     const { count, error } = await uiRead(supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false));
     if (error) throw error;
     return count ?? 0;
-  });
+  }); } catch (error) {
+    // Older Extended snapshots have a confirmed window but no count model.
+    // Derive offline only; badge revalidation always uses HEAD/count.
+    if (!(error instanceof ConnectivityUnavailableError) || !usesLocalReads() || !userId) throw error;
+    const window = await getCached<NotificationWindow>(userId, 'notifications:window');
+    const key = 'notifications:unread-count';
+    const pending = await durableReadInvalidation(userId, key);
+    if (!window || await activeCacheUserId() !== userId || readAccountEpoch() !== epoch
+      || readInvalidation(userId, key).kind === 'access' || pending.kind === 'access'
+      || cacheAccessDecision(userId, `cache:${key}`)) throw error;
+    return window.rows.filter((n) => !n.is_read).length;
+  }
 }
 export async function markAsRead(id: string) {
   const { error } = await supabase.rpc('mark_notification_read', { p_notification_id: id });

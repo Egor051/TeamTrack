@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase/client';
 import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
-import { currentReadAccount, invalidateReadModels, invalidateRealtimeModels } from '@/lib/local-cache/read-freshness';
+import { currentReadAccount, readAccountEpoch, invalidateRealtimeModels } from '@/lib/local-cache/read-freshness';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 export type RealtimeEvent = {
@@ -25,6 +25,8 @@ type Listener = {
 };
 
 type SharedChannel = {
+  userId: string | null;
+  accountEpoch: number;
   channel: ReturnType<typeof supabase.channel>;
   listeners: Set<Listener>;
   status: RealtimeStatus;
@@ -61,19 +63,22 @@ function broadcastStatus(entry: SharedChannel, status: RealtimeStatus, message?:
   for (const listener of entry.listeners) listener.onStatus?.(status, message);
 }
 
-function createSharedChannel(topic: string): SharedChannel {
+function createSharedChannel(topic: string, userId: string | null): SharedChannel {
   const entry: SharedChannel = {
+    userId, accountEpoch: readAccountEpoch(),
     channel: supabase.channel(topic, { config: { private: true } }),
     listeners: new Set(),
     status: 'connecting',
   };
   sharedChannels.set(topic, entry);
+  const current = () => sharedChannels.get(topic) === entry && entry.accountEpoch === readAccountEpoch()
+    && (currentReadAccount() === entry.userId || currentReadAccount() === null);
   entry.channel
     .on('broadcast', { event: 'invalidate' }, (payload) => {
-      if (sharedChannels.get(topic) !== entry) return;
+      if (!current()) return;
       const event = asRealtimeEvent(payload);
       if (!event) return;
-      const userId = currentReadAccount();
+      const userId = entry.userId;
       if (userId) {
         const [kind, id] = topic.split(':');
         void invalidateRealtimeModels(userId, event.table, { ...(kind === 'project' ? { projectId: id } : kind === 'task' ? { taskId: id } : { userId: id }) }, event.eventType)
@@ -84,7 +89,7 @@ function createSharedChannel(topic: string): SharedChannel {
       }
     })
     .subscribe((status, error) => {
-      if (sharedChannels.get(topic) !== entry) return;
+      if (!current()) return;
       if (status === 'SUBSCRIBED') broadcastStatus(entry, 'connected');
       else if (status === 'CHANNEL_ERROR') broadcastStatus(entry, 'error', error?.message);
       else if (status === 'TIMED_OUT') broadcastStatus(entry, 'reconnecting');
@@ -100,7 +105,12 @@ function subscribeOnlineTable(table: string, options: SubscriptionOptions) {
     return () => undefined;
   }
 
-  const entry = sharedChannels.get(topic) ?? createSharedChannel(topic);
+  const userId = currentReadAccount() ?? options.userId ?? null;
+  const previous = sharedChannels.get(topic);
+  if (previous && (previous.userId !== userId || previous.accountEpoch !== readAccountEpoch())) {
+    sharedChannels.delete(topic); previous.listeners.clear(); void supabase.removeChannel(previous.channel);
+  }
+  const entry = sharedChannels.get(topic) ?? createSharedChannel(topic, userId);
   const listener: Listener = { table, onEvent: options.onEvent, onStatus: options.onStatus };
   entry.listeners.add(listener);
   options.onStatus?.(entry.status, entry.message);
@@ -122,8 +132,12 @@ export function subscribeTable(table: string, options: SubscriptionOptions) {
     return () => undefined;
   }
   let cleanup: () => void = () => undefined;
+  // A surviving React effect/connectivity callback must not recreate A's
+  // subscription using B's credentials while React is cleaning up the screen.
+  const account = currentReadAccount(); const epoch = readAccountEpoch();
   const connect = () => {
     cleanup(); cleanup = () => undefined;
+    if (readAccountEpoch() !== epoch || currentReadAccount() !== account || (account && options.userId && account !== options.userId)) return;
     if (usesLocalReads()) options.onStatus?.('disconnected');
     else cleanup = subscribeOnlineTable(table, options);
   };
@@ -148,9 +162,7 @@ export function subscribeToPermissionChanges(
   onStatus?: (status: RealtimeStatus, message?: string) => void,
 ) {
   const invalidate = (event: RealtimeEvent) => {
-    // The shared channel installs the fence once before dispatching listeners.
-    // Standalone consumers without AuthProvider still need the same fence.
-    if (currentReadAccount() !== userId) void invalidateReadModels(userId, undefined, 'access').catch((error) => console.warn('[TaskTrace] permission invalidation failed', error));
+    // The account-bound shared channel installs the fence before listeners.
     closeResourceRealtimeChannels();
     onChange(event);
   };

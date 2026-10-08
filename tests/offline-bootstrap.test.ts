@@ -81,8 +81,118 @@ async function again(b: typeof import('@/lib/local-cache/bootstrap')) {
 async function run() { const b = await import('@/lib/local-cache/bootstrap'); await again(b); return b; }
 async function stored(key: string) { const d = (await import('@/lib/local-cache/driver.web')).localCacheDriver; const e = await d.get(f.user, key); return e ? JSON.parse(e.data) : null; }
 function pages(name?: string) { return f.rpc.mock.calls.filter(([rpc, args]) => rpc === 'get_offline_account_page' && (!name || args.p_dataset === name)); }
+async function legacyReady() {
+  const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+  const { batchKey } = await import('@/lib/local-cache/bootstrap-types'); const { checksum } = await import('@/lib/local-cache/bootstrap-pages');
+  const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!; const meta = JSON.parse(entry.data); const batches: Record<string, string> = {};
+  for (const name of BASIC_DATASETS) for (let offset = 0; offset < f.rows[name].length; offset += 500) {
+    const key = batchKey(name, revision(name), offset); const data = JSON.stringify(f.rows[name].slice(offset, offset + 500)); batches[key] = checksum(data);
+    await driver.put({ user_id: f.user, key, data, last_synced_at: stamp, schema_version: 1 });
+  }
+  for (const page of await driver.listEntries(f.user, 'bootstrap:page:')) await driver.remove(f.user, page.key);
+  meta.verified.basic.batches = batches;
+  for (const task of [taskId, archivedTaskId]) {
+    const key = `items:${task}:all`; await driver.put({ user_id: f.user, key, data: JSON.stringify(f.rows.items.filter((i) => (i as { task_id: string }).task_id === task)), last_synced_at: stamp, schema_version: 1 });
+    meta.verified.basic.models.push(key);
+  }
+  await driver.put({ ...entry, data: JSON.stringify(meta) }); f.rpc.mockClear(); return { b, driver };
+}
 
 describe('account bootstrap', () => {
+  it('lazy offline upgrade of ready Basic atomically migrates certified pages and sufficient all projections; a repeat writes nothing', async () => {
+    const { b, driver } = await legacyReady(); vi.stubGlobal('navigator', { onLine: false, serviceWorker: { ready: Promise.resolve({ active: {} }) } });
+    const other = 'other-account'; await driver.put({ user_id: other, key: 'bootstrap:batch:items:keep:0', data: '[]', last_synced_at: stamp, schema_version: 1 });
+    const protectedKeys = ['runtime:offline-capabilities', 'sync:task-items:cursor', 'sync:receipts:fixture'];
+    for (const key of protectedKeys) await driver.put({ user_id: f.user, key, data: '{"fixture":true}', last_synced_at: stamp, schema_version: 1 });
+    await driver.enqueue({ operation_id: 'legacy-pending', user_id: f.user, project_id: projectId, task_id: taskId, task_item_id: itemId,
+      type: 'set_task_item_percentage', payload: { percentage: 70 }, created_at: stamp, status: 'pending' });
+    await driver.createConflict({ conflict_id: 'legacy-conflict', user_id: f.user, project_id: projectId, task_id: taskId, task_item_id: itemId,
+      operation_ids: ['legacy-pending'], local_effective_state: { id: itemId, percentage: 70, is_completed: false, comment: '' }, server_state: null,
+      server_version: null, conflicting_fields: ['progress'], project_name: '', task_name: '', item_name: '', created_at: stamp, updated_at: stamp, status: 'unresolved' });
+    const pending = await driver.listPending(f.user); const conflicts = await driver.listConflicts(f.user);
+    const protectedBefore = await Promise.all(protectedKeys.map((key) => driver.get(f.user, key)));
+    vi.spyOn(driver, 'withOperation').mockReturnValue(driver);
+    const commit = vi.spyOn(driver, 'commitCacheBatch');
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true); expect(f.rpc).not.toHaveBeenCalled();
+    expect(await driver.listEntries(f.user, 'bootstrap:batch:')).toHaveLength(0); expect(await driver.get(f.user, `items:${taskId}:all`)).toBeNull();
+    expect(await driver.listPending(f.user)).toEqual(pending); expect(await driver.listConflicts(f.user)).toEqual(conflicts);
+    expect(await Promise.all(protectedKeys.map((key) => driver.get(f.user, key)))).toEqual(protectedBefore);
+    expect(await driver.listEntries(other)).toHaveLength(1); expect(commit).toHaveBeenCalledOnce(); commit.mockClear();
+    const upgraded = await driver.listEntries(f.user); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    expect(await driver.listEntries(f.user)).toEqual(upgraded); expect(commit).not.toHaveBeenCalled();
+  });
+  it.each(['missing', 'incomplete', 'corrupt', 'lease'])('unsafe legacy cache (%s) is left untouched', async (mode) => {
+    const { b, driver } = await legacyReady(); const key = `items:${taskId}:archived`;
+    if (mode === 'missing') await driver.remove(f.user, key);
+    if (mode === 'incomplete') { const entry = (await driver.get(f.user, `items:${taskId}:active`))!; await driver.put({ ...entry, data: '[]' }); }
+    if (mode === 'corrupt') { const entry = (await driver.listEntries(f.user, 'bootstrap:batch:items:'))[0]; await driver.put({ ...entry, data: '[]' }); }
+    if (mode === 'lease') { const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!; await driver.put({ ...entry, data: JSON.stringify({ ...JSON.parse(entry.data), lease: { owner: 'other-tab', expires_at: Date.now() + 60000 } }) }); }
+    const before = await driver.listEntries(f.user); await b.getBootstrapMetadata(f.user); expect(await driver.listEntries(f.user)).toEqual(before);
+  });
+  it('interruption before the atomic migration leaves legacy readiness intact and a later cleanup succeeds', async () => {
+    const { b, driver } = await legacyReady(); const before = await driver.listEntries(f.user);
+    vi.spyOn(driver, 'withOperation').mockReturnValue(driver);
+    const commit = driver.commitCacheBatch.bind(driver); let crash = true;
+    vi.spyOn(driver, 'commitCacheBatch').mockImplementation(async (...args) => {
+      if (crash && args[1].some((e) => e.key.startsWith('bootstrap:page:'))) throw new Error('Simulated interruption');
+      return commit(...args);
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true); expect(await driver.listEntries(f.user)).toEqual(before);
+    crash = false; expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true); expect(await driver.listEntries(f.user, 'bootstrap:batch:')).toHaveLength(0);
+  });
+  it('a crashed preparation with an expired lease does not prevent safe lazy cleanup of its verified Basic snapshot', async () => {
+    const { b, driver } = await legacyReady(); const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!;
+    await driver.put({ ...entry, data: JSON.stringify({ ...JSON.parse(entry.data), lease: { owner: 'closed-tab', expires_at: Date.now() - 1 } }) });
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true); expect(await driver.listEntries(f.user, 'bootstrap:batch:')).toHaveLength(0);
+    expect(f.rpc).not.toHaveBeenCalled();
+  });
+  it('a legacy certificate without per-page evidence retains its referenced batches', async () => {
+    const { b, driver } = await legacyReady(); const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!; const meta = JSON.parse(entry.data);
+    delete meta.verified.basic.batches; await driver.put({ ...entry, data: JSON.stringify(meta) });
+    const batches = await driver.listEntries(f.user, 'bootstrap:batch:'); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    expect(await driver.listEntries(f.user, 'bootstrap:batch:')).toEqual(batches);
+  });
+  it('a concurrent cleanup keeps readiness valid and a CAS loser reloads the published certificate', async () => {
+    const { b, driver } = await legacyReady(); vi.spyOn(driver, 'withOperation').mockReturnValue(driver);
+    const commit = driver.commitCacheBatch.bind(driver); let release!: () => void; let entered = false;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    vi.spyOn(driver, 'commitCacheBatch').mockImplementation(async (...args) => {
+      if (!entered && args[1].some((e) => e.key.startsWith('bootstrap:page:'))) { entered = true; await gate; }
+      return commit(...args);
+    });
+    const pending = b.getBootstrapMetadata(f.user); await vi.waitFor(() => expect(entered).toBe(true));
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true); release();
+    const resolved = await pending; expect(resolved.basic_ready).toBe(true);
+    expect(Object.keys(resolved.verified!.basic!.batches!).every((key) => key.startsWith('bootstrap:page:'))).toBe(true);
+  });
+  it('a cross-tab ACL marker appearing during cleanup aborts every deletion and prevents a stale readiness publication', async () => {
+    const { b, driver } = await legacyReady(); const before = await driver.listEntries(f.user); vi.spyOn(driver, 'withOperation').mockReturnValue(driver);
+    const commit = driver.commitCacheBatch.bind(driver); const r = await import('@/lib/local-cache/read-freshness');
+    vi.spyOn(driver, 'commitCacheBatch').mockImplementation(async (...args) => {
+      if (args[1].some((e) => e.key.startsWith('bootstrap:page:')))
+        await driver.put({ user_id: f.user, key: r.GLOBAL_ACL_KEY, data: 'other-tab-revoke', last_synced_at: stamp, schema_version: 1 });
+      return commit(...args);
+    });
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
+    expect((await driver.listEntries(f.user)).filter((e) => e.key !== r.GLOBAL_ACL_KEY)).toEqual(before);
+  });
+  it('a cross-tab global ACL event during final server verification restarts before acknowledging protected models', async () => {
+    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    const r = await import('@/lib/local-cache/read-freshness'); const rpc = f.rpc.getMockImplementation()!; let manifests = 0;
+    f.rpc.mockImplementation((name, args) => {
+      const query = rpc(name, args); const result = async () => {
+        const value = await query;
+        if (name === 'get_offline_account_manifest' && ++manifests === 2)
+          await driver.put({ user_id: f.user, key: r.GLOBAL_ACL_KEY, data: 'another-tab-epoch', last_synced_at: stamp, schema_version: 1 });
+        return value;
+      };
+      return { abortSignal: () => result(), then: (...args: Parameters<ReturnType<typeof result>['then']>) => result().then(...args) };
+    });
+    await advance(b); await b.runAccountBootstrap(f.user, true);
+    expect(manifests).toBeGreaterThanOrEqual(4); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    expect((await r.durableReadInvalidation(f.user, `items:${taskId}:active`)).kind).toBeNull();
+  });
   it('a Basic overview caches only the unread count and never materializes complete notifications for its badge', async () => {
     await run(); const query = { select: vi.fn(() => query), eq: () => query,
       then: (resolve: (value: unknown) => unknown) => Promise.resolve({ count: 120, data: null, error: null }).then(resolve) };
@@ -117,7 +227,8 @@ describe('account bootstrap', () => {
     await advance(b); await b.runAccountBootstrap(f.user, true);
     expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
     expect(freshness.readInvalidation(f.user, `items:${taskId}:active`).kind).toBeNull();
-    expect(await stored(freshness.freshnessKey(`items:${taskId}:active`))).toBeNull();
+    expect((await freshness.durableReadInvalidation(f.user, `items:${taskId}:active`)).kind).toBeNull();
+    expect(await stored(freshness.freshnessKey(`items:${taskId}:active`))).toMatchObject({ kind: 'confirmed' });
   });
   it('an ACL event after manifest verification restarts the snapshot before clearing quarantine', async () => {
     const b = await run(); const freshness = await import('@/lib/local-cache/read-freshness');

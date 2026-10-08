@@ -18,6 +18,91 @@ async function save(key = 'project:p', value: unknown = { id: 'p', name: 'saved'
   return driver;
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; }
+it('one global ACL signal writes one durable fence for hundreds of models; acknowledgements remain model-specific after reload', async () => {
+  const driver = await save(); for (let i = 0; i < 100; i++) await save(`task:${i}`, { id: `${i}` });
+  await save('project:p', { id: 'p', name: 'b' }, 0, 'b');
+  let r = await import('@/lib/local-cache/read-freshness'); let c = await import('@/lib/local-cache/cache');
+  const commit = vi.spyOn(driver, 'commitCacheBatch'); const inventory = vi.spyOn(driver, 'listEntries');
+  const physicalWrites = vi.spyOn(IDBObjectStore.prototype, 'put');
+  const invalidating = r.invalidateReadModels('a', undefined, 'access');
+  expect(r.readInvalidation('a', 'task:99').kind).toBe('access'); await invalidating;
+  expect(commit).toHaveBeenCalledOnce(); expect(commit.mock.calls[0][1].map((e) => e.key)).toEqual([r.GLOBAL_ACL_KEY]); expect(inventory).not.toHaveBeenCalled();
+  expect(physicalWrites).toHaveBeenCalledOnce();
+  await c.readCachedModel('project:p', async () => ({ id: 'p', name: 'allowed' }));
+  expect((await r.durableReadInvalidation('a', 'project:p')).kind).toBeNull(); expect(await c.getCached('a', 'task:99')).toBeNull();
+  vi.resetModules(); r = await import('@/lib/local-cache/read-freshness'); r.setReadAccount('a'); c = await import('@/lib/local-cache/cache');
+  expect(await c.getCached('a', 'project:p')).toMatchObject({ name: 'allowed' }); expect(await c.getCached('a', 'task:99')).toBeNull();
+  expect(await c.getCached('b', 'project:p')).toMatchObject({ name: 'b' });
+  await r.invalidateReadModels('a', ['project:p'], 'data');
+  expect((await r.durableReadInvalidation('a', 'project:p')).kind).toBe('data');
+  expect(await c.getCached('a', 'project:p')).toMatchObject({ name: 'allowed' });
+  await r.invalidateReadModels('a', undefined, 'access'); expect(await c.getCached('a', 'project:p')).toBeNull();
+});
+it('a cross-tab global ACL event during HTTP cannot publish an acknowledgement or old protected rows', async () => {
+  const driver = await save(); const r = await import('@/lib/local-cache/read-freshness'); const c = await import('@/lib/local-cache/cache');
+  await r.invalidateReadModels('a', undefined, 'access');
+  const gate = deferred<{ id: string; name: string }>(); const fetch = vi.fn(() => gate.promise);
+  const pending = c.readCachedModel('project:p', fetch); await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  // A second tab has an independent volatile registry.
+  await driver.put({ user_id: 'a', key: r.GLOBAL_ACL_KEY, data: 'second-tab-epoch', last_synced_at: new Date().toISOString(), schema_version: 1 });
+  gate.resolve({ id: 'p', name: 'old response' }); await expect(pending).rejects.toThrow();
+  expect(await c.getCached('a', 'project:p')).toBeNull(); expect((await driver.get('a', 'project:p'))?.data).toContain('saved');
+  expect((await r.durableReadInvalidation('a', 'project:p')).kind).toBe('access');
+  await c.readCachedModel('project:p', async () => ({ id: 'p', name: 'new confirmation' }));
+  expect(await c.getCached('a', 'project:p')).toMatchObject({ name: 'new confirmation' });
+});
+it('a cross-tab ACL fence inserted just before the read transaction defeats its CAS', async () => {
+  const driver = await save(); const r = await import('@/lib/local-cache/read-freshness'); const c = await import('@/lib/local-cache/cache');
+  const commit = driver.commitCacheBatch.bind(driver); let injected = false;
+  vi.spyOn(driver, 'commitCacheBatch').mockImplementation(async (user, entries, remove, guards) => {
+    if (!injected && entries.some((e) => e.key === 'project:p')) {
+      injected = true; await driver.put({ user_id: user, key: r.GLOBAL_ACL_KEY, data: 'between-http-and-cas', last_synced_at: new Date().toISOString(), schema_version: 1 });
+    }
+    return commit(user, entries, remove, guards);
+  });
+  await expect(c.readCachedModel('project:p', async () => ({ id: 'p', name: 'late' }), { forceRefresh: true })).rejects.toThrow();
+  expect(await c.getCached('a', 'project:p')).toBeNull(); expect(await driver.get('a', r.freshnessKey('project:p'))).toBeNull();
+});
+it('the virtual all-items model inherits both partition acknowledgements without another HTTP request or physical all record', async () => {
+  const item = { id: 'i', task_id: 't', position: 1, is_archived: false, sync_version: 2 };
+  const driver = await save('items:t:active', [item]); await save('items:t:archived', []);
+  const r = await import('@/lib/local-cache/read-freshness'); const c = await import('@/lib/local-cache/cache');
+  await r.invalidateReadModels('a', undefined, 'access'); expect(await c.getCached('a', 'items:t:all')).toBeNull();
+  await c.readCachedModel('items:t:active', async () => [item]); expect(await c.getCached('a', 'items:t:all')).toBeNull();
+  await c.readCachedModel('items:t:archived', async () => []);
+  const fetch = vi.fn(async () => [item]); expect(await c.readCachedModel('items:t:all', fetch)).toEqual([item]);
+  expect(fetch).not.toHaveBeenCalled(); expect(await driver.get('a', 'items:t:all')).toBeNull();
+  await r.invalidateReadModels('a', ['items:t:active'], 'access'); expect(await c.getCached('a', 'items:t:all')).toBeNull();
+});
+it('a volatile ACL wave during the final raw cached read is checked after durable I/O', async () => {
+  const driver = await save(); const r = await import('@/lib/local-cache/read-freshness'); const c = await import('@/lib/local-cache/cache');
+  const get = driver.get.bind(driver); let markerReads = 0; let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  vi.spyOn(driver, 'get').mockImplementation(async (user, key) => {
+    const entry = await get(user, key);
+    if (key === r.GLOBAL_ACL_KEY && ++markerReads === 2) {
+      const write = r.invalidateReadModels('a', undefined, 'access'); release(); await gate; await write;
+    }
+    return entry;
+  });
+  expect(await c.getCached('a', 'project:p')).toBeNull();
+});
+it('a scoped refresh marker on the virtual union remains binding even with confirmed global partition acknowledgements', async () => {
+  const item = { id: 'i', task_id: 't', position: 1, is_archived: false, sync_version: 2 };
+  const driver = await save('items:t:active', [item]); await save('items:t:archived', []);
+  const r = await import('@/lib/local-cache/read-freshness'); const c = await import('@/lib/local-cache/cache');
+  await r.invalidateReadModels('a', undefined, 'access');
+  await c.readCachedModel('items:t:active', async () => [item]); await c.readCachedModel('items:t:archived', async () => []);
+  const global = (await driver.get('a', r.GLOBAL_ACL_KEY))!;
+  await driver.put({ user_id: 'a', key: r.freshnessKey('items:t:all'), data: JSON.stringify({ token: 'manual', aclToken: global.data, kind: 'refresh' }), last_synced_at: new Date().toISOString(), schema_version: 1 });
+  expect((await r.durableReadInvalidation('a', 'items:t:all')).kind).toBe('refresh');
+  const fetch = vi.fn(async () => [item]); expect(await c.readCachedModel('items:t:all', fetch)).toEqual([item]); expect(fetch).toHaveBeenCalledOnce();
+});
+it('an incomplete legacy cache keeps its confirmed all snapshot until safe canonical replacement is possible', async () => {
+  const rows = [{ id: 'i', task_id: 't', position: 1, is_archived: false, sync_version: 2 }];
+  await save('items:t:all', rows); await save('items:t:active', []); await save('items:t:archived', []);
+  const c = await import('@/lib/local-cache/cache'); expect(await c.getCached('a', 'items:t:all')).toEqual(rows);
+});
 it('fresh online cache returns immediately and repeated readers make no HTTP request', async () => {
   await save(); const c = await import('@/lib/local-cache/cache'); const fetch = vi.fn(() => new Promise<never>(() => {}));
   for (let i = 0; i < 10; i++) {

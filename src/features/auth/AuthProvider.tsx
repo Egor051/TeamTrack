@@ -22,7 +22,7 @@ import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { clearRuntimeConfig } from '@/lib/local-cache/runtime-config';
 import { uiRead } from '@/lib/supabase/ui-read';
 import { invalidateOfflineRuntime } from '@/lib/local-cache/runtime-state';
-import { clearReadFreshness, setReadAccount } from '@/lib/local-cache/read-freshness';
+import { clearReadFreshness, currentReadAccount, setReadAccount } from '@/lib/local-cache/read-freshness';
 
 type AuthContextType = {
   state: AuthState;
@@ -95,7 +95,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (activeUserId !== null && activeUserId !== session.user.id) closeAllRealtimeChannels();
       activeUserId = session.user.id;
 
       setState((prev) => ({ ...prev, isLoading: false, session, user: session.user,
@@ -106,7 +105,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const scheduleSessionApply = (session: AuthState['session']) => {
+      if (cancelled) return;
       const nextUserId = session?.user?.id ?? null;
+      // Fence callbacks synchronously, before publishing a different namespace.
+      if (nextUserId !== currentReadAccount()) closeAllRealtimeChannels();
       setReadAccount(nextUserId);
       if (nextUserId !== runtimeUserId) clearReadFreshness();
       if (runtimeUserId && nextUserId !== runtimeUserId) invalidateOfflineRuntime(runtimeUserId);
@@ -209,6 +211,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       closeAllRealtimeChannels();
       await authSignOut();
+      setReadAccount(null);
+      clearReadFreshness();
       clearRuntimeConfig();
       setState((prev) => ({ ...prev, isLoading: false, session: null, user: null, profile: null, error: null }));
     } catch (e) {

@@ -6,7 +6,7 @@ import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
 import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import { announceReadModelCommit, overviewReadModelChanged } from './read-model-events';
-import { confirmReadFreshness, durableReadInvalidation, freshnessKey, invalidateReadModels, isReadModelKey, readAccountEpoch, READ_FRESHNESS_MS, readInvalidation, settleReadInvalidations } from './read-freshness';
+import { confirmReadFreshness, durableReadInvalidation, freshnessKey, GLOBAL_ACL_KEY, invalidateReadModels, isReadModelKey, readAccountEpoch, READ_FRESHNESS_MS, readConfirmationEntries, readInvalidation, settleReadInvalidations, type DurableReadInvalidation } from './read-freshness';
 import type { TaskItem } from '@/lib/supabase/client';
 export { isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 
@@ -65,21 +65,33 @@ export async function getCached<T>(userId: string, key: string): Promise<T | nul
     if (decision !== undefined) return decision as T;
   } else if (cacheAccessDecision(userId, `cache:${key}`)) return null;
   try {
-    if (isReadModelKey(key) && (readInvalidation(userId, key).kind === 'access' || (await durableReadInvalidation(userId, key)).kind === 'access')) return null;
+    if (isReadModelKey(key)) {
+      const pending = await durableReadInvalidation(userId, key);
+      if (readInvalidation(userId, key).kind === 'access' || pending.kind === 'access') return null;
+    }
     const entry = await localCacheDriver.get(userId, key);
-    if (isReadModelKey(key) && (readInvalidation(userId, key).kind === 'access' || (await durableReadInvalidation(userId, key)).kind === 'access')) return null;
+    let deriveAll = !entry;
+    if (isReadModelKey(key)) {
+      const pending = await durableReadInvalidation(userId, key);
+      if (readInvalidation(userId, key).kind === 'access' || pending.kind === 'access') return null;
+      deriveAll ||= !!pending.global;
+    }
     // A denial can arrive while IndexedDB is completing this read.
     if (key.startsWith('blocked:') || key.startsWith('blocked-task:')) {
       const decision = cacheAccessDecision(userId, key);
       if (decision !== undefined) return decision as T;
     } else if (cacheAccessDecision(userId, `cache:${key}`)) return null;
-    if (!entry && /^items:.*:all$/.test(key)) {
+    if (deriveAll && /^items:.*:all$/.test(key)) {
       const prefix = key.slice(0, -3);
       const [active, archived] = await Promise.all([getCached<TaskItem[]>(userId, `${prefix}active`), getCached<TaskItem[]>(userId, `${prefix}archived`)]);
-      if (!active || !archived) return null;
-      const items = new Map<string, TaskItem>();
-      for (const item of [...active, ...archived]) if (!items.has(item.id) || (item.sync_version ?? 0) >= (items.get(item.id)!.sync_version ?? 0)) items.set(item.id, item);
-      return markCached([...items.values()].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)) as T);
+      if (active && archived) {
+        const pending = await durableReadInvalidation(userId, key);
+        if (readInvalidation(userId, key).kind === 'access' || pending.kind === 'access') return null;
+        const items = new Map<string, TaskItem>();
+        for (const item of [...active, ...archived]) if (!items.has(item.id) || (item.sync_version ?? 0) >= (items.get(item.id)!.sync_version ?? 0)) items.set(item.id, item);
+        return markCached([...items.values()].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)) as T);
+      }
+      if (!entry) return null;
     }
     if (!entry || entry.user_id !== userId || entry.key !== key || entry.schema_version !== LOCAL_CACHE_SCHEMA_VERSION) return null;
     return markCached(JSON.parse(entry.data) as T);
@@ -105,7 +117,7 @@ export async function putCached<T>(userId: string, key: string, value: T): Promi
   }
 }
 
-async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, expectedData: string | null, staleData?: string | null,
+async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, expectedData: string | null, durable?: DurableReadInvalidation,
   partitionGuards?: { key: string; data: string | null }[]): Promise<{ committed: boolean; newer?: T }> {
   try {
     const data = JSON.stringify(value);
@@ -116,9 +128,12 @@ async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, ex
     const prefix = key.slice(0, -3);
     const partitions = partitionGuards ? ['active', 'archived'].map((mode) => ({ ...entry, key: `${prefix}${mode}`,
       data: JSON.stringify((value as TaskItem[]).filter((item) => item.is_archived === (mode === 'archived'))) })) : [entry];
-    const committed = staleData === undefined ? await localCacheDriver.putIfUnchanged(entry, expectedData)
-      : await localCacheDriver.commitCacheBatch(userId, partitions, [freshnessKey(key), ...(partitionGuards ? [key, freshnessKey(`${prefix}active`), freshnessKey(`${prefix}archived`)] : [])],
-        [{ key, data: expectedData }, { key: freshnessKey(key), data: staleData }, ...(partitionGuards ?? [])]);
+    const readKeys = [key, ...(partitionGuards ? [`${prefix}active`, `${prefix}archived`] : [])];
+    const committed = durable === undefined ? await localCacheDriver.putIfUnchanged(entry, expectedData)
+      : await localCacheDriver.commitCacheBatch(userId, [...partitions, ...readConfirmationEntries(userId, readKeys, durable.global)],
+        [...(!durable.global ? readKeys.map(freshnessKey) : []), ...(partitionGuards ? [key] : [])],
+        [{ key, data: expectedData }, { key: freshnessKey(key), data: durable.entry?.data ?? null },
+          { key: GLOBAL_ACL_KEY, data: durable.global?.data ?? null }, ...(partitionGuards ?? [])]);
     let current = await localCacheDriver.get(userId, key);
     if (partitionGuards && !current) {
       const projected = committed !== false ? value : await getCached<T>(userId, key);
@@ -163,7 +178,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
   const accessBaseline = cacheAccessEpoch();
   const accessKeys = [`cache:${key}`, ...(options.projectId ? [`blocked:${options.projectId}`] : []), ...(options.taskId ? [`blocked-task:${options.taskId}`] : [])];
   const invalidation = userId ? readInvalidation(userId, key) : { version: 0, kind: null };
-  const durable = userId && options.cacheFirst ? await durableReadInvalidation(userId, key) : { entry: null, kind: null };
+  const durable = userId ? await durableReadInvalidation(userId, key) : { entry: null, global: null, kind: null };
   const accessCheck = invalidation.kind === 'access' || durable.kind === 'access';
   const local = async (error: unknown): Promise<T> => {
     let parentProjectId: string | undefined;
@@ -180,7 +195,8 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     if (cached === null) throw error;
     const value = options.filterCached ? await options.filterCached(userId, cached) : cached;
     if (await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline) throw error;
-    if (readInvalidation(userId, key).kind === 'access' || (options.cacheFirst && (await durableReadInvalidation(userId, key)).kind === 'access')) throw new SupersededReadError('Доступ изменился во время загрузки.');
+    const pending = options.cacheFirst ? await durableReadInvalidation(userId, key) : null;
+    if (readInvalidation(userId, key).kind === 'access' || pending?.kind === 'access') throw new SupersededReadError('Доступ изменился во время загрузки.');
     if (accessKeys.some((accessKey) => cacheAccessDecision(userId, accessKey))
       || (parentProjectId && cacheAccessDecision(userId, `blocked:${parentProjectId}`))) throw error;
     return markCached(value);
@@ -211,7 +227,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     if (userId) {
       if (accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline)))
         throw new SupersededReadError('Доступ был отозван во время загрузки.');
-      const replacement = baseline !== undefined ? await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline, options.cacheFirst ? durable.entry?.data ?? null : undefined, partitionGuards) : { committed: false };
+      const replacement = baseline !== undefined ? await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline, options.cacheFirst || durable.global ? durable : undefined, partitionGuards) : { committed: false };
       if (await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline || readInvalidation(userId, key).version > invalidation.version
         || accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline))) throw new SupersededReadError('Данные изменились во время загрузки.');
       confirmCacheAccess(userId, `cache:${key}`, accessBaseline);
@@ -227,6 +243,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
         return latest;
       }
       if (replacement.committed) {
+        if ((await durableReadInvalidation(userId, key)).kind === 'access') throw new SupersededReadError('Доступ изменился во время загрузки.');
         confirmReadFreshness(userId, key, invalidation.version);
         if (partitionGuards) for (const mode of ['active', 'archived']) confirmReadFreshness(userId, `${key.slice(0, -3)}${mode}`, readInvalidation(userId, `${key.slice(0, -3)}${mode}`).version);
         failedRefreshes.delete(`${userId}:${key}`);
@@ -260,7 +277,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
   } };
   const singleFlight = (): Promise<T> => {
     if (!options.cacheFirst) return refresh();
-    const id = `${userId}:${key}:${accountBaseline}`;
+    const id = `${userId}:${key}:${accountBaseline}:${durable.global?.data ?? ''}`;
     const existing = refreshes.get(id);
     if (existing?.version === invalidation.version) return (existing.promise as Promise<T>).then(async (value) => {
       if (await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline || (userId && accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline)))) throw new SupersededReadError('Сеанс или доступ изменился во время загрузки.');
@@ -285,7 +302,13 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
       if (await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline || readInvalidation(userId, key).kind === 'access'
         || pendingAccess.kind === 'access' || accessKeys.some((accessKey) => cacheAccessDecision(userId, accessKey)))
         throw new SupersededReadError('Сеанс или доступ изменился во время загрузки.');
-      if (invalidation.kind || durable.kind || !Number.isFinite(syncedAt) || Date.now() < syncedAt || Date.now() - syncedAt >= READ_FRESHNESS_MS) void singleFlight().catch(() => undefined);
+      const latestInvalidation = readInvalidation(userId, key);
+      if (latestInvalidation.version !== invalidation.version || pendingAccess.kind === 'refresh'
+        || latestInvalidation.kind === 'refresh' || pendingAccess.global?.data !== durable.global?.data)
+        return readThroughCache(key, online, options);
+      // A concurrent refresh may have removed the captured stale marker while
+      // this reader was awaiting storage. Do not launch a second request then.
+      if (latestInvalidation.kind || pendingAccess.kind || !Number.isFinite(syncedAt) || Date.now() < syncedAt || Date.now() - syncedAt >= READ_FRESHNESS_MS) void singleFlight().catch(() => undefined);
       // A local online result is not an offline-mode signal. Keep its local
       // provenance separately for reconciliation; transport fallback stays marked.
       if (value !== null && typeof value === 'object') cachedResults.delete(value);

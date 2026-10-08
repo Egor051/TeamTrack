@@ -7,7 +7,9 @@ export const READ_MODEL_PREFIXES = ['projects:', 'project:', 'tasks:', 'task:', 
   'templates', 'template:', 'template-items:', 'notifications:', 'profile:self'];
 export type InvalidationKind = 'data' | 'refresh' | 'access';
 type Wave = { version: number; prefixes: string[]; kind: InvalidationKind };
-type Marker = { token: string; kind: InvalidationKind };
+type Marker = { token: string; kind: InvalidationKind | 'confirmed'; aclToken?: string };
+export const GLOBAL_ACL_KEY = 'read:acl:epoch';
+export type DurableReadInvalidation = { entry: CacheEntry | null; global: CacheEntry | null; kind: InvalidationKind | null };
 const waves = new Map<string, Map<string, Wave>>();
 const confirmed = new Map<string, number>();
 const persisting = new Map<string, Set<Promise<void>>>();
@@ -26,10 +28,14 @@ export const isReadModelKey = (key: string) => matches(key, READ_MODEL_PREFIXES)
 
 export function readInvalidation(userId: string, key: string): { version: number; kind: InvalidationKind | null } {
   let latest = 0; let kind: InvalidationKind | null = null;
+  const partitions = /^items:.*:all$/.test(key) ? [`${key.slice(0, -3)}active`, `${key.slice(0, -3)}archived`] : [];
   for (const wave of waves.get(userId)?.values() ?? []) {
-    if (!matches(key, wave.prefixes)) continue;
+    const parts = partitions.filter((part) => matches(part, wave.prefixes));
+    if (!matches(key, wave.prefixes) && !parts.length) continue;
     latest = Math.max(latest, wave.version);
-    if (wave.version <= (confirmed.get(identity(userId, key)) ?? 0)) continue;
+    const baseline = Math.max(confirmed.get(identity(userId, key)) ?? 0,
+      parts.length ? Math.min(...parts.map((part) => confirmed.get(identity(userId, part)) ?? 0)) : 0);
+    if (wave.version <= baseline) continue;
     if (kind !== 'access') kind = wave.kind === 'access' ? 'access' : kind === 'refresh' ? 'refresh' : wave.kind;
   }
   return { version: latest, kind };
@@ -37,13 +43,40 @@ export function readInvalidation(userId: string, key: string): { version: number
 export function confirmReadFreshness(userId: string, key: string, baseline: number): void {
   confirmed.set(identity(userId, key), Math.max(confirmed.get(identity(userId, key)) ?? 0, baseline));
 }
-export async function durableReadInvalidation(userId: string, key: string): Promise<{ entry: CacheEntry | null; kind: InvalidationKind | null }> {
-  const entry = await localCacheDriver.get(userId, freshnessKey(key));
-  if (!entry) return { entry: null, kind: null };
+function storedMarkerInvalidation(stored: Map<string, CacheEntry>, key: string): DurableReadInvalidation {
+  const entry = stored.get(freshnessKey(key)) ?? null;
+  const global = stored.get(GLOBAL_ACL_KEY) ?? null;
+  if (!entry) return { entry, global, kind: global ? 'access' : null };
   try {
     const value = JSON.parse(entry.data) as Marker;
-    return { entry, kind: ['data', 'refresh', 'access'].includes(value.kind) ? value.kind : 'access' };
-  } catch { return { entry, kind: 'access' }; }
+    const kind = global && value.aclToken !== global.data ? 'access'
+      : value.kind === 'confirmed' ? (global ? null : 'access')
+      : ['data', 'refresh', 'access'].includes(value.kind) ? value.kind as InvalidationKind : 'access';
+    return { entry, global, kind };
+  } catch { return { entry, global, kind: 'access' }; }
+}
+export function storedReadInvalidation(stored: Map<string, CacheEntry>, key: string): DurableReadInvalidation {
+  const own = storedMarkerInvalidation(stored, key);
+  if (!/^items:.*:all$/.test(key)) return own;
+  const parts = ['active', 'archived'].map((mode) => storedMarkerInvalidation(stored, `${key.slice(0, -3)}${mode}`));
+  // The virtual union needs no additional global acknowledgement once both
+  // canonical partitions have been confirmed. A scoped hard marker still binds.
+  let scopedAccess = false;
+  try { scopedAccess = !!own.entry && JSON.parse(own.entry.data).kind === 'access'; } catch { scopedAccess = true; }
+  const kinds = [...parts.map((p) => p.kind), ...(own.kind !== 'access' || scopedAccess || !own.global ? [own.kind] : [])];
+  return { ...own, kind: kinds.includes('access') ? 'access' : kinds.includes('refresh') ? 'refresh' : kinds.includes('data') ? 'data' : null };
+}
+export async function durableReadInvalidation(userId: string, key: string): Promise<DurableReadInvalidation> {
+  const keys = [freshnessKey(key), GLOBAL_ACL_KEY, ...(/^items:.*:all$/.test(key) ? ['active', 'archived'].map((mode) => freshnessKey(`${key.slice(0, -3)}${mode}`)) : [])];
+  const entries = await Promise.all(keys.map((key) => localCacheDriver.get(userId, key)));
+  return storedReadInvalidation(new Map(entries.filter((e): e is CacheEntry => !!e).map((e) => [e.key, e])), key);
+}
+// The global fence stays in place. Each successful server read acknowledges
+// exactly the captured token, atomically with its model and a guard on that token.
+export function readConfirmationEntries(userId: string, keys: string[], global: CacheEntry | null): CacheEntry[] {
+  return !global ? [] : keys.map((key) => ({ user_id: userId, key: freshnessKey(key),
+    data: JSON.stringify({ token: global.data, aclToken: global.data, kind: 'confirmed' }),
+    last_synced_at: new Date().toISOString(), schema_version: 1 }));
 }
 export function clearReadFreshness(): void { waves.clear(); confirmed.clear(); version += 1; }
 
@@ -58,6 +91,16 @@ export function invalidateReadModels(userId: string, prefixes = READ_MODEL_PREFI
   scope.set(`${kind}:${prefixes.join('|')}`, wave); waves.set(userId, scope);
   const writes = persisting.get(userId) ?? new Set<Promise<void>>(); persisting.set(userId, writes);
   const work = (async () => {
+  if (kind === 'access' && prefixes === READ_MODEL_PREFIXES) {
+    const entry: CacheEntry = { user_id: userId, key: GLOBAL_ACL_KEY,
+      data: `${Date.now()}:${wave.version}:${Math.random().toString(36).slice(2)}`, last_synced_at: new Date().toISOString(), schema_version: 1 };
+    // One write regardless of model count; CAS orders competing tab events.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const previous = await localCacheDriver.get(userId, GLOBAL_ACL_KEY);
+      if (await localCacheDriver.commitCacheBatch(userId, [entry], [], [{ key: GLOBAL_ACL_KEY, data: previous?.data ?? null }])) return;
+    }
+    throw new Error('Не удалось сохранить ACL invalidation.');
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
     const stored = await localCacheDriver.listEntries(userId);
     const byKey = new Map(stored.map((entry) => [entry.key, entry]));
@@ -70,8 +113,9 @@ export function invalidateReadModels(userId: string, prefixes = READ_MODEL_PREFI
       // An ordinary data event must not downgrade a pending authoritative ACL
       // check, including one installed by another tab before a reload.
       let access = false;
-      try { access = !!previous && JSON.parse(previous.data).kind === 'access'; } catch { access = !!previous; }
-      const marker: Marker = { token: `${Date.now()}:${wave.version}`, kind: access ? 'access' : kind };
+      let aclToken: string | undefined;
+      try { const value = previous && JSON.parse(previous.data); access = value?.kind === 'access'; aclToken = value?.aclToken; } catch { access = !!previous; }
+      const marker: Marker = { token: `${Date.now()}:${wave.version}`, kind: access ? 'access' : kind, ...(aclToken ? { aclToken } : {}) };
       const entry: CacheEntry = { user_id: userId, key, data: JSON.stringify(marker), last_synced_at: new Date().toISOString(), schema_version: 1 };
       entries.push(entry); guards.push({ key, data: previous?.data ?? null });
     }
