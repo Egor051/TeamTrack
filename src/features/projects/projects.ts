@@ -14,6 +14,7 @@ import { uiRead } from '@/lib/supabase/ui-read';
 import { taskAuditEntityIds } from './task-audit';
 import { invalidateRealtimeModels } from '@/lib/local-cache/read-freshness';
 import { localCacheDriver } from '@/lib/local-cache/driver';
+import { isFutureDeadline, progressStatus } from './deadlines';
 export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -233,8 +234,9 @@ export async function listTasksWithStats(projectId: string, archivedOnly = false
   const effective = await Promise.all(confirmed.map(async (task) => {
     if (!dirtyTasks.has(task.id)) return task;
     const effective = await listTaskItems(task.id, 'active');
-    return { ...task, itemCount: effective.length, completedCount: effective.filter((item) => item.is_completed).length,
-      progressPercent: calculateAverageProgress(effective.map((item) => item.percentage)) };
+    const progressPercent = calculateAverageProgress(effective.map((item) => item.percentage));
+    return { ...task, itemCount: effective.length, completedCount: effective.filter((item) => item.percentage === 100).length,
+      progressPercent, status: progressStatus(progressPercent, task.status === 'archived') };
   }));
   return inheritCachedResult(confirmed, effective);
 }
@@ -249,7 +251,7 @@ async function listTasksWithStatsOnline(projectId: string, archivedOnly: boolean
   for (const item of items) {
     const stats = itemStats.get(item.task_id) ?? { itemCount: 0, completedCount: 0, progressPercent: 0 };
     stats.itemCount += 1;
-    if (item.is_completed) stats.completedCount += 1;
+    if (item.percentage === 100) stats.completedCount += 1;
     stats.progressPercent += item.percentage;
     itemStats.set(item.task_id, stats);
   }
@@ -261,7 +263,8 @@ async function listTasksWithStatsOnline(projectId: string, archivedOnly: boolean
   }
   return tasks.map((task) => {
     const stats = itemStats.get(task.id) ?? { itemCount: 0, completedCount: 0, progressPercent: 0 };
-    return { ...task, ...stats, progressPercent: calculateAverageProgress(items.filter((item) => item.task_id === task.id).map((item) => item.percentage)), assignees: assigneeByTask.get(task.id) ?? [] };
+    const progressPercent = stats.itemCount ? stats.progressPercent / stats.itemCount : 0;
+    return { ...task, ...stats, progressPercent, status: progressStatus(progressPercent, task.status === 'archived'), assignees: assigneeByTask.get(task.id) ?? [] };
   });
 }
 
@@ -327,6 +330,15 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
 export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
 export async function updateTask(taskId: string, title: string, description: string) { assertUuid(taskId, 'task id'); return requireSuccess(await mutationRpc('update_task', { p_task_id: taskId, p_title: title, p_description: description })); }
 export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 10000) throw new Error('Комментарий слишком длинный (максимум 10000 символов).'); return requireSuccess(await mutationRpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '' })); }
+export async function setTaskItemDeadline(itemId: string, deadline: string | null, version: number) {
+  assertUuid(itemId, 'task item id');
+  if (usesLocalReads()) throw new Error('Для изменения дедлайна требуется подключение. Сохранённые сроки доступны офлайн.');
+  if (deadline && !isFutureDeadline(deadline)) throw new Error('Дедлайн должен быть в будущем.');
+  const userId = await activeCacheUserId();
+  if (userId && (await listPendingOperations(userId)).some((operation) => operation.task_item_id === itemId))
+    throw new Error('Сначала синхронизируйте изменения этого чек-листа.');
+  return requireData(await mutationRpc('set_task_item_deadline', { p_task_item_id: itemId, ...(deadline === null ? {} : { p_deadline_at: deadline }), p_expected_version: version }));
+}
 export async function setTaskItemPercentage(itemId: string, percentage: number) { assertUuid(itemId, 'task item id'); if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) throw new Error('Процент должен быть целым числом от 0 до 100.'); return requireData(await mutationRpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage })); }
 export async function archiveTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('archive_task_item', { p_task_item_id: itemId })); }
 export async function setTaskItemState(itemId: string, completed: boolean) { assertUuid(itemId, 'task item id'); return requireData(await mutationRpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed })); }

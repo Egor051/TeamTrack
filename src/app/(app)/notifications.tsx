@@ -12,7 +12,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { ThemedText } from '@/components/ui/text';
 import { useUser } from '@/features/auth/AuthProvider';
-import { fetchNotificationPage, markAllAsRead, markAsRead, stageNotificationText, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
+import { fetchNotificationPage, markAllAsRead, markAsRead, notificationBody, notificationRoute, stageNotificationText, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
 import { isExplicitAccessError } from '@/lib/local-cache/cache';
 import { userMessage } from '@/lib/errors/user-message';
 import { layout, spacing } from '@/components/ui/theme';
@@ -127,13 +127,8 @@ export default function NotificationsScreen() {
 
   async function read(item: Notification) {
     if (!offline && !await markItemRead(item)) return;
-    if (item.project_id) {
-      router.push(
-        (item.task_id
-          ? `/projects/${item.project_id}/tasks/${item.task_id}`
-          : `/projects/${item.project_id}`) as never,
-      );
-    }
+    const route = notificationRoute(item);
+    if (route) router.push(route as never);
   }
 
   async function markReadOnly(item: Notification) {
@@ -166,7 +161,7 @@ export default function NotificationsScreen() {
         {items.map((item) => <Card key={item.id} style={!item.is_read ? [styles.readCard, { borderColor: theme.primary }] : undefined}>
           <Pressable onPress={() => void read(item)} disabled={markingAll} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${notificationText(item, item.title)}`} accessibilityState={{ disabled: markingAll }} style={styles.pressableContent}>
             <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{notificationText(item, item.title)}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
-            <ThemedText>{notificationText(item, item.body)}</ThemedText>
+            <ThemedText>{notificationBody(item)}</ThemedText>
             <ThemedText type="caption">{new Date(item.created_at).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}</ThemedText>
           </Pressable>
           {!offline && !item.is_read ? <Button size="sm" variant="ghost" loading={markingIds.has(item.id)} disabled={markingAll || markingIds.has(item.id)} onPress={() => void markReadOnly(item)}>{markingIds.has(item.id) ? 'Отмечаем…' : 'Отметить прочитанным'}</Button> : null}

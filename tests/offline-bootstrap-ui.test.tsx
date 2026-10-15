@@ -13,6 +13,9 @@ vi.mock('@/lib/local-cache/use-offline-bootstrap', () => ({ useOfflineBootstrap:
 vi.mock('@/lib/local-cache/bootstrap', () => ({ selectOfflineScheme: f.select, retryAccountBootstrap: f.retry }));
 vi.mock('@/lib/local-cache/cache', () => ({ isCachedResult: () => false, isExplicitAccessError: () => false, isTransportFailure: () => false }));
 vi.mock('@/features/projects/projects', () => ({ listOwnedProjects: vi.fn(async () => []), listProjectMembers: vi.fn(), listProjects: vi.fn(), listMyTasks: vi.fn(), transferProjectOwnership: vi.fn() }));
+vi.mock('@/features/projects/checklist-overview', () => ({ listChecklistOverview: async () => [], overlayChecklistOverview: async (_: string, rows: unknown[]) => rows }));
+vi.mock('@/features/projects/use-deadline-clock', () => ({ useDeadlineClock: () => Date.now() }));
+vi.mock('@/components/ui/deadline-status', () => ({ DeadlineCard: 'Card', DeadlineIndicators: 'DeadlineIndicators', OverdueBadge: 'OverdueBadge' }));
 vi.mock('@/features/auth/PermissionProvider', () => ({ usePermissionVersion: () => 0 }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeTable: vi.fn() }));
 vi.mock('@/features/notifications/notifications', () => ({ fetchUnreadCount: vi.fn(), subscribeToNotifications: vi.fn() }));

@@ -255,6 +255,7 @@ export type Database = {
           archived_at: string | null
           comment: string | null
           created_at: string
+          deadline_at: string | null
           description: string | null
           id: string
           is_archived: boolean
@@ -270,6 +271,7 @@ export type Database = {
           archived_at?: string | null
           comment?: string | null
           created_at?: string
+          deadline_at?: string | null
           description?: string | null
           id?: string
           is_archived?: boolean
@@ -285,6 +287,7 @@ export type Database = {
           archived_at?: string | null
           comment?: string | null
           created_at?: string
+          deadline_at?: string | null
           description?: string | null
           id?: string
           is_archived?: boolean
@@ -461,7 +464,34 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      checklist_overview: {
+        Row: {
+          comment: string | null
+          deadline_at: string | null
+          id: string | null
+          is_completed: boolean | null
+          percentage: number | null
+          project_id: string | null
+          sync_version: number | null
+          task_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_items_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       add_project_member: {
@@ -706,6 +736,10 @@ export type Database = {
         Args: { p_direction: number; p_task_id: string }
         Returns: undefined
       }
+      move_task_template_item: {
+        Args: { p_direction: number; p_item_id: string }
+        Returns: undefined
+      }
       pull_task_item_changes: {
         Args: { p_after_cursor: number; p_limit?: number }
         Returns: Json
@@ -727,6 +761,35 @@ export type Database = {
       set_task_item_comment: {
         Args: { p_comment: string; p_task_item_id: string }
         Returns: undefined
+      }
+      set_task_item_deadline: {
+        Args: {
+          p_deadline_at?: string
+          p_expected_version?: number
+          p_task_item_id: string
+        }
+        Returns: {
+          archived_at: string | null
+          comment: string | null
+          created_at: string
+          deadline_at: string | null
+          description: string | null
+          id: string
+          is_archived: boolean
+          is_completed: boolean
+          percentage: number
+          position: number
+          sync_version: number
+          task_id: string
+          title: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "task_items"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       set_task_item_percentage: {
         Args: { p_percentage: number; p_task_item_id: string }
@@ -792,10 +855,6 @@ export type Database = {
           p_position?: number
           p_title?: string
         }
-        Returns: undefined
-      }
-      move_task_template_item: {
-        Args: { p_item_id: string; p_direction: number }
         Returns: undefined
       }
     }

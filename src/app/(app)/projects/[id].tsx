@@ -36,6 +36,12 @@ import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { isCachedResult, isExplicitAccessError } from "@/lib/local-cache/cache";
+import { RealtimeIndicator } from '@/components/ui/realtime-indicator';
+import { DeadlineCard, OverdueBadge } from '@/components/ui/deadline-status';
+import { listChecklistOverview } from '@/features/projects/checklist-overview';
+import { averageChecklistProgress, deadlineSummary, groupChecklistOverview, progressStatus, type ChecklistOverviewItem } from '@/features/projects/deadlines';
+import { useDeadlineClock } from '@/features/projects/use-deadline-clock';
+import { russianCount } from '@/lib/russian';
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
 
 export default function ProjectScreen() {
@@ -45,6 +51,8 @@ export default function ProjectScreen() {
   const permissionVersion = usePermissionVersion();
   const [project, setProject] = useState<ProjectWithRole | null>(null);
   const [tasks, setTasks] = useState<TaskWithStats[]>([]);
+  const [overview, setOverview] = useState<ChecklistOverviewItem[]>([]);
+  const now = useDeadlineClock(overview);
   const [archived, setArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -83,9 +91,10 @@ export default function ProjectScreen() {
       setEditName(nextProject.name);
       setEditDescription(nextProject.description || "");
       if (nextArchived !== archived) setArchived(nextArchived);
-      const nextTasks = await listTasksWithStats(id, nextArchived);
+      const [nextTasks, nextOverview] = await Promise.all([listTasksWithStats(id, nextArchived), listChecklistOverview()]);
       if (request !== requestRef.current) return;
       setTasks(nextTasks);
+      setOverview(nextOverview.filter((item) => item.project_id === id));
       setOffline(isCachedResult(nextProject) || isCachedResult(nextTasks));
     } catch (e) {
       if (request === requestRef.current) {
@@ -164,6 +173,7 @@ export default function ProjectScreen() {
             onStatus,
           },
         },
+        { table: 'task_assignees', options: { projectId: id, onEvent: scheduleRefresh, onStatus } },
       ];
       return subscribeMany(specs);
     }, [id, permissionVersion, scheduleRefresh]),
@@ -242,9 +252,18 @@ export default function ProjectScreen() {
     !showArchivedTasks &&
     project?.status === "active" &&
     (project.role === "owner" || project.role === "admin");
-  const complete = tasks.reduce((n, t) => n + t.completedCount, 0),
-    total = tasks.reduce((n, t) => n + t.itemCount, 0),
-    percent = total ? tasks.reduce((n, t) => n + t.progressPercent * t.itemCount, 0) / total : 0;
+  const archivedProject = project?.status === 'archived';
+  const complete = archivedProject ? tasks.reduce((sum, t) => sum + t.completedCount, 0) : overview.filter((item) => item.percentage === 100).length;
+  const total = archivedProject ? tasks.reduce((sum, t) => sum + t.itemCount, 0) : overview.length;
+  const percent = archivedProject ? (total ? tasks.reduce((sum, t) => sum + t.progressPercent * t.itemCount, 0) / total : 0) : averageChecklistProgress(overview);
+  const grouped = groupChecklistOverview(overview);
+  const deadlineCounts = deadlineSummary(overview, now);
+  const projectBadges = project ? <>
+    <RealtimeIndicator status={status} compact />
+    <Badge tone={project.status === 'archived' ? 'neutral' : 'primary'}>{roleLabels[project.role]}</Badge>
+    <TaskStatus status={progressStatus(percent, project.status === 'archived')} />
+    <OverdueBadge overdue={deadlineCounts.overdue} />
+  </> : null;
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
@@ -263,10 +282,7 @@ export default function ProjectScreen() {
           title={editing ? "Редактирование проекта" : project?.name || "Проект"}
           subtitle={editing ? "" : project?.description || "Рабочее пространство проекта"}
           breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект" }]}
-          actions={project ? <>
-            <Badge tone={project.status === "archived" ? "neutral" : "primary"}>{roleLabels[project.role]}</Badge>
-            <Badge tone={project.status === "archived" ? "neutral" : "success"}>{project.status === "archived" ? "В архиве" : "Активный"}</Badge>
-          </> : undefined}
+          actions={projectBadges}
         />
         {project && editing ? (
           <Card>
@@ -323,13 +339,11 @@ export default function ProjectScreen() {
            <Card muted>
             <View style={styles.sectionTitle}>
               <ThemedText type="h2">Обзор проекта</ThemedText>
-              <ThemedText type="caption">
-                {status === "connected" ? "Данные синхронизированы" : status === "connecting" ? "Подключаемся…" : status === "reconnecting" ? "Переподключаемся…" : "Синхронизация недоступна"}
-              </ThemedText>
+              <View style={styles.badges}>{projectBadges}</View>
             </View>
             <Progress
               value={percent}
-              label={`${complete} из ${total} пунктов выполнено`}
+              label={`${russianCount(tasks.length, ["этап", "этапа", "этапов"])} · ${complete} из ${total} пунктов выполнено`}
             />
            </Card>
          ) : null}
@@ -403,7 +417,7 @@ export default function ProjectScreen() {
             {tasks.map((t, index) => {
               const p = t.progressPercent;
               return (
-                <Card style={wide ? styles.taskCard : undefined}
+                <DeadlineCard state={deadlineSummary(grouped.tasks.get(t.id) ?? [], now).state} style={wide ? styles.taskCard : undefined}
                   key={t.id}
                   onPress={() =>
                     router.push(`/projects/${id}/tasks/${t.id}` as never)
@@ -414,8 +428,9 @@ export default function ProjectScreen() {
                     <ThemedText type="h3" style={styles.flex}>
                       {t.title}
                     </ThemedText>
+                    <View style={styles.badges}><RealtimeIndicator status={status} compact />
                     {user && t.assignees.includes(user.id) ? <Badge tone="primary">Мой этап</Badge> : null}
-                    <TaskStatus status={t.status} />
+                    <TaskStatus status={progressStatus(p, t.status === 'archived')} /></View>
                   </View>
                   {t.description ? (
                     <ThemedText type="small" numberOfLines={2}>
@@ -424,13 +439,13 @@ export default function ProjectScreen() {
                   ) : null}
                   <Progress
                     value={p}
-                    label={`${Math.round(p)}% · ${t.itemCount} пунктов · ${t.assignees.length} исполнителей`}
+                    label={`${Math.round(p)}% · ${russianCount(t.itemCount, ['пункт', 'пункта', 'пунктов'])} · ${russianCount(t.assignees.length, ['исполнитель', 'исполнителя', 'исполнителей'])}`}
                   />
                   {canReorderTasks ? <View style={styles.stageActions}>
                     <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void moveStage(t.id, -1)}>Вверх</Button>
                     <Button size="sm" variant="ghost" disabled={busy || index === tasks.length - 1} onPress={() => void moveStage(t.id, 1)}>Вниз</Button>
                   </View> : null}
-                </Card>
+                </DeadlineCard>
               );
             })}
           </View>
@@ -465,10 +480,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   stageSectionTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: spacing.md,
+    alignItems: "flex-start",
+    gap: spacing.sm,
     flex: 1,
     minWidth: 0,
   },
@@ -480,6 +493,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   feedback: { gap: spacing.sm },
+  badges: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm, maxWidth: '100%' },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   stageActions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
   list: { gap: spacing.md },

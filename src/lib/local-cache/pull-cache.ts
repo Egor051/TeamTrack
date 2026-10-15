@@ -1,4 +1,6 @@
 import type { CacheEntry, PullChange, ReconciledItem } from './types';
+import { patchChecklistOverview } from './checklist-overview';
+import { progressStatus } from '@/features/projects/deadlines';
 
 function replaceRow(rows: ReconciledItem[], change: PullChange, mode: string): ReconciledItem[] {
   const next = rows.filter((row) => row.id !== change.task_item_id);
@@ -26,6 +28,13 @@ export function applyPullToEntries(entries: CacheEntry[], changes: PullChange[],
       if (validSyncVersion(row.sync_version) && row.sync_version > newest.sync_version!) newest = row;
     }
     const effective = newest === change.item ? change : { ...change, item: newest };
+    const overview = byKey.get('checklist-overview');
+    if (overview) {
+      const parent = byKey.get(`task:${change.task_id}`);
+      const project = projectId ?? (parent ? JSON.parse(parent.data).project_id : undefined);
+      const data = JSON.stringify(patchChecklistOverview(JSON.parse(overview.data), effective, project));
+      if (data !== overview.data) byKey.set(overview.key, { ...overview, data, last_synced_at: new Date().toISOString() });
+    }
     let changed = false;
     for (const mode of ['active', 'archived', 'all']) {
       const key = `items:${change.task_id}:${mode}`;
@@ -46,14 +55,15 @@ export function applyPullToEntries(entries: CacheEntry[], changes: PullChange[],
     const statsKey = `task-stats:${projectId}:active`;
     const stats = byKey.get(statsKey);
     if (stats) {
-      const rows = JSON.parse(stats.data) as { id: string; itemCount: number; completedCount: number; progressPercent: number }[];
+      const rows = JSON.parse(stats.data) as { id: string; status?: string; itemCount: number; completedCount: number; progressPercent: number }[];
       const updated = rows.map((row) => {
         if (!touchedTasks.has(row.id)) return row;
         const active = byKey.get(`items:${row.id}:active`);
         if (!active) return row;
         const items = JSON.parse(active.data) as ReconciledItem[];
-        return { ...row, itemCount: items.length, completedCount: items.filter((item) => item.is_completed).length,
-          progressPercent: items.length ? items.reduce((sum, item) => sum + item.percentage, 0) / items.length : 0 };
+        const progressPercent = items.length ? items.reduce((sum, item) => sum + item.percentage, 0) / items.length : 0;
+        return { ...row, itemCount: items.length, completedCount: items.filter((item) => item.percentage === 100).length,
+          progressPercent, status: progressStatus(progressPercent, row.status === 'archived') };
       });
       byKey.set(statsKey, { ...stats, data: JSON.stringify(updated) });
     }

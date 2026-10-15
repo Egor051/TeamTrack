@@ -26,6 +26,11 @@ import { OfflineReadyIndicator } from '@/components/ui/offline-ready-indicator';
 import { subscribeTable, type RealtimeStatus } from '@/lib/supabase/realtime';
 import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { invalidateReadModels, isReadAccessPending } from '@/lib/local-cache/read-freshness';
+import { listChecklistOverview, overlayChecklistOverview } from '@/features/projects/checklist-overview';
+import { averageChecklistProgress, deadlineSummary, groupChecklistOverview, progressStatus, type ChecklistOverviewItem } from '@/features/projects/deadlines';
+import { useDeadlineClock } from '@/features/projects/use-deadline-clock';
+import { DeadlineCard, DeadlineIndicators, OverdueBadge } from '@/components/ui/deadline-status';
+import { TaskStatus } from '@/components/ui/task-status';
 
 const roleLabels: Record<ProjectWithRole['role'], string> = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
 
@@ -36,6 +41,7 @@ export default function ProjectsScreen() {
   const { width } = useWindowDimensions();
   const [projectRows, setProjects] = useState<ProjectWithRole[]>([]);
   const [taskRows, setMyTasks] = useState<MyTask[]>([]);
+  const [checklistRows, setChecklistRows] = useState<ChecklistOverviewItem[]>([]);
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [view, setView] = useState<'active' | 'archived'>('active');
   const [loading, setLoading] = useState(true);
@@ -57,32 +63,39 @@ export default function ProjectsScreen() {
   }, [scope]);
   const projects = loadedScope === scope ? projectRows : [];
   const myTasks = loadedScope === scope ? taskRows : [];
+  const overview = loadedScope === scope ? checklistRows : [];
+  const now = useDeadlineClock(overview);
+  const deadlines = deadlineSummary(overview, now);
+  const grouped = groupChecklistOverview(overview);
   const offline = loadedScope === scope && cachedView;
   const error = feedback.scope === scope ? feedback.text : '';
   const refreshing = refreshingScope === scope;
   const load = useCallback(async (cacheOnly = false) => {
     const request = ++requestRef.current;
     if (isReadAccessPending(`projects:${view}`) || isReadAccessPending(`my-tasks:${userId}`)) {
-      setProjects([]); setMyTasks([]); setLoadedScope(null); setOffline(false);
+      setProjects([]); setMyTasks([]); setChecklistRows([]); setLoadedScope(null); setOffline(false);
     }
     if (!cacheOnly) { setLoading(true); setFeedback({ scope, text: '' }); }
     try {
-      const [projectsResult, tasksResult] = await Promise.allSettled([
+      const [projectsResult, tasksResult, overviewResult] = await Promise.allSettled([
         cacheOnly ? getCached<ProjectWithRole[]>(userId!, `projects:${view}`).then((rows) => filterBlockedProjects(userId!, rows ?? [])) : listProjects(archived ? 'archived' : 'active'),
         archived ? Promise.resolve([] as MyTask[]) : cacheOnly ? getCached<MyTask[]>(userId!, `my-tasks:${userId}`).then((rows) => filterBlockedTasks(userId!, rows ?? [])) : listMyTasks(userId!),
+        cacheOnly ? getCached<ChecklistOverviewItem[]>(userId!, 'checklist-overview').then((rows) => overlayChecklistOverview(userId!, rows ?? [])) : listChecklistOverview(),
       ]);
       if (projectsResult.status === 'rejected') throw projectsResult.reason;
       if (tasksResult.status === 'rejected' && !isTransportFailure(tasksResult.reason)) throw tasksResult.reason;
+      if (overviewResult.status === 'rejected' && !isTransportFailure(overviewResult.reason)) throw overviewResult.reason;
       const next = projectsResult.value;
       const mine = tasksResult.status === 'fulfilled' ? tasksResult.value : [];
       if (await activeCacheUserId() !== userId || request !== requestRef.current || activeScope.current !== scope) return;
       setProjects(next);
       setMyTasks(mine);
+      setChecklistRows(overviewResult.status === 'fulfilled' ? overviewResult.value : []);
       setLoadedScope(scope);
-      setOffline(cacheOnly ? usesLocalReads() : isCachedResult(next) || isCachedResult(mine) || tasksResult.status === 'rejected');
+      setOffline(cacheOnly ? usesLocalReads() : isCachedResult(next) || isCachedResult(mine) || (overviewResult.status === 'fulfilled' && isCachedResult(overviewResult.value)) || tasksResult.status === 'rejected' || overviewResult.status === 'rejected');
     } catch (e) {
       if (request === requestRef.current && activeScope.current === scope) {
-        if (isExplicitAccessError(e)) { setProjects([]); setMyTasks([]); setOffline(false); }
+        if (isExplicitAccessError(e)) { setProjects([]); setMyTasks([]); setChecklistRows([]); setOffline(false); }
         setFeedback({ scope, text: userMessage(e, 'Не удалось загрузить проекты.') });
       }
     } finally {
@@ -98,7 +111,7 @@ export default function ProjectsScreen() {
       try {
         let result = userId ? await requestOfflineWork(userId, 'manual-refresh') : null;
         if (activeScope.current !== scope) return;
-        if (userId) await invalidateReadModels(userId, [`projects:${view}`, `my-tasks:${userId}`], 'refresh');
+        if (userId) await invalidateReadModels(userId, [`projects:${view}`, `my-tasks:${userId}`, 'checklist-overview'], 'refresh');
         await load();
         if (activeScope.current !== scope) return;
         // Foreground reads can discover structural changes even when Realtime
@@ -121,14 +134,20 @@ export default function ProjectsScreen() {
   useFocusEffect(useCallback(() => {
     if (!userId) return;
     return subscribeReadModelCommits((commit) => {
-      if (commit.userId === userId && commit.source === 'preparation' && commit.keys.some((key) => key === `projects:${view}` || key === `my-tasks:${userId}`))
+      if (commit.userId === userId && commit.source === 'preparation' && commit.keys.some((key) => key === `projects:${view}` || key === `my-tasks:${userId}` || key === 'checklist-overview'))
         void load(true);
     });
   }, [load, userId, view]));
   useFocusEffect(useCallback(() => {
     if (!userId) return;
+    let connected = false;
+    const onStatus = (next: RealtimeStatus) => {
+      setStatus(next);
+      if (next === 'connected' && !connected) { connected = true; scheduleRefresh(); }
+      else if (next !== 'connected') connected = false;
+    };
     const cleanups = ['task_items', 'tasks', 'projects', 'task_assignees'].map((table) =>
-      subscribeTable(table, { userId, onEvent: scheduleRefresh, onStatus: setStatus }));
+      subscribeTable(table, { userId, onEvent: scheduleRefresh, onStatus }));
     return () => cleanups.forEach((cleanup) => cleanup());
   }, [scheduleRefresh, userId]));
   useFocusEffect(useCallback(() => {
@@ -151,7 +170,12 @@ export default function ProjectsScreen() {
   if (!userId) return <LoadingState label="Завершаем сеанс..." />;
   const wide = width >= layout.desktopBreakpoint;
   return <Screen padded={false} centerContent={false}><ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading || refreshing} onRefresh={() => void refresh()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-    <View style={styles.topbar}><View style={styles.brand}><ThemedText type="h1">Проекты</ThemedText><ThemedText type="small">{state.profile?.display_name || state.user?.email}</ThemedText></View><View style={styles.nav}><Link href={'/templates' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline">Шаблоны</Button></Link><Link href={'/notifications' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline" accessibilityLabel="Уведомления">Уведомления{unread ? ` · ${unread}` : ''}</Button></Link><Link href={'/profile' as never} asChild><Button accessibilityRole="link" size="sm" variant="ghost">Профиль</Button></Link></View></View>
+    <View style={[styles.topbar, width < 700 && styles.topbarCompact]}>
+      <View style={styles.brand}><ThemedText type="h1">Проекты</ThemedText>
+        <View style={styles.userLine}><ThemedText type="small" style={styles.nickname}>{state.profile?.display_name || state.user?.email}</ThemedText>{width < 700 ? <DeadlineIndicators {...deadlines} /> : null}</View>
+      </View>
+      <View style={styles.nav}>{width >= 700 ? <DeadlineIndicators {...deadlines} /> : null}<Link href={'/templates' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline">Шаблоны</Button></Link><Link href={'/notifications' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline" accessibilityLabel="Уведомления">Уведомления{unread ? ` · ${unread}` : ''}</Button></Link><Link href={'/profile' as never} asChild><Button accessibilityRole="link" size="sm" variant="ghost">Профиль</Button></Link></View>
+    </View>
     <View style={styles.intro}>
       <View><ThemedText type="h2">Рабочий обзор</ThemedText><ThemedText type="small">Команды и этапы в одном месте.</ThemedText></View>
       <View style={[styles.actions, width < 600 && styles.actionsNarrow]}>
@@ -167,17 +191,24 @@ export default function ProjectsScreen() {
     </View>
     <SegmentedControl value={view} onChange={setView} accessibilityLabel="Фильтр проектов" options={[{ value: 'active', label: 'Активные' }, { value: 'archived', label: 'Архив' }]} />
     {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
-    {!archived ? <View style={styles.section}><ThemedText type="h2">Мои этапы</ThemedText>{myTasks.length ? <View style={[styles.grid, wide && styles.gridWide]}>{myTasks.map((task) => <Card key={task.id} style={wide ? styles.gridCard : undefined} onPress={() => router.push(`/projects/${task.project_id}/tasks/${task.id}` as never)}><View style={styles.cardHeader}><ThemedText type="h3" style={styles.flex}>{task.title}</ThemedText><Badge tone="primary">Мой этап</Badge></View><ThemedText type="small">{task.project_name}</ThemedText></Card>)}</View> : <EmptyState title="Нет назначенных этапов" description="Здесь появятся активные этапы, где вы исполнитель." />}</View> : null}
+    {!archived ? <View style={styles.section}><ThemedText type="h2">Мои этапы</ThemedText>{myTasks.length ? <View style={[styles.grid, wide && styles.gridWide]}>{myTasks.map((task) => {
+      const items = grouped.tasks.get(task.id) ?? [];
+      return <DeadlineCard state={deadlineSummary(items, now).state} key={task.id} style={wide ? styles.gridCard : undefined} onPress={() => router.push(`/projects/${task.project_id}/tasks/${task.id}` as never)}>
+        <ThemedText type="h3">{task.title}</ThemedText>
+        <View style={styles.badges}><RealtimeIndicator status={status} compact /><Badge tone="primary">Мой этап</Badge><TaskStatus status={progressStatus(averageChecklistProgress(items))} /></View>
+        <ThemedText type="small">{task.project_name}</ThemedText>
+      </DeadlineCard>;
+    })}</View> : <EmptyState title="Нет назначенных этапов" description="Здесь появятся активные этапы, где вы исполнитель." />}</View> : null}
     {!archived ? <View style={[styles.divider, { backgroundColor: theme.border }]} /> : null}
     <View style={styles.section}><View><ThemedText type="h2">{archived ? 'Архивные проекты' : 'Активные проекты'}</ThemedText><ThemedText type="small">{archived ? 'Проекты, которые больше не участвуют в текущей работе.' : 'Проекты, в которых вы участвуете.'}</ThemedText></View>{error && !projects.length ? <ErrorState message={error} /> : loading && !projects.length ? <LoadingState label="Загружаем проекты..." /> : !projects.length ? <EmptyState title={archived ? 'Архив пуст' : 'Проектов пока нет'} description={archived ? 'Здесь появятся проекты после архивации.' : 'Создайте первый проект, чтобы начать вести этапы.'} actionLabel={!archived ? 'Создать проект' : undefined} onAction={!archived ? () => router.push('/projects/new' as never) : undefined} /> : <>{error ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /></View> : null}<View style={[styles.grid, wide && styles.gridWide]}>{projects.map((project) => (
       <Card key={project.id} style={wide ? styles.gridCard : undefined} muted={project.status === 'archived'} onPress={() => router.push(`/projects/${project.id}` as never)} accessibilityLabel={`Открыть проект ${project.name}`}>
         <View style={styles.cardBody}>
-          <View style={styles.cardHeader}><ThemedText type="h3" style={styles.flex}>{project.name}</ThemedText><Badge tone={project.status === 'archived' ? 'neutral' : 'primary'}>{roleLabels[project.role]}</Badge></View>
+          <View style={styles.cardHeader}><ThemedText type="h3" style={styles.flex}>{project.name}</ThemedText></View>
           {project.description ? <ThemedText type="small" numberOfLines={2}>{project.description}</ThemedText> : null}
         </View>
-        <View style={styles.cardFooter}><Badge tone={project.status === 'archived' ? 'neutral' : 'success'}>{project.status === 'archived' ? 'В архиве' : 'Активный'}</Badge><ThemedText type="caption">{new Date(project.created_at).toLocaleDateString('ru-RU')}</ThemedText></View>
+        <View style={styles.cardFooter}><View style={styles.badges}><RealtimeIndicator status={status} compact /><Badge tone={project.status === 'archived' ? 'neutral' : 'primary'}>{roleLabels[project.role]}</Badge><TaskStatus status={progressStatus(averageChecklistProgress(grouped.projects.get(project.id) ?? []), project.status === 'archived')} /><OverdueBadge overdue={deadlineSummary(grouped.projects.get(project.id) ?? [], now).overdue} /></View><ThemedText type="caption">{new Date(project.created_at).toLocaleDateString('ru-RU')}</ThemedText></View>
       </Card>
     ))}</View></>}</View>
   </ScrollView></Screen>;
 }
-const styles = StyleSheet.create({ content: { width: '100%', maxWidth: layout.appMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.xl }, topbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.lg }, brand: { gap: spacing.xs }, nav: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, intro: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.lg }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', maxWidth: '100%' }, actionsNarrow: { width: '100%' }, statusBlock: { width: 288, maxWidth: '100%', minHeight: 40, justifyContent: 'center', gap: spacing.xs }, statusBlockNarrow: { width: '100%' }, actionButtons: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm }, section: { gap: spacing.md }, feedback: { gap: spacing.sm }, divider: { height: 1 }, grid: { gap: spacing.md }, gridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' }, gridCard: { flexBasis: '48%', flexGrow: 1 }, cardBody: { flexGrow: 1, gap: spacing.md }, cardHeader: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: spacing.sm } });
+const styles = StyleSheet.create({ topbarCompact: { flexDirection: 'column', alignItems: 'stretch' }, userLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, maxWidth: '100%' }, nickname: { flexShrink: 1 }, badges: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, flexShrink: 1, maxWidth: '100%' }, content: { width: '100%', maxWidth: layout.appMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.xl }, topbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.lg }, brand: { gap: spacing.xs }, nav: { alignItems: 'center', maxWidth: '100%', flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, intro: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.lg }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', maxWidth: '100%' }, actionsNarrow: { width: '100%' }, statusBlock: { width: 288, maxWidth: '100%', minHeight: 40, justifyContent: 'center', gap: spacing.xs }, statusBlockNarrow: { width: '100%' }, actionButtons: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm }, section: { gap: spacing.md }, feedback: { gap: spacing.sm }, divider: { height: 1 }, grid: { gap: spacing.md }, gridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' }, gridCard: { flexBasis: '48%', flexGrow: 1 }, cardBody: { flexGrow: 1, gap: spacing.md }, cardHeader: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, cardFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: spacing.sm } });

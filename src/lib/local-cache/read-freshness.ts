@@ -2,7 +2,7 @@ import { localCacheDriver } from './driver';
 import type { CacheEntry } from './types';
 
 export const READ_FRESHNESS_MS = 60_000;
-export const READ_MODEL_PREFIXES = ['projects:', 'project:', 'tasks:', 'task:', 'task-stats:', 'my-tasks:', 'items:',
+export const READ_MODEL_PREFIXES = ['projects:', 'project:', 'tasks:', 'task:', 'task-stats:', 'my-tasks:', 'items:', 'checklist-overview',
   'members:', 'assignees:', 'task-role:', 'task-overrides:', 'last-editors:', 'audit:', 'daily-audit:',
   'templates', 'template:', 'template-items:', 'notifications:', 'profile:self'];
 export type InvalidationKind = 'data' | 'refresh' | 'access';
@@ -128,14 +128,14 @@ export function invalidateReadModels(userId: string, prefixes = READ_MODEL_PREFI
 
 export type ReadScope = { projectId?: string; taskId?: string; userId?: string; view?: 'overview' | 'templates' | 'notifications' };
 export async function scopeReadPrefixes(userId: string, scope: ReadScope): Promise<string[]> {
-  if (scope.view === 'overview') return ['projects:', `my-tasks:${userId}`];
+  if (scope.view === 'overview') return ['projects:', `my-tasks:${userId}`, 'checklist-overview'];
   if (scope.view === 'templates') return ['templates', 'template:', 'template-items:'];
   if (scope.view === 'notifications') return ['notifications:'];
   if (!scope.projectId && !scope.taskId) return READ_MODEL_PREFIXES;
   const project = scope.projectId;
   const taskIds = scope.taskId ? [scope.taskId] : (await localCacheDriver.listEntries(userId, 'task:'))
     .filter((entry) => { try { return JSON.parse(entry.data).project_id === project; } catch { return false; } }).map((entry) => entry.key.slice(5));
-  return [...(project ? [`project:${project}`, `tasks:${project}`, `task-stats:${project}:`, `members:${project}`, `daily-audit:${project}:`] : []),
+  return ['checklist-overview', ...(project ? [`project:${project}`, `tasks:${project}`, `task-stats:${project}:`, `members:${project}`, `daily-audit:${project}:`] : []),
     ...taskIds.flatMap((task) => [`task:${task}`, `items:${task}:`, `task-role:${task}`, `task-overrides:${task}`, `assignees:${task}`, `last-editors:${task}`, `audit:${task}:`])];
 }
 export function isAclTable(table: string): boolean { return table === 'project_members' || table === 'task_members'; }
@@ -143,13 +143,18 @@ export async function invalidateRealtimeModels(userId: string, table: string, sc
   if (isAclTable(table) || (operation === 'DELETE' && (table === 'projects' || table === 'tasks'))) {
     await invalidateReadModels(userId, READ_MODEL_PREFIXES, 'access'); return;
   }
-  const keys = await scopeReadPrefixes(userId, scope);
+  // Install the volatile fence before returning to Broadcast listeners. Do not
+  // await an IndexedDB task inventory before a listener starts its HTTP read.
+  const keys = scope.projectId || scope.taskId ? [
+    ...(scope.projectId ? [`project:${scope.projectId}`, `tasks:${scope.projectId}`, `task-stats:${scope.projectId}:`, `daily-audit:${scope.projectId}:`] : ['tasks:', 'task-stats:', 'daily-audit:']),
+    ...(scope.taskId ? [`task:${scope.taskId}`, `items:${scope.taskId}:`, `assignees:${scope.taskId}`, `last-editors:${scope.taskId}`, `audit:${scope.taskId}:`] : ['task:', 'items:', 'assignees:', 'last-editors:', 'audit:']),
+  ] : READ_MODEL_PREFIXES;
   const prefixes = table === 'notifications' ? ['notifications:']
     : table === 'profiles' ? ['profile:self', 'members:']
     : table === 'task_templates' || table === 'task_template_items' ? ['templates', 'template:', 'template-items:']
-    : table === 'task_items' || table === 'audit_log' ? keys.filter((key) => /^(items:|task-stats:|last-editors:|audit:|daily-audit:)/.test(key))
+    : table === 'task_items' || table === 'audit_log' ? [...keys.filter((key) => /^(items:|task:|tasks:|task-stats:|last-editors:|audit:|daily-audit:)/.test(key)), 'my-tasks:', 'checklist-overview']
     : table === 'task_assignees' ? [...keys.filter((key) => /^(assignees:|task-stats:)/.test(key)), 'my-tasks:']
-    : table === 'tasks' ? [...keys.filter((key) => /^(task:|tasks:|task-stats:)/.test(key)), 'my-tasks:']
-    : table === 'projects' ? [...keys.filter((key) => key.startsWith('project:')), 'projects:', 'my-tasks:'] : keys;
+    : table === 'tasks' ? [...keys.filter((key) => /^(task:|tasks:|task-stats:)/.test(key)), 'my-tasks:', 'checklist-overview']
+    : table === 'projects' ? [...keys.filter((key) => key.startsWith('project:')), 'projects:', 'my-tasks:', 'checklist-overview'] : keys;
   await invalidateReadModels(userId, prefixes);
 }

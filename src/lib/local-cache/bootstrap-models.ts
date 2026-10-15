@@ -5,6 +5,7 @@ import type { AccountManifest, Dataset } from './bootstrap-types';
 import type { CacheEntry } from './types';
 import { LOCAL_CACHE_SCHEMA_VERSION } from './types';
 import { taskAuditEntityIds } from '@/features/projects/task-audit';
+import { progressStatus } from '@/features/projects/deadlines';
 
 export type AccountRows = Partial<Record<Dataset, unknown[]>>;
 export function cacheEntry(userId: string, key: string, data: unknown): CacheEntry {
@@ -58,7 +59,7 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     for (const mode of ['active', 'archived'] as const) {
       const stats = projectTasks.filter((t) => (t.status === 'archived') === (mode === 'archived')).map((task) => {
         const active = (itemsByTask.get(task.id) ?? []).filter((i) => !i.is_archived);
-        return { ...task, itemCount: active.length, completedCount: active.filter((i) => i.is_completed).length,
+        return { ...task, status: progressStatus(active.length ? active.reduce((sum, i) => sum + i.percentage, 0) / active.length : 0, task.status === 'archived'), itemCount: active.length, completedCount: active.filter((i) => i.percentage === 100).length,
           progressPercent: active.length ? active.reduce((sum, i) => sum + i.percentage, 0) / active.length : 0,
           assignees: (assigneesByTask.get(task.id) ?? []).map((a) => a.user_id) };
       });
@@ -91,6 +92,12 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     if (entry.key.startsWith('task:') && !taskIds.has(entry.key.slice(5))) put(`blocked-task:${entry.key.slice(5)}`, true);
   }
   const activeProjects = new Map(projects.filter((p) => p.status === 'active').map((p) => [p.id, p.name]));
+  const activeTasks = new Map(tasks.filter((t) => t.status !== 'archived' && activeProjects.has(t.project_id)).map((t) => [t.id, t]));
+  put('checklist-overview', items.filter((i) => !i.is_archived && activeTasks.has(i.task_id)).map((i) => ({
+    id: i.id, task_id: i.task_id, project_id: activeTasks.get(i.task_id)!.project_id,
+    percentage: i.percentage, is_completed: i.percentage === 100, comment: i.comment,
+    deadline_at: i.deadline_at ?? null, sync_version: i.sync_version,
+  })));
   const mine = new Set(assignees.filter((a) => a.user_id === userId).map((a) => a.task_id));
   put(`my-tasks:${userId}`, tasks.filter((t) => mine.has(t.id) && t.status !== 'archived' && activeProjects.has(t.project_id))
     .map((t) => ({ ...t, project_name: activeProjects.get(t.project_id) })));

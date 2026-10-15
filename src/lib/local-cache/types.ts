@@ -39,6 +39,7 @@ export type ReconciledItem = {
   percentage: number;
   is_completed: boolean;
   comment: string | null;
+  deadline_at?: string | null;
   sync_version?: number;
   is_archived?: boolean;
   title?: string;

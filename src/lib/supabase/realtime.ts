@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase/client';
 import { subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
-import { currentReadAccount, readAccountEpoch, invalidateRealtimeModels } from '@/lib/local-cache/read-freshness';
+import { currentReadAccount, readAccountEpoch, invalidateRealtimeModels, invalidateReadModels } from '@/lib/local-cache/read-freshness';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 export type RealtimeEvent = {
@@ -90,7 +90,18 @@ function createSharedChannel(topic: string, userId: string | null): SharedChanne
     })
     .subscribe((status, error) => {
       if (!current()) return;
-      if (status === 'SUBSCRIBED') broadcastStatus(entry, 'connected');
+      if (status === 'SUBSCRIBED') {
+        if (entry.userId && entry.status !== 'connected') {
+          const [kind, id] = topic.split(':');
+          // Broadcast can miss changes before SUBSCRIBED or while the socket
+          // reconnects. Fence fresh cached models before status listeners read.
+          const prefixes = kind === 'user' ? ['projects:', 'my-tasks:', 'checklist-overview', 'notifications:']
+            : kind === 'project' ? [`project:${id}`, `tasks:${id}`, `task-stats:${id}:`, 'checklist-overview']
+            : [`task:${id}`, `items:${id}:`, `assignees:${id}`, `task-role:${id}`, `last-editors:${id}`, `audit:${id}:`, 'checklist-overview'];
+          void invalidateReadModels(entry.userId, prefixes, 'refresh').catch((error) => console.warn('[TaskTrace] reconnect invalidation failed', error));
+        }
+        broadcastStatus(entry, 'connected');
+      }
       else if (status === 'CHANNEL_ERROR') broadcastStatus(entry, 'error', error?.message);
       else if (status === 'TIMED_OUT') broadcastStatus(entry, 'reconnecting');
       else if (status === 'CLOSED') broadcastStatus(entry, 'disconnected');

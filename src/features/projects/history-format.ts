@@ -1,4 +1,5 @@
 import { normalizeChecklistComment } from "@/features/projects/checklist";
+import { formatDeadline } from './deadlines';
 
 type JsonObject = Record<string, unknown>;
 
@@ -112,10 +113,18 @@ export function formatAuditChanges(oldData: unknown, newData: unknown): string[]
  */
 export function selectChecklistHistory<T extends AuditHistoryRecord>(audit: readonly T[]): ChecklistHistoryEntry[] {
   return audit.flatMap((entry) => {
-    if (entry.entity_type !== 'task_item' || !entry.entity_id) return [];
+    if (!['task_item', 'task_item_deadline'].includes(entry.entity_type) || !entry.entity_id) return [];
 
     const oldObject = asObject(entry.old_data);
     const newObject = asObject(entry.new_data);
+    if (entry.entity_type === 'task_item_deadline') {
+      const labels: Record<string, string> = { set: 'Установлен дедлайн', changed: 'Дедлайн изменён', removed: 'Дедлайн удалён', urgent: 'Горящий дедлайн', overdue: 'Просрочен дедлайн', completed: 'Чек-лист с предупреждением выполнен', reopened_urgent: 'Снова горящий дедлайн', reopened_overdue: 'Снова просрочен дедлайн' };
+      const label = labels[String(newObject.deadline_event)];
+      if (!label) return [];
+      const due = typeof newObject.deadline_at === 'string' ? `: ${formatDeadline(newObject.deadline_at)}` : '';
+      return [{ id: entry.id, taskItemId: entry.entity_id, action: entry.action, userId: entry.user_id,
+        createdAt: entry.created_at, itemTitle: titleFromSnapshot(oldObject, newObject), changes: [label + due] }];
+    }
     const keys = [...new Set([...Object.keys(oldObject), ...Object.keys(newObject)])];
     const meaningfulKeys = keys.filter((key) => key !== 'title' && !sameValue(oldObject[key], newObject[key]));
 

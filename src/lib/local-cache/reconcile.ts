@@ -1,5 +1,8 @@
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry, type OfflineOperation, type ReconciledItem } from './types';
 import { validSyncVersion } from './pull-cache';
+import { patchChecklistOverview } from './checklist-overview';
+import { progressStatus } from '@/features/projects/deadlines';
+import type { ChecklistOverviewItem } from '@/features/projects/deadlines';
 
 export const reconciledKeys = (operation: OfflineOperation) => [
   `items:${operation.task_id}:active`,
@@ -7,6 +10,7 @@ export const reconciledKeys = (operation: OfflineOperation) => [
   `items:${operation.task_id}:all`,
   `task-stats:${operation.project_id}:active`,
   `last-editors:${operation.task_id}`,
+  'checklist-overview',
 ];
 
 export function reconcileEntries(
@@ -14,7 +18,8 @@ export function reconcileEntries(
 ): (CacheEntry | null)[] {
   // A revoked/missing task must not retain readable data. The operation was
   // already durably ACKed, so it can be retired without replaying a mutation.
-  if (snapshot === null) return entries.map(() => null);
+  if (snapshot === null) return entries.map((entry, index) => index === 5 && entry ? { ...entry,
+    data: JSON.stringify((JSON.parse(entry.data) as ChecklistOverviewItem[]).filter((row) => row.task_id !== operation.task_id)) } : null);
   const next = [...entries];
   if (item && !snapshot.some((row) => row.id === item.id)) throw new Error('Confirmed item missing from task snapshot');
   const confirmed = entries.slice(0, 3).flatMap((entry) => entry ? JSON.parse(entry.data) as ReconciledItem[] : []);
@@ -42,15 +47,23 @@ export function reconcileEntries(
   if (stats && active) {
     const items = (JSON.parse(active.data) as (ReconciledItem & { is_archived?: boolean })[])
       .filter((row) => row.is_archived !== true);
-    const rows = JSON.parse(stats.data) as { id: string; itemCount: number; completedCount: number; progressPercent: number }[];
+    const rows = JSON.parse(stats.data) as { id: string; status?: string; itemCount: number; completedCount: number; progressPercent: number }[];
+    const progressPercent = items.length ? items.reduce((sum, value) => sum + value.percentage, 0) / items.length : 0;
     next[3] = { ...stats, data: JSON.stringify(rows.map((row) => row.id === operation.task_id
-      ? { ...row, itemCount: items.length, completedCount: items.filter((value) => value.is_completed).length,
-        progressPercent: items.length ? items.reduce((sum, value) => sum + value.percentage, 0) / items.length : 0 }
+      ? { ...row, itemCount: items.length, completedCount: items.filter((value) => value.percentage === 100).length,
+        progressPercent, status: progressStatus(progressPercent, row.status === 'archived') }
       : row)) };
   } else {
     next[3] = null;
   }
   // The last-editor summary must be fetched again after a confirmed mutation.
   next[4] = null;
+  if (entries[5]) {
+    const confirmedItem = rows.find((row) => row.id === operation.task_item_id) ?? null;
+    next[5] = { ...entries[5], data: JSON.stringify(patchChecklistOverview(JSON.parse(entries[5].data), {
+      cursor: 0, task_id: operation.task_id, task_item_id: operation.task_item_id,
+      change_type: confirmedItem ? 'upsert' : 'delete', item: confirmedItem,
+    }, operation.project_id)) };
+  }
   return next;
 }

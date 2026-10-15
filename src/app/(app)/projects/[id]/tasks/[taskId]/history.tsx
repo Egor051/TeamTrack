@@ -39,6 +39,7 @@ const auditActionLabels: Record<string, string> = {
   unassigned: "Назначение снято", role_changed: "Роль изменена", ownership_transferred: "Владение передано",
 };
 const entityLabels: Record<string, string> = {
+  task_item_deadline: 'Дедлайн чек-листа',
   task: "Этап", task_item: "Пункт чек-листа", task_member: "Участник этапа",
   task_assignee: "Исполнитель", project: "Проект", project_member: "Участник проекта", profile: "Профиль",
 };
@@ -48,6 +49,7 @@ const extraFieldLabels: Record<string, string> = {
   display_name: "имя пользователя", owner_id: "владелец", created_by: "автор",
 };
 function readableAuditChanges(entry: AuditEntry) {
+  if (entry.entity_type === 'task_item_deadline') return selectChecklistHistory([entry])[0]?.changes ?? [];
   return formatAuditChanges(entry.old_data, entry.new_data).flatMap((change) => {
     const match = /^Изменено: ([a-z_]+)$/.exec(change);
     if (!match) return [change];

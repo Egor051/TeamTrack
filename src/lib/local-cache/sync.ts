@@ -16,6 +16,7 @@ import { startRuntimeOperation, cancelRuntimeOperation, getOfflineRuntime, type 
 import { requestOfflineWork, type SyncResult } from './work-requests';
 import { reconciledKeys } from './reconcile';
 import { denyCacheAccess } from './access-state';
+import { announceReadModelCommit } from './read-model-events';
 
 type V2Result = { status: 'applied' | 'conflict'; version: number; item: ReconciledItem };
 type PullPage = { changes: PullChange[]; next_cursor: number; has_more: boolean } | { reset_required: true; retained_after_cursor: number };
@@ -34,6 +35,9 @@ export function subscribeSyncChanges(listener: (userId: string) => void): () => 
 export function announceSyncChange(userId: string): void {
   for (const listener of listeners) listener(userId);
   notifySyncState(userId);
+  // The account overview includes optimistic progress and confirmed pull/ACK
+  // snapshots. Reuse its existing cross-tab commit channel for visible counts.
+  announceReadModelCommit(userId, ['checklist-overview'], 'read');
 }
 const sameUser = async (userId: string) => await activeCacheUserId() === userId;
 const SYNC_REQUEST_TIMEOUT_MS = 20_000;

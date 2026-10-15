@@ -12,8 +12,29 @@ import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import { durableReadInvalidation, invalidateReadModels, readAccountEpoch, readInvalidation } from '@/lib/local-cache/read-freshness';
 import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { createReadRefreshScheduler } from '@/lib/local-cache/refresh-scheduler';
+import { formatDeadline } from '@/features/projects/deadlines';
 
 export type Notification = Database['public']['Tables']['notifications']['Row'];
+
+function notificationData(item: Notification): Record<string, unknown> {
+  return item.data && typeof item.data === 'object' && !Array.isArray(item.data) ? item.data : {};
+}
+
+export function notificationBody(item: Notification): string {
+  const data = notificationData(item);
+  if (typeof data.deadline_event !== 'string') return item.task_id ? stageNotificationText(item.body) : item.body;
+  const due = typeof data.deadline_at === 'string' ? data.deadline_at : typeof data.previous_deadline_at === 'string' ? data.previous_deadline_at : null;
+  return `Чек-лист «${data.title}» → этап «${data.task_title}» → проект «${data.project_name}».${due ? ` ${data.deadline_event === 'removed' ? 'Удалённый срок' : 'Срок'}: ${formatDeadline(due)} (${Intl.DateTimeFormat().resolvedOptions().timeZone}).` : ' Дедлайн удалён.'}`;
+}
+
+export function notificationRoute(item: Notification): string | null {
+  if (!item.project_id) return null;
+  if (!item.task_id) return `/projects/${item.project_id}`;
+  const data = notificationData(item);
+  const itemId = data.item_id;
+  const query = typeof itemId === 'string' && /^[0-9a-f-]{36}$/i.test(itemId) ? `?item=${encodeURIComponent(itemId)}` : '';
+  return `/projects/${item.project_id}/tasks/${item.task_id}${query}`;
+}
 
 export function stageNotificationText(value: string): string {
   return value
@@ -131,7 +152,12 @@ export async function markAllAsRead() {
 }
 export function subscribeToNotifications(userId: string, onChange: () => void, onStatus?: (status: RealtimeStatus) => void) {
   const refresh = createReadRefreshScheduler(async () => { onChange(); });
-  const realtime = subscribeTable('notifications', { userId, onEvent: () => refresh.request(), onStatus });
+  let connected = false;
+  const realtime = subscribeTable('notifications', { userId, onEvent: () => refresh.request(), onStatus: (next) => {
+    if (next === 'connected' && !connected) { connected = true; refresh.request(); }
+    else if (next !== 'connected') connected = false;
+    onStatus?.(next);
+  } });
   const models = subscribeReadModelCommits((commit) => {
     if (commit.userId === userId && commit.keys.some((key) => key === 'notifications:window' || key === 'notifications:unread-count')) refresh.request();
   });

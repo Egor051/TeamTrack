@@ -10,6 +10,9 @@ vi.mock('react-native', () => ({ View: 'View', ScrollView: 'ScrollView', Refresh
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: f.user }, profile: {} } }) }));
 vi.mock('@/features/auth/PermissionProvider', () => ({ usePermissionVersion: () => 0 }));
 vi.mock('@/features/projects/projects', () => ({ listProjects: f.projects, listMyTasks: f.tasks }));
+vi.mock('@/features/projects/checklist-overview', () => ({ listChecklistOverview: async () => [], overlayChecklistOverview: async (_: string, rows: unknown[]) => rows }));
+vi.mock('@/features/projects/use-deadline-clock', () => ({ useDeadlineClock: () => Date.now() }));
+vi.mock('@/components/ui/deadline-status', () => ({ DeadlineCard: 'Card', DeadlineIndicators: 'DeadlineIndicators', OverdueBadge: 'OverdueBadge' }));
 vi.mock('@/features/notifications/notifications', () => ({ fetchUnreadCount: async () => 0, subscribeToNotifications: () => () => undefined }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeTable: () => () => undefined }));
 vi.mock('@/lib/local-cache/cache', () => ({ activeCacheUserId: async () => f.user, getCached: f.get,

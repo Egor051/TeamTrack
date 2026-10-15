@@ -1,13 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { ThemedText } from '@/components/ui/text';
 import { Button } from '@/components/ui/button';
 import { useTheme } from './theme-provider';
 import type { RealtimeStatus } from '@/lib/supabase/realtime';
-import { subscribeConflictChanges } from '@/lib/local-cache/conflicts';
-import { getSyncState, subscribeSyncState, type SyncState } from '@/lib/local-cache/status';
-import { listPendingOperations } from '@/lib/local-cache/outbox';
+import { type SyncState } from '@/lib/local-cache/status';
+import { useSyncIndicator } from '@/lib/local-cache/use-sync-indicator';
 import { discardFailedOperation, retryFailedOperation } from '@/lib/local-cache/sync';
 import type { OfflineOperation } from '@/lib/local-cache/types';
 
@@ -42,35 +41,12 @@ export function RealtimeIndicator({ status, compact = false }: { status: Realtim
   const { colors: theme } = useTheme();
   const { state: auth } = useAuth();
   const userId = auth.isLoading ? null : auth.user?.id ?? null;
-  const [loaded, setLoaded] = useState<{ userId: string; snapshot: SyncState; failed: OfflineOperation | null } | null>(null);
-  const [readError, setReadError] = useState<string | null>(null);
+  const { snapshot, failed, readError: hasReadError } = useSyncIndicator(userId);
   const [actionError, setActionError] = useState<{ userId: string; text: string } | null>(null);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [busyUser, setBusyUser] = useState<string | null>(null);
-  const snapshot = loaded?.userId === userId ? loaded.snapshot : null;
-  const failed = loaded?.userId === userId ? loaded.failed : null;
-  const hasReadError = Boolean(userId && readError === userId);
   const error = actionError?.userId === userId ? actionError.text : null;
   const busy = Boolean(userId && busyUser === userId);
-
-  useEffect(() => {
-    if (!userId) return;
-    let active = true;
-    let generation = 0;
-    const refresh = () => {
-      const current = ++generation;
-      void Promise.all([getSyncState(userId), listPendingOperations(userId)]).then(([next, operations]) => {
-        if (!active || current !== generation) return;
-        setLoaded({ userId, snapshot: next, failed: operations.find((row) => row.status === 'failed') ?? null });
-        setReadError(null);
-      }).catch(() => { if (active && current === generation) setReadError(userId); });
-    };
-    refresh();
-    const changed = (changedUserId: string) => { if (changedUserId === userId) refresh(); };
-    const offSync = subscribeSyncState(changed);
-    const offConflicts = subscribeConflictChanges(changed);
-    return () => { active = false; offSync(); offConflicts(); };
-  }, [userId]);
 
   const { text, tone } = compactSyncStatus(status, snapshot, hasReadError);
   const canExpand = Boolean(failed || hasReadError || error);

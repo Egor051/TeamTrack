@@ -33,6 +33,7 @@ import {
   setTaskItemState,
   setTaskItemPercentage,
   setTaskItemComment,
+  setTaskItemDeadline,
   updateTask,
   listProjectMembers,
   listTaskAssignees,
@@ -69,6 +70,11 @@ import { performSupportedEdit } from "@/lib/local-cache/edit";
 import { subscribeSyncChanges } from "@/lib/local-cache/sync";
 import { ChecklistLocalRepository } from "@/lib/local-cache/repository";
 import { buildSyncEnabled } from "@/lib/local-cache/runtime-config";
+import { ChecklistDeadline } from '@/components/ui/deadline-status';
+import { DeadlinePicker } from '@/components/ui/deadline-picker';
+import { useDeadlineClock } from '@/features/projects/use-deadline-clock';
+import { progressStatus } from '@/features/projects/deadlines';
+import { russianCount } from '@/lib/russian';
 
 const projectRoleLabels: Record<ProjectMember["role"], string> = {
   owner: "Владелец",
@@ -82,7 +88,7 @@ export default function TaskScreen() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const compact = width < 700;
-  const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
+  const { id, taskId, item: linkedItem } = useLocalSearchParams<{ id: string; taskId: string; item?: string }>();
   const user = useUser();
   const permissionVersion = usePermissionVersion();
   const [task, setTask] = useState<Task | null>(null);
@@ -98,7 +104,14 @@ export default function TaskScreen() {
   const [manageOpen, setManageOpen] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
   const [showArchivedItems, setShowArchivedItems] = useState(false);
-  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [expansion, setExpansion] = useState({ query: linkedItem, id: linkedItem ?? null as string | null });
+  const expandedItem = expansion.query === linkedItem ? expansion.id : linkedItem ?? null;
+  const setExpandedItem = (itemId: string | null) => setExpansion({ query: linkedItem, id: itemId });
+  const [deadlineEditing, setDeadlineEditing] = useState<TaskItem | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const listTop = useRef(0);
+  const linkedPositions = useRef(new Map<string, number>());
+  const now = useDeadlineClock(summaryItems);
   const [itemToDelete, setItemToDelete] = useState<TaskItem | null>(null);
   const [title, setTitle] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
@@ -415,7 +428,7 @@ export default function TaskScreen() {
   const activeItems = summaryItems.filter((item) => !item.is_archived);
   const visibleItems = filterChecklistItems(items, showArchivedItems);
   const progress = activeItems.length ? activeItems.reduce((sum, item) => sum + item.percentage, 0) / activeItems.length : 0;
-  const completedItems = activeItems.filter((item) => item.is_completed).length;
+  const completedItems = activeItems.filter((item) => item.percentage === 100).length;
   const currentView = showArchivedItems ? "archived" : "active";
   const assigneeNames = assignees.map((assigneeId) => {
     const member = projectMembers.find((entry) => entry.user_id === assigneeId);
@@ -430,6 +443,7 @@ export default function TaskScreen() {
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[styles.content, compact && styles.compactContent]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -443,7 +457,8 @@ export default function TaskScreen() {
             actions={
               task ? <>
                 <RealtimeIndicator status={status} />
-                <TaskStatus status={task.status} />
+                {effectiveTaskRole ? <Badge tone="primary">{projectRoleLabels[effectiveTaskRole]}</Badge> : null}
+                <TaskStatus status={progressStatus(progress, task.status === 'archived')} />
               </> : null
             }
           />
@@ -482,7 +497,7 @@ export default function TaskScreen() {
                 value={progress}
                 label={activeItems.length ? `${completedItems} из ${activeItems.length} пунктов выполнено` : "Добавьте пункты, чтобы отслеживать выполнение"}
               />
-              <ThemedText type="small">{assigneeNames.length ? `Исполнители: ${assigneeNames.join(", ")}` : "Исполнители пока не назначены"}</ThemedText>
+              <ThemedText type="small">{assigneeNames.length ? `${russianCount(assigneeNames.length, ["исполнитель", "исполнителя", "исполнителей"])}: ${assigneeNames.join(", ")}` : "Исполнители пока не назначены"}</ThemedText>
             </Card>
             <View style={styles.sectionHead}>
               <View style={styles.sectionTitle}><ThemedText type="h2">Чек-лист</ThemedText><ThemedText type="small">{showArchivedItems ? "Архивные пункты доступны для просмотра." : "Отмечайте готовые пункты или уточняйте прогресс в деталях."}</ThemedText></View>
@@ -494,14 +509,17 @@ export default function TaskScreen() {
                 description={showArchivedItems ? "Здесь появятся пункты после архивации." : canEditChecklist ? "Добавьте первый пункт, чтобы разбить этап на последовательные шаги." : "Участники проекта ещё не добавили пункты в этот этап."}
               />
             ) : (
-              <View style={styles.list}>
+              <View style={styles.list} onLayout={(event) => { listTop.current = event.nativeEvent.layout.y; }}>
                 {visibleItems.map((item, index) => {
                   const percentageRaw = editPercentage[item.id] ?? String(item.percentage);
                   const parsedPercentage = parsePercentageInput(percentageRaw);
                   const percentageSaveValid = parsedPercentage !== null && parsedPercentage !== item.percentage;
                   const formattedComment = formatChecklistComment(item.comment);
                   return (
-                  <Card key={item.id} muted={item.is_archived}>
+                  <Card key={item.id} muted={item.is_archived} onLayout={(event) => {
+                    linkedPositions.current.set(item.id, event.nativeEvent.layout.y);
+                    if (linkedItem === item.id) requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, listTop.current + (linkedPositions.current.get(item.id) ?? 0) - 16), animated: false }));
+                  }}>
                     <View style={styles.itemRow}>
                       <Checkbox
                         checked={item.is_completed}
@@ -561,6 +579,12 @@ export default function TaskScreen() {
                     </View>
                     {expandedItem === item.id ? <View style={[styles.itemDetails, { borderTopColor: theme.border }]}>
                     <Progress value={item.percentage} label="Выполнение пункта" />
+                    <ChecklistDeadline item={item} now={now} />
+                    {canUpdateChecklistProgress && !item.is_archived ? <View style={styles.actions}>
+                      <Button size="sm" variant="outline" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => { setActionError(null); setDeadlineEditing(item); }}>{item.deadline_at ? 'Изменить дедлайн' : 'Установить дедлайн'}</Button>
+                      {item.deadline_at ? <Button size="sm" variant="ghost" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => setConfirm({ title: 'Удалить дедлайн?', description: 'Активные предупреждения исчезнут. История уведомлений сохранится.', confirmLabel: 'Удалить дедлайн', target: item.id, action: () => setTaskItemDeadline(item.id, null, item.sync_version) })}>Удалить дедлайн</Button> : null}
+                      {offlineForEdits || pendingItemIds.has(item.id) ? <ThemedText type="caption">Изменение дедлайна доступно после подключения и синхронизации чек-листа.</ThemedText> : null}
+                    </View> : null}
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
                       <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={10000} placeholder="Необязательно" disabled={busy} />
                        <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 10000} onPress={() => void runItemEdit(item, { type: 'set_task_item_comment', payload: { comment: editComment } }, () => setTaskItemComment(item.id, editComment), () => setCommentEditing(null))}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
@@ -780,6 +804,13 @@ export default function TaskScreen() {
           </>
         )}
       </ScrollView>
+      {deadlineEditing ? <DeadlinePicker value={deadlineEditing.deadline_at} busy={busy}
+        error={actionError?.target === deadlineEditing.id ? actionError.message : undefined}
+        onCancel={() => { if (!busy) { setDeadlineEditing(null); setActionError(null); } }}
+        onSave={async (value) => {
+          const saved = await run(() => setTaskItemDeadline(deadlineEditing.id, value, deadlineEditing.sync_version), deadlineEditing.id);
+          if (saved) setDeadlineEditing(null);
+        }} /> : null}
       <ConfirmDialog
         visible={Boolean(confirm) && !manageOpen}
         title={confirm?.title || ""}
@@ -834,7 +865,7 @@ const styles = StyleSheet.create({
   stageActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: spacing.md },
   stageActionsCompact: { alignItems: "stretch" },
   stageActionsGroup: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm, maxWidth: "100%", minWidth: 0 },
-  stageActionsGroupCompact: { width: "100%" },
+  stageActionsGroupCompact: { width: "100%", marginLeft: 0, justifyContent: 'flex-start' },
   stageActionsRight: { marginLeft: "auto", justifyContent: "flex-end" },
   actionDivider: { width: 1, height: 44, marginHorizontal: spacing.xs },
   taskFooter: { borderTopWidth: 1, paddingTop: spacing.md, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm },
