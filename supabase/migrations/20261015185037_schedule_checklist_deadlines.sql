@@ -10,7 +10,11 @@ begin
   if current_database() <> coalesce(nullif(current_setting('cron.database_name', true), ''), 'postgres') then
     raise exception 'Deadline scheduler must be installed in cron.database_name';
   end if;
-  create extension if not exists pg_cron;
+  -- On hosted Supabase pg_cron may already be installed. Executing CREATE
+  -- EXTENSION IF NOT EXISTS can still fire provider event hooks; skip it.
+  if not exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
+    create extension pg_cron;
+  end if;
   perform cron.schedule('tasktrace-checklist-deadlines', '* * * * *',
     'select private.process_checklist_deadlines();');
 end;
