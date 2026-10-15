@@ -194,8 +194,7 @@ export default function ProjectsScreen() {
     {!archived ? <View style={styles.section}><ThemedText type="h2">Мои этапы</ThemedText>{myTasks.length ? <View style={[styles.grid, wide && styles.gridWide]}>{myTasks.map((task) => {
       const items = grouped.tasks.get(task.id) ?? [];
       return <DeadlineCard state={deadlineSummary(items, now).state} key={task.id} style={wide ? styles.gridCard : undefined} onPress={() => router.push(`/projects/${task.project_id}/tasks/${task.id}` as never)}>
-        <ThemedText type="h3">{task.title}</ThemedText>
-        <View style={styles.badges}><RealtimeIndicator status={status} compact /><Badge tone="primary">Мой этап</Badge><TaskStatus status={progressStatus(averageChecklistProgress(items))} /></View>
+        <View style={styles.cardHeader}><ThemedText type="h3" style={styles.flex}>{task.title}</ThemedText><View style={styles.badges}><Badge tone="primary">Мой этап</Badge><TaskStatus status={progressStatus(averageChecklistProgress(items))} /></View></View>
         <ThemedText type="small">{task.project_name}</ThemedText>
       </DeadlineCard>;
     })}</View> : <EmptyState title="Нет назначенных этапов" description="Здесь появятся активные этапы, где вы исполнитель." />}</View> : null}
@@ -206,7 +205,7 @@ export default function ProjectsScreen() {
           <View style={styles.cardHeader}><ThemedText type="h3" style={styles.flex}>{project.name}</ThemedText></View>
           {project.description ? <ThemedText type="small" numberOfLines={2}>{project.description}</ThemedText> : null}
         </View>
-        <View style={styles.cardFooter}><View style={styles.badges}><RealtimeIndicator status={status} compact /><Badge tone={project.status === 'archived' ? 'neutral' : 'primary'}>{roleLabels[project.role]}</Badge><TaskStatus status={progressStatus(averageChecklistProgress(grouped.projects.get(project.id) ?? []), project.status === 'archived')} /><OverdueBadge overdue={deadlineSummary(grouped.projects.get(project.id) ?? [], now).overdue} /></View><ThemedText type="caption">{new Date(project.created_at).toLocaleDateString('ru-RU')}</ThemedText></View>
+        <View style={styles.cardFooter}><View style={styles.badges}><Badge tone={project.status === 'archived' ? 'neutral' : 'primary'}>{roleLabels[project.role]}</Badge><TaskStatus status={progressStatus(averageChecklistProgress(grouped.projects.get(project.id) ?? []), project.status === 'archived')} /><OverdueBadge overdue={deadlineSummary(grouped.projects.get(project.id) ?? [], now).overdue} /></View><ThemedText type="caption" style={{ marginLeft: 'auto' }}>{new Date(project.created_at).toLocaleDateString('ru-RU')}</ThemedText></View>
       </Card>
     ))}</View></>}</View>
   </ScrollView></Screen>;

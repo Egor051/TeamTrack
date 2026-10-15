@@ -36,7 +36,6 @@ import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { isCachedResult, isExplicitAccessError } from "@/lib/local-cache/cache";
-import { RealtimeIndicator } from '@/components/ui/realtime-indicator';
 import { DeadlineCard, OverdueBadge } from '@/components/ui/deadline-status';
 import { listChecklistOverview } from '@/features/projects/checklist-overview';
 import { averageChecklistProgress, deadlineSummary, groupChecklistOverview, progressStatus, type ChecklistOverviewItem } from '@/features/projects/deadlines';
@@ -64,7 +63,6 @@ export default function ProjectScreen() {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
-  const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const requestRef = useRef(0);
   const busyRef = useRef(false);
   const loadedProjectIdRef = useRef<string | null>(null);
@@ -132,7 +130,6 @@ export default function ProjectScreen() {
       void permissionVersion;
       realtimeConnectedRef.current = false;
       const onStatus = (next: RealtimeStatus) => {
-        setStatus(next);
         if (next === "connected" && !realtimeConnectedRef.current) {
           realtimeConnectedRef.current = true;
           scheduleRefresh();
@@ -259,7 +256,6 @@ export default function ProjectScreen() {
   const grouped = groupChecklistOverview(overview);
   const deadlineCounts = deadlineSummary(overview, now);
   const projectBadges = project ? <>
-    <RealtimeIndicator status={status} compact />
     <Badge tone={project.status === 'archived' ? 'neutral' : 'primary'}>{roleLabels[project.role]}</Badge>
     <TaskStatus status={progressStatus(percent, project.status === 'archived')} />
     <OverdueBadge overdue={deadlineCounts.overdue} />
@@ -428,7 +424,7 @@ export default function ProjectScreen() {
                     <ThemedText type="h3" style={styles.flex}>
                       {t.title}
                     </ThemedText>
-                    <View style={styles.badges}><RealtimeIndicator status={status} compact />
+                    <View style={styles.badges}>
                     {user && t.assignees.includes(user.id) ? <Badge tone="primary">Мой этап</Badge> : null}
                     <TaskStatus status={progressStatus(p, t.status === 'archived')} /></View>
                   </View>
