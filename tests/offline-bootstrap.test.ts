@@ -465,6 +465,35 @@ describe('account bootstrap', () => {
     await driver.remove(f.user, `audit:${taskId}:90days`);
     expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: true, extended_ready: false });
   });
+  it('foreground RPC projections, reordered users and read receipts preserve actual Basic/Extended coverage', async () => {
+    // Snapshot-only task_id/project_id fields must not become requirements of
+    // the route models returned by the existing RPCs.
+    f.rows.overrides = [{ task_id: taskId, user_id: 'member', role_override: 'viewer', set_by: f.user, set_at: stamp }];
+    f.rows.members.push({ project_id: projectId, user_id: 'member', role: 'member' });
+    f.rows.profiles.push({ id: 'member', display_name: 'Member' });
+    f.rows.last_editors = [{ task_id: taskId, task_item_id: itemId, user_id: f.user, display_name: 'Editor' }];
+    const b = await run(); await b.selectOfflineScheme(f.user, 'extended'); await again(b);
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    for (const key of [`members:${projectId}`, `task-overrides:${taskId}`, `last-editors:${taskId}`]) {
+      const entry = (await driver.get(f.user, key))!;
+      const rows = JSON.parse(entry.data).reverse().map(({ project_id: _project, task_id: _task, ...row }: Record<string, unknown>) => row);
+      await driver.put({ ...entry, data: JSON.stringify(rows) });
+    }
+    const editors = (await driver.get(f.user, `last-editors:${taskId}`))!;
+    await driver.put({ ...editors, data: JSON.stringify([{ task_item_id: itemId, user_id: 'member', display_name: 'New editor' }]) });
+    const window = (await driver.get(f.user, 'notifications:window'))!;
+    const value = JSON.parse(window.data); value.rows[0].is_read = true;
+    await driver.put({ ...window, data: JSON.stringify(value) });
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: true, extended_ready: true, status: 'ready', progress: 100 });
+    const items = (await driver.get(f.user, `items:${taskId}:active`))!;
+    const corrupt = JSON.parse(items.data); corrupt[0].is_archived = true;
+    await driver.put({ ...items, data: JSON.stringify(corrupt) });
+    expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
+    await driver.put(items);
+    // This is a coverage check, never permission to ignore missing models.
+    await driver.remove(f.user, `last-editors:${taskId}`);
+    expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: true, extended_ready: false, status: 'partial' });
+  });
   it('a fully prepared cache stays ready offline and runtime preparation never persists', async () => {
     const b = await run(); vi.stubGlobal('navigator', { ...navigator, onLine: false });
     await b.runAccountBootstrap(f.user);

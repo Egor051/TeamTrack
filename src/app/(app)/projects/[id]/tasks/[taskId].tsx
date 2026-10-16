@@ -2,7 +2,9 @@ import { isReadAccessPending } from '@/lib/local-cache/read-freshness';
 import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { ModalLayer } from '@/components/ui/modal-layer';
+import { ProjectMembersPanel } from '@/features/projects/project-members-panel';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/ui/screen";
@@ -70,10 +72,10 @@ import { performSupportedEdit } from "@/lib/local-cache/edit";
 import { subscribeSyncChanges } from "@/lib/local-cache/sync";
 import { ChecklistLocalRepository } from "@/lib/local-cache/repository";
 import { buildSyncEnabled } from "@/lib/local-cache/runtime-config";
-import { ChecklistDeadline } from '@/components/ui/deadline-status';
+import { ChecklistDeadline, DeadlineBadge, DeadlineCard } from '@/components/ui/deadline-status';
 import { DeadlinePicker } from '@/components/ui/deadline-picker';
 import { useDeadlineClock } from '@/features/projects/use-deadline-clock';
-import { progressStatus } from '@/features/projects/deadlines';
+import { deadlineState, deadlineSummary, progressStatus } from '@/features/projects/deadlines';
 import { russianCount } from '@/lib/russian';
 
 const projectRoleLabels: Record<ProjectMember["role"], string> = {
@@ -141,12 +143,13 @@ export default function TaskScreen() {
     target?: string;
   } | null>(null);
   const requestRef = useRef(0);
+  const loadedScopeRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const realtimeConnectedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!id || !taskId || !user) return;
-    if (isReadAccessPending(`task:${taskId}`)) { setTask(null); setLoadedUserId(null); setEffectiveTaskRole(null); setItems([]); setSummaryItems([]); }
+    if (isReadAccessPending(`task:${taskId}`)) setEffectiveTaskRole(null);
     const request = ++requestRef.current;
     setLoadError("");
     let supplementaryOffline = false;
@@ -184,6 +187,7 @@ export default function TaskScreen() {
         : [];
       if (request !== requestRef.current) return;
       if (await activeCacheUserId() !== user.id) return;
+      loadedScopeRef.current = `${user.id}:${id}:${taskId}:${showArchivedItems}`;
       setTask(nextTask);
       setLoadedUserId(user.id);
       setProject(nextProject);
@@ -204,6 +208,7 @@ export default function TaskScreen() {
       if (request === requestRef.current) {
         setLoadError(userMessage(e, "Не удалось обновить этап."));
         if (isExplicitAccessError(e)) {
+          loadedScopeRef.current = null;
           setTask(null);
           setLoadedUserId(null);
           setProject(null);
@@ -225,6 +230,10 @@ export default function TaskScreen() {
 
   const primeLocal = useCallback(async () => {
     if (!buildSyncEnabled() || !user || !id || !taskId) return;
+    const scope = `${user.id}:${id}:${taskId}:${showArchivedItems}`;
+    // ACL/focus refreshes revalidate the existing view. Replaying its startup
+    // snapshot would briefly replace live data and claim the online view is offline.
+    if (loadedScopeRef.current === scope) return;
     const generation = requestRef.current;
     if (await getCached<boolean>(user.id, `blocked:${id}`)
       || await getCached<boolean>(user.id, `blocked-task:${taskId}`)) return;
@@ -239,6 +248,7 @@ export default function TaskScreen() {
       || cachedProject.id !== id || requestRef.current !== generation || await activeCacheUserId() !== user.id) return;
     const pending = await listPendingOperations(user.id, taskId);
     if (requestRef.current !== generation || await activeCacheUserId() !== user.id) return;
+    loadedScopeRef.current = scope;
     setTask(cachedTask);
     setProject(cachedProject);
     setItems(cachedItems);
@@ -459,6 +469,7 @@ export default function TaskScreen() {
                 <RealtimeIndicator status={status} />
                 {effectiveTaskRole ? <Badge tone="primary">{projectRoleLabels[effectiveTaskRole]}</Badge> : null}
                 <TaskStatus status={progressStatus(progress, task.status === 'archived')} />
+                <DeadlineBadge state={task.status === 'archived' ? 'normal' : deadlineSummary(activeItems, now).state} />
               </> : null
             }
           />
@@ -485,9 +496,9 @@ export default function TaskScreen() {
                 {canManageTask ? <Button size="sm" variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
               </View> : null}
               <View style={[styles.stageActionsGroup, styles.stageActionsRight, compact && styles.stageActionsGroupCompact]}>
-                <Button size="sm" variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
+                <Button size="sm" variant="ghost" disabled={busy} onPress={() => router.push(`/projects/${id}/tasks/${taskId}/history` as never)}>История</Button>
                 <View accessibilityElementsHidden style={[styles.actionDivider, { backgroundColor: theme.border }]} />
-                <Button size="sm" variant="ghost" disabled={busy} onPress={() => router.replace(`/projects/${id}/tasks/${taskId}/progress` as never)}>Прогресс дня</Button>
+                <Button size="sm" variant="ghost" disabled={busy} onPress={() => router.push(`/projects/${id}/tasks/${taskId}/progress` as never)}>Прогресс дня</Button>
               </View>
             </View>
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
@@ -516,7 +527,7 @@ export default function TaskScreen() {
                   const percentageSaveValid = parsedPercentage !== null && parsedPercentage !== item.percentage;
                   const formattedComment = formatChecklistComment(item.comment);
                   return (
-                  <Card key={item.id} muted={item.is_archived} onLayout={(event) => {
+                  <DeadlineCard state={task.status === 'archived' ? 'normal' : deadlineState(item, now)} key={item.id} muted={item.is_archived} onLayout={(event) => {
                     linkedPositions.current.set(item.id, event.nativeEvent.layout.y);
                     if (linkedItem === item.id) requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, listTop.current + (linkedPositions.current.get(item.id) ?? 0) - 16), animated: false }));
                   }}>
@@ -558,6 +569,7 @@ export default function TaskScreen() {
                           </Pressable>
                         )}
                         {formattedComment ? <ThemedText type="small" style={styles.itemComment}>{formattedComment}</ThemedText> : null}
+                        <ChecklistDeadline item={task.status === 'archived' ? { ...item, is_archived: true } : item} now={now} />
                         <View style={styles.itemMeta}>
                            <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
                            {pendingItemIds.has(item.id) ? <ThemedText type="caption" accessibilityLiveRegion="polite" style={failedItemIds.has(item.id) ? { color: theme.warning } : undefined}>{failedItemIds.has(item.id) ? 'Не удалось синхронизировать' : 'Ожидает синхронизации'}</ThemedText> : null}
@@ -579,7 +591,6 @@ export default function TaskScreen() {
                     </View>
                     {expandedItem === item.id ? <View style={[styles.itemDetails, { borderTopColor: theme.border }]}>
                     <Progress value={item.percentage} label="Выполнение пункта" />
-                    <ChecklistDeadline item={item} now={now} />
                     {canUpdateChecklistProgress && !item.is_archived ? <View style={styles.actions}>
                       <Button size="sm" variant="outline" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => { setActionError(null); setDeadlineEditing(item); }}>{item.deadline_at ? 'Изменить дедлайн' : 'Установить дедлайн'}</Button>
                       {item.deadline_at ? <Button size="sm" variant="ghost" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => setConfirm({ title: 'Удалить дедлайн?', description: 'Активные предупреждения исчезнут. История уведомлений сохранится.', confirmLabel: 'Удалить дедлайн', target: item.id, action: () => setTaskItemDeadline(item.id, null, item.sync_version) })}>Удалить дедлайн</Button> : null}
@@ -657,7 +668,7 @@ export default function TaskScreen() {
                     ) : null}
                     </View> : null}
                     {actionError?.target === item.id ? <ErrorMessage message={actionError.message} type="validation" /> : null}
-                  </Card>
+                  </DeadlineCard>
                   );
                 })}
               </View>
@@ -689,10 +700,11 @@ export default function TaskScreen() {
             ) : null}
             {canManageTask ? <View style={[styles.taskFooter, { borderTopColor: theme.border }]}><ThemedText type="small" style={styles.footerCopy}>Этап больше не нужен в текущей работе?</ThemedText><Button size="sm" variant="outline" disabled={busy} onPress={() => setConfirm({ title: "Архивировать этап?", description: "Этап переместится в архив проекта. Его можно будет восстановить вместе с чек-листом.", action: () => archiveTask(taskId), confirmLabel: "Архивировать", destructive: false })}>Архивировать этап</Button></View> : null}
             {task && canManageTask ? (
-              <Modal visible={manageOpen} animationType="slide" transparent onRequestClose={() => { if (!busy) setManageOpen(false); }}>
-                <View style={[styles.modalBackdrop, !compact && styles.modalBackdropDesktop, { backgroundColor: theme.overlay }]}><View style={[styles.modalSheet, !compact && styles.modalSheetDesktop, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]} accessibilityViewIsModal pointerEvents={confirm ? "none" : "auto"} accessibilityElementsHidden={Boolean(confirm)} importantForAccessibility={confirm ? "no-hide-descendants" : "auto"}>
+              <ModalLayer visible={manageOpen} busy={busy} onClose={() => setManageOpen(false)} label="Участники и исполнители">
+                <View style={[styles.modalSheet, !compact && styles.modalSheetDesktop, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]} accessibilityViewIsModal pointerEvents={confirm ? "none" : "auto"} accessibilityElementsHidden={Boolean(confirm)} importantForAccessibility={confirm ? "no-hide-descendants" : "auto"}>
                   <View style={styles.sectionHead}><View style={styles.flex}><ThemedText type="h2">Участники и исполнители</ThemedText><ThemedText type="small" numberOfLines={2}>{task.title}</ThemedText></View><Button size="sm" variant="ghost" disabled={busy} onPress={() => setManageOpen(false)}>Закрыть</Button></View>
                   <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+                  {manageOpen ? <ProjectMembersPanel projectId={id} embedded onChanged={load} /> : null}
                   {!canManageTask ? <ThemedText type="small">Управлять доступом и назначениями могут владелец и администратор активного проекта.</ThemedText> : null}
                   {actionError?.target === "members" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
                   {busyAction === "members" ? <ThemedText type="small" accessibilityLiveRegion="polite">Сохраняем изменения…</ThemedText> : null}
@@ -709,7 +721,7 @@ export default function TaskScreen() {
                   ) : (
                     projectMembers.map((member) => {
                       const override = overrideByUserId.get(member.user_id);
-                      const canManageMemberOverride = project?.role === "owner" || (member.role !== "owner" && member.role !== "admin");
+                      const canManageMemberOverride = member.user_id !== user.id && (project?.role === "owner" || (member.role !== "owner" && member.role !== "admin"));
                       const overrideOptions = [
                         { value: "inherit", label: `Наследовать: ${projectRoleLabels[member.role]}` },
                         ...(["admin", "member", "viewer"] as TaskChecklistRole[])
@@ -718,7 +730,7 @@ export default function TaskScreen() {
                       ];
                       return (
                         <View key={member.user_id} style={styles.memberRow}>
-                          <ThemedText style={styles.flex}>
+                          <ThemedText style={styles.memberName}>
                             {member.profile?.display_name || member.user_id.slice(0, 8)}
                           </ThemedText>
                           <View style={styles.overrideControl}>
@@ -735,7 +747,7 @@ export default function TaskScreen() {
                               disabled={busy || !canManageMemberOverride}
                             />
                             <ThemedText type="caption">
-                              Проект: {projectRoleLabels[member.role]}{override ? ` · На этапе: ${projectRoleLabels[override]}` : " · Без переопределения"}
+                              {member.user_id === user.id ? 'Вы · свою роль изменить нельзя. ' : ''}Проект: {projectRoleLabels[member.role]}{override ? ` · На этапе: ${projectRoleLabels[override]}` : " · Без переопределения"}
                             </ThemedText>
                           </View>
                         </View>
@@ -752,7 +764,7 @@ export default function TaskScreen() {
                       const assigned = assignees.includes(member.user_id);
                       return (
                         <View key={member.user_id} style={styles.memberRow}>
-                          <ThemedText style={styles.flex}>
+                          <ThemedText style={styles.memberName}>
                             {member.profile?.display_name || member.user_id.slice(0, 8)}
                           </ThemedText>
                           {assigned ? (
@@ -798,8 +810,8 @@ export default function TaskScreen() {
                    busy={busy}
                    onCancel={() => setConfirm(null)}
                    onConfirm={() => void confirmAction()}
-                 /></View>
-              </Modal>
+                 />
+              </ModalLayer>
             ) : null}
           </>
         )}
@@ -860,6 +872,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   overrideControl: { width: 280, maxWidth: "100%", gap: spacing.xs },
+  memberName: { flexGrow: 1, flexShrink: 1, flexBasis: 160, minWidth: 0 },
   flex: { flex: 1, minWidth: 0 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   stageActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: spacing.md },
@@ -870,9 +883,7 @@ const styles = StyleSheet.create({
   actionDivider: { width: 1, height: 44, marginHorizontal: spacing.xs },
   taskFooter: { borderTopWidth: 1, paddingTop: spacing.md, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm },
   footerCopy: { flex: 1, minWidth: 140 },
-  modalBackdrop: { flex: 1, justifyContent: "flex-end", alignItems: "center" },
-  modalBackdropDesktop: { justifyContent: "center", padding: spacing.xl },
-  modalSheet: { width: "100%", maxWidth: 780, maxHeight: "90%", padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 16, borderTopRightRadius: 16, zIndex: 1, elevation: 1 },
+  modalSheet: { width: "100%", maxWidth: 780, maxHeight: "100%", padding: spacing.lg, gap: spacing.md, borderTopLeftRadius: 16, borderTopRightRadius: 16, zIndex: 1, elevation: 1 },
   modalSheetDesktop: { borderRadius: 16, padding: spacing.xl },
   modalScroll: { flexShrink: 1 },
   modalContent: { gap: spacing.lg, paddingBottom: spacing.xs },

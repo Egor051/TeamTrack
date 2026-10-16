@@ -23,22 +23,22 @@ async function mountPicker(save = vi.fn(async (_value: string): Promise<void> =>
 }
 
 describe('calendar and analog clock', () => {
-  it('maps the entire dial, including 12 o’clock and exact minutes', () => {
-    expect(dialValue(126, 0, 'hour')).toBe(12); expect(dialValue(252, 126, 'hour')).toBe(3);
-    expect(dialValue(126, 252, 'hour')).toBe(6); expect(dialValue(0, 126, 'hour')).toBe(9);
+  it('maps both rings of the 24-hour dial and exact minutes', () => {
+    expect(dialValue(126, 0, 'hour')).toBe(0); expect(dialValue(252, 126, 'hour')).toBe(15);
+    expect(dialValue(126, 252, 'hour')).toBe(18); expect(dialValue(0, 126, 'hour')).toBe(21);
+    expect(dialValue(126, 61, 'hour')).toBe(12); expect(dialValue(191, 126, 'hour')).toBe(3);
     expect(dialValue(252, 126, 'minute')).toBe(15); expect(dialValue(126, 0, 'minute')).toBe(0);
   });
-  it('selects date → hours → minutes, supports AM/PM and confirms an absolute timestamp', async () => {
+  it('selects date → 24-hour clock → minutes and confirms an absolute timestamp', async () => {
     const save = await mountPicker();
     const day = renderer.root.findAll((node) => node.type as unknown === 'Pressable').find((node) => node.props.accessibilityLabel.includes('20 октября'))!;
     await act(async () => day.props.onPress());
     expect(text()).toContain('Выберите часы');
     let face = renderer.root.findByProps({ accessibilityRole: 'adjustable' });
-    await act(async () => { face.props.onResponderGrant({ nativeEvent: { locationX: 126, locationY: 0 } }); face.props.onResponderRelease(); });
+    await act(async () => { face.props.onResponderGrant({ nativeEvent: { locationX: 126, locationY: 61 } }); face.props.onResponderRelease(); });
     expect(text()).toContain('Выберите минуты');
     face = renderer.root.findByProps({ accessibilityRole: 'adjustable' });
     await act(async () => face.props.onResponderMove({ nativeEvent: { locationX: 252, locationY: 126 } }));
-    await act(async () => renderer.root.findByProps({ accessibilityLabel: 'Половина суток' }).props.onChange('PM'));
     await act(async () => button('Подтвердить').props.onPress());
     expect(save).toHaveBeenCalledOnce();
     const date = new Date(save.mock.calls[0][0]);
@@ -48,10 +48,26 @@ describe('calendar and analog clock', () => {
     const save = await mountPicker();
     const past = renderer.root.findAll((node) => node.type as unknown === 'Pressable').find((node) => node.props.accessibilityLabel.includes('14 октября'))!;
     expect(past.props.disabled).toBe(true);
-    await act(async () => renderer.root.findByProps({ accessibilityLabel: 'Шаг выбора дедлайна' }).props.onChange('minute'));
+    await act(async () => { renderer.update(createElement(DeadlinePicker, { key: 'edit', value: new Date(2026, 9, 16, 12, 30).toISOString(), busy: false, onCancel: vi.fn(), onSave: save })); });
     vi.setSystemTime(new Date(2026, 9, 20));
     await act(async () => button('Подтвердить').props.onPress());
     expect(save).not.toHaveBeenCalled(); expect(text()).toContain('в будущем');
+  });
+  it('opening a new value selects neither today, hours nor minutes; cancel saves nothing', async () => {
+    const save = await mountPicker();
+    const days = renderer.root.findAll((node) => node.type as unknown === 'Pressable');
+    expect(days.some((day) => day.props.accessibilityState?.selected)).toBe(false);
+    expect(button('Подтвердить').props.disabled).toBe(true);
+    await act(async () => renderer.root.findByProps({ accessibilityLabel: 'Шаг выбора дедлайна' }).props.onChange('hour'));
+    expect(renderer.root.findByProps({ accessibilityRole: 'adjustable' }).props.accessibilityValue.now).toBeUndefined();
+    expect(text()).not.toContain('AM'); expect(text()).not.toContain('PM'); expect(save).not.toHaveBeenCalled();
+  });
+  it.each(Array.from({ length: 24 }, (_, hour) => hour))('selects hour %i on its proper ring', (hour) => {
+    const slot = hour % 12; const radius = hour > 0 && hour <= 12 ? 65 : 103;
+    expect(dialValue(126 + Math.sin(slot * Math.PI / 6) * radius, 126 - Math.cos(slot * Math.PI / 6) * radius, 'hour')).toBe(hour);
+  });
+  it.each(Array.from({ length: 60 }, (_, minute) => minute))('selects exact minute %i', (minute) => {
+    expect(dialValue(126 + Math.sin(minute * Math.PI / 30) * 103, 126 - Math.cos(minute * Math.PI / 30) * 103, 'minute')).toBe(minute);
   });
 });
 

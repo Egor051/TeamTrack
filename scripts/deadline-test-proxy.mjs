@@ -6,13 +6,33 @@ import { resolve, extname } from 'node:path';
 const config = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
+let blockBootstrapPages = false;
 createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/__test/bootstrap-pages') {
+    blockBootstrapPages = url.searchParams.get('blocked') === '1'; res.writeHead(200).end('ok'); return;
+  }
   if (url.pathname.startsWith('/rest/v1/')) {
-    const forwarded = proxyRequest(config.api + req.url.slice('/rest/v1'.length), { method: req.method, headers: { ...req.headers, host: new URL(config.api).host } }, (upstream) => {
-      res.writeHead(upstream.statusCode, upstream.headers); upstream.pipe(res);
-    });
-    forwarded.on('error', () => res.writeHead(502).end()); req.pipe(forwarded); return;
+    const forward = (body) => {
+      const forwarded = proxyRequest(config.api + req.url.slice('/rest/v1'.length), { method: req.method, headers: { ...req.headers, host: new URL(config.api).host } }, (upstream) => {
+        res.writeHead(upstream.statusCode, upstream.headers); upstream.pipe(res);
+      });
+      forwarded.on('error', () => res.writeHead(502).end());
+      if (body) forwarded.end(body); else req.pipe(forwarded);
+    };
+    if (blockBootstrapPages && url.pathname === '/rest/v1/rpc/get_offline_account_page') {
+      const chunks = []; req.on('data', (chunk) => chunks.push(chunk)); req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        let dataset;
+        try { dataset = JSON.parse(body).p_dataset; }
+        catch { res.writeHead(400).end('Invalid fixture request'); return; }
+        // Interrupt Extended resources while allowing changed mandatory pages
+        // to finish after earlier role, assignment and deadline mutations.
+        if (['history', 'notifications', 'last_editors'].includes(dataset)) req.socket.destroy();
+        else forward(body);
+      });
+    } else forward();
+    return;
   }
   if (url.pathname.startsWith('/auth/v1/')) {
     let body = {};

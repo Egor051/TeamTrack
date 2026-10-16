@@ -53,7 +53,7 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
   for (const project of projects) {
     put(`project:${project.id}`, project);
     put(`blocked:${project.id}`, false);
-    put(`members:${project.id}`, (membersByProject.get(project.id) ?? []).map((m) => ({ ...m, profile: profiles.get(m.user_id) ?? null })));
+    put(`members:${project.id}`, (membersByProject.get(project.id) ?? []).map(({ project_id: _projectId, ...m }) => ({ ...m, profile: profiles.get(m.user_id) ?? null })));
     const projectTasks = (tasksByProject.get(project.id) ?? []).sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
     put(`tasks:${project.id}`, projectTasks);
     for (const mode of ['active', 'archived'] as const) {
@@ -77,11 +77,11 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     put(`items:${task.id}:active`, all.filter((i) => !i.is_archived));
     put(`items:${task.id}:archived`, all.filter((i) => i.is_archived));
     const project = projectMap.get(task.project_id);
-    if (project?.role === 'owner' || project?.role === 'admin') put(`task-overrides:${task.id}`, overridesByTask.get(task.id) ?? []);
-    if (rows.last_editors) put(`last-editors:${task.id}`, editorsByTask.get(task.id) ?? []);
+    if (project?.role === 'owner' || project?.role === 'admin') put(`task-overrides:${task.id}`, (overridesByTask.get(task.id) ?? []).map(({ task_id: _taskId, ...row }) => row));
+    if (rows.last_editors) put(`last-editors:${task.id}`, (editorsByTask.get(task.id) ?? []).map(({ task_id: _taskId, ...row }) => row));
     if (rows.history) {
       const ids = taskAuditEntityIds(task.id, all.map((i) => i.id), (rows.history as AuditEntry[]).filter((a) => a.project_id === task.project_id));
-      const history = ids.flatMap((id) => historyByEntity.get(id) ?? []).filter((a) => a.project_id === task.project_id);
+      const history = ids.flatMap((id) => historyByEntity.get(id) ?? []).filter((a) => a.project_id === task.project_id && Date.parse(a.created_at) >= Date.now() - 90 * 86400000);
       put(`audit:${task.id}:90days`, history.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id));
     }
   }

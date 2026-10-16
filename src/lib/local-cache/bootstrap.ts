@@ -254,6 +254,7 @@ async function verifyLocalReadiness(meta: BootstrapMetadata): Promise<Pick<Boots
         if (/^blocked(?:-task)?:/.test(entry.key)) {
           if (cacheAccessDecision(meta.user_id, entry.key) === true) return false;
           if (!value && entry.data === 'false') return true;
+          return value?.data === entry.data;
         }
         if (!value) return false;
         return modelCovers(JSON.parse(value.data), JSON.parse(entry.data));
@@ -269,15 +270,26 @@ function modelCovers(actual: unknown, expected: unknown): boolean {
   if (expected === null) return actual === null || typeof actual === 'string';
   if (Array.isArray(expected)) {
     if (!Array.isArray(actual) || actual.length < expected.length) return false;
-    const byId = new Map(actual.filter((row) => row && typeof row === 'object' && 'id' in row).map((row) => [row.id, row]));
-    return expected.every((row, index) => modelCovers(row && typeof row === 'object' && 'id' in row ? byId.get(row.id) : actual[index], row));
+    const identity = (row: unknown): unknown => {
+      if (!row || typeof row !== 'object') return undefined;
+      const value = row as Record<string, unknown>;
+      return value.id ?? value.task_item_id ?? value.user_id;
+    };
+    const byId = new Map(actual.map((row) => [identity(row), row]));
+    return expected.every((row, index) => modelCovers(identity(row) !== undefined ? byId.get(identity(row)) : actual[index], row));
   }
   if (typeof expected === 'object') {
     if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
     const value = actual as Record<string, unknown>;
-    return Object.entries(expected).every(([key, item]) => ['id', 'task_id', 'project_id', 'template_id'].includes(key)
-      ? value[key] === item : modelCovers(value[key], item));
+    // A last-editor row is identified by task_item_id; user_id is its mutable
+    // author. Memberships and notification recipients retain a strict user ID.
+    return Object.entries(expected).every(([key, item]) => (['id', 'task_id', 'project_id', 'template_id', 'task_item_id'].includes(key)
+      || (key === 'user_id' && !('task_item_id' in expected)))
+      ? value[key] === item : ['is_read', 'is_completed'].includes(key) && typeof item === 'boolean'
+        ? typeof value[key] === 'boolean' : modelCovers(value[key], item));
   }
+  // Archive and access flags still describe coverage. Only the mutable read /
+  // completion fields above may differ from their certified snapshot values.
   return typeof expected === 'boolean' ? actual === expected : typeof actual === typeof expected;
 }
 

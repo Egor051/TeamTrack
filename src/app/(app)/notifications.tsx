@@ -12,7 +12,9 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { ThemedText } from '@/components/ui/text';
 import { useUser } from '@/features/auth/AuthProvider';
-import { fetchNotificationPage, markAllAsRead, markAsRead, notificationBody, notificationRoute, stageNotificationText, subscribeToNotifications, type Notification } from '@/features/notifications/notifications';
+import { fetchNotificationPage, fetchNotificationFilterOptions, markAllAsRead, markAsRead, notificationBody, notificationRoute, stageNotificationText, subscribeToNotifications, type Notification, type NotificationFilterOptions } from '@/features/notifications/notifications';
+import { NotificationFilters } from '@/features/notifications/notification-filters';
+import { matchesNotification, notificationTone, NotificationReadState, type NotificationFilters as Filters } from '@/features/notifications/notification-state';
 import { isExplicitAccessError } from '@/lib/local-cache/cache';
 import { userMessage } from '@/lib/errors/user-message';
 import { layout, spacing } from '@/components/ui/theme';
@@ -28,6 +30,11 @@ export default function NotificationsScreen() {
   const { colors: theme } = useTheme();
   const user = useUser();
   const [items, setItems] = useState<Notification[]>([]);
+  const [filters, setFilters] = useState<Filters>({});
+  const [filterOptions, setFilterOptions] = useState<NotificationFilterOptions>({ projects: [], tasks: [] });
+  const [filterError, setFilterError] = useState('');
+  const readState = useRef(new NotificationReadState());
+  const pageOffset = useRef(0);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -46,6 +53,9 @@ export default function NotificationsScreen() {
 
   const load = useCallback(async (reset = true) => {
     const request = ++requestRef.current;
+    if (filters.from && filters.to && filters.from > filters.to) {
+      setLoadError('Начало периода должно быть раньше конца.'); setLoading(false); setLoadingMore(false); setHasMore(false); setItems([]); itemsRef.current = []; return;
+    }
     if (reset) {
       setLoading(true);
       // A refresh supersedes an in-flight page request. Clear its spinner
@@ -57,16 +67,18 @@ export default function NotificationsScreen() {
       setLoadingMore(true);
     }
     try {
-      const offset = reset ? 0 : itemsRef.current.length;
-      const result = await fetchNotificationPage(PAGE_SIZE, offset);
-      const page = result.rows;
+      const offset = reset ? 0 : pageOffset.current;
+      const result = await fetchNotificationPage(PAGE_SIZE, offset, filters);
+      const page = readState.current.accept(result.rows);
       if (request !== requestRef.current) return;
+      pageOffset.current = offset + result.rows.length;
       if (reset) {
         itemsRef.current = page;
         setItems(page);
       } else {
         setItems((prev) => {
-          const next = [...prev, ...page];
+          const byId = new Map([...prev, ...page].map((row) => [row.id, row]));
+          const next = readState.current.apply([...byId.values()]);
           itemsRef.current = next;
           return next;
         });
@@ -88,7 +100,7 @@ export default function NotificationsScreen() {
         setLoadingMore(false);
       }
     }
-  }, []);
+  }, [filters]);
 
   const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { view: 'notifications', userId: user?.id });
   useOnlineRecovery(load);
@@ -102,6 +114,14 @@ export default function NotificationsScreen() {
       cleanup();
     };
   }, [load, user, scheduleRefresh]));
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    const fetchOptions = () => { void fetchNotificationFilterOptions().then((next) => { if (active) { setFilterOptions(next); setFilterError(''); } })
+      .catch((error) => { if (active) setFilterError(userMessage(error, 'Не удалось загрузить варианты фильтров.')); }); };
+    fetchOptions();
+    const cleanup = user ? subscribeToNotifications(user.id, fetchOptions) : () => {};
+    return () => { active = false; cleanup(); };
+  }, [user]));
 
   if (!user) return <LoadingState label="Завершаем сеанс..." />;
 
@@ -111,12 +131,17 @@ export default function NotificationsScreen() {
     if (markingIdsRef.current.has(item.id)) return false;
     markingIdsRef.current.add(item.id);
     setMarkingIds(new Set(markingIdsRef.current));
+    const ids = readState.current.begin([item]);
+    itemsRef.current = readState.current.apply(itemsRef.current); setItems(itemsRef.current);
     try {
       await markAsRead(item.id);
-      setItems((prev) => prev.map((n) => n.id === item.id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n));
+      readState.current.confirm(ids);
+      itemsRef.current = readState.current.apply(itemsRef.current); setItems(itemsRef.current);
       setActionError('');
+      scheduleRefresh();
       return true;
     } catch (e) {
+      itemsRef.current = readState.current.rollback(ids, itemsRef.current); setItems(itemsRef.current);
       setActionError(userMessage(e, 'Не удалось отметить уведомление.'));
       return false;
     } finally {
@@ -136,14 +161,19 @@ export default function NotificationsScreen() {
   }
 
   async function allRead() {
-    if (markingAllRef.current) return;
+    if (markingAllRef.current || markingIdsRef.current.size) return;
     markingAllRef.current = true;
     setMarkingAll(true);
     setActionError('');
+    const ids = readState.current.begin(itemsRef.current);
+    itemsRef.current = readState.current.apply(itemsRef.current); setItems(itemsRef.current);
     try {
       await markAllAsRead();
-      setItems((prev) => prev.map((n) => ({ ...n, is_read: true, read_at: n.read_at ?? new Date().toISOString() })));
+      readState.current.confirm(ids);
+      itemsRef.current = readState.current.apply(itemsRef.current); setItems(itemsRef.current);
+      scheduleRefresh();
     } catch (e) {
+      itemsRef.current = readState.current.rollback(ids, itemsRef.current); setItems(itemsRef.current);
       setActionError(userMessage(e, 'Не удалось обновить уведомления.'));
     } finally {
       markingAllRef.current = false;
@@ -153,12 +183,15 @@ export default function NotificationsScreen() {
 
   return <Screen padded={false} centerContent={false}>
     <ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFromServer()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={!offline && items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll} onPress={() => void allRead()}>Прочитать все</Button> : null} />
+      <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={!offline && items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll || markingIds.size > 0} onPress={() => void allRead()}>Прочитать все</Button> : null} />
+      <NotificationFilters value={filters} onChange={setFilters} options={filterOptions} />
+      {filterError ? <ErrorMessage message={filterError} type="generic" /> : null}
+      {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
       {offline ? <Card><ThemedText type="small">Показаны сохранённые уведомления: все непрочитанные и последние 100 прочитанных. Более старые уведомления и отметка прочтения требуют подключения.</ThemedText></Card> : null}
-      {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : !items.length ? <EmptyState title="Уведомлений пока нет" description="Здесь появится информация о доступе к этапам и изменениях чек-листа." /> : <View style={styles.list}>
+      {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : <View style={styles.list}>
         {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить уведомления</Button></View> : null}
-        {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
-        {items.map((item) => <Card key={item.id} style={!item.is_read ? [styles.readCard, { borderColor: theme.primary }] : undefined}>
+        {!items.some((item) => matchesNotification(item, filters)) ? <EmptyState title={Object.values(filters).some(Boolean) ? 'Нет уведомлений по выбранным условиям' : 'Уведомлений пока нет'} description="Измените или сбросьте фильтры." /> : null}
+        {items.filter((item) => matchesNotification(item, filters)).map((item) => <Card key={item.id} tone={notificationTone(item) === 'danger' ? 'destructive' : notificationTone(item) === 'warning' ? 'warning' : undefined} style={!item.is_read ? styles.readCard : undefined}>
           <Pressable onPress={() => void read(item)} disabled={markingAll} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${notificationText(item, item.title)}`} accessibilityState={{ disabled: markingAll }} style={styles.pressableContent}>
             <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{notificationText(item, item.title)}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
             <ThemedText>{notificationBody(item)}</ThemedText>

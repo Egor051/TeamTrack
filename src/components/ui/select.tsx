@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { ModalLayer } from './modal-layer';
 import { radii, spacing } from '@/components/ui/theme';
 import { ThemedText } from '@/components/ui/text';
 import { useTheme } from './theme-provider';
@@ -49,10 +50,7 @@ export function Select({
         </ThemedText>
         <ThemedText type="caption" style={{ color: theme.textMuted }}>▾</ThemedText>
       </Pressable>
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View style={[styles.backdrop, { backgroundColor: theme.overlay }]}>
-          <Pressable style={styles.dismissLayer} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Закрыть список" />
-          <View style={[styles.menu, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <ModalLayer visible={open} onClose={() => setOpen(false)} label={label || accessibilityLabel} contentStyle={styles.menu}>
             <View style={styles.menuHeader}><ThemedText type="h3" style={styles.optionText}>{label || accessibilityLabel}</ThemedText><Pressable accessibilityRole="button" accessibilityLabel="Закрыть список" onPress={() => setOpen(false)} style={styles.close}><ThemedText>✕</ThemedText></Pressable></View>
             <FlatList
               data={options}
@@ -73,9 +71,7 @@ export function Select({
                 );
               }}
             />
-          </View>
-        </View>
-      </Modal>
+      </ModalLayer>
     </View>
   );
 }
@@ -86,9 +82,7 @@ const styles = StyleSheet.create({
   close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   trigger: { minHeight: 48, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   triggerText: { flex: 1 },
-  backdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.lg },
-  dismissLayer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  menu: { width: '100%', maxWidth: 480, maxHeight: '80%', borderWidth: 1, borderRadius: radii.md, padding: spacing.lg, gap: spacing.md },
+  menu: { maxWidth: 480, maxHeight: '80%', padding: spacing.lg, gap: spacing.md },
   list: { flexGrow: 0 },
   option: { minHeight: 48, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radii.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   optionText: { flex: 1 },

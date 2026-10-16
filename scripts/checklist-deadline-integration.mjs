@@ -42,6 +42,12 @@ export async function verifyChecklistDeadlineIntegration(port, database, contain
     const item = await data(owner.rpc('create_task_item', { p_task_id: task, p_title: 'API checklist' }));
     await data(owner.rpc('add_project_member', { p_project_id: project, p_user_id: ids[1], p_role: 'member' }));
     await data(owner.rpc('add_project_member', { p_project_id: project, p_user_id: ids[2], p_role: 'viewer' }));
+    for (const [name, args] of [['change_member_role', { p_project_id: project, p_user_id: ids[0], p_new_role: 'member' }],
+      ['set_task_member_override', { p_task_id: task, p_user_id: ids[0], p_role: 'viewer' }], ['clear_task_member_override', { p_task_id: task, p_user_id: ids[0] }]]) {
+      assert.equal((await owner.rpc(name, args)).error?.code, '42501', `${name} allowed own-role edit`);
+    }
+    assert.deepEqual(await data(outsider.rpc('notification_filter_options')), { projects: [], tasks: [] });
+    console.log('PASS roles/filter Data API: own-role RPC edits denied; notification facets cannot reveal another recipient');
     const due = new Date(Date.now() + 86_400_000).toISOString();
     await data(owner.rpc('set_task_item_deadline', { p_task_item_id: item, p_deadline_at: due, p_expected_version: 1 }));
     const seen = await data(member.from('checklist_overview').select('*').eq('id', item).single());

@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { ModalLayer } from '@/components/ui/modal-layer';
+import { ProjectMembersPanel } from '@/features/projects/project-members-panel';
+import { RealtimeIndicator } from '@/components/ui/realtime-indicator';
 import { Progress } from "@/components/ui/progress";
 import { TaskStatus } from "@/components/ui/task-status";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -36,9 +39,9 @@ import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { isCachedResult, isExplicitAccessError } from "@/lib/local-cache/cache";
-import { DeadlineCard, OverdueBadge } from '@/components/ui/deadline-status';
+import { DeadlineCard, DeadlineBadge, OverdueBadge } from '@/components/ui/deadline-status';
 import { listChecklistOverview } from '@/features/projects/checklist-overview';
-import { averageChecklistProgress, deadlineSummary, groupChecklistOverview, progressStatus, type ChecklistOverviewItem } from '@/features/projects/deadlines';
+import { deadlineSummary, groupChecklistOverview, progressStatus, type ChecklistOverviewItem } from '@/features/projects/deadlines';
 import { useDeadlineClock } from '@/features/projects/use-deadline-clock';
 import { russianCount } from '@/lib/russian';
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
@@ -50,6 +53,9 @@ export default function ProjectScreen() {
   const permissionVersion = usePermissionVersion();
   const [project, setProject] = useState<ProjectWithRole | null>(null);
   const [tasks, setTasks] = useState<TaskWithStats[]>([]);
+  const [activeTasks, setActiveTasks] = useState<TaskWithStats[]>([]);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [status, setStatus] = useState<RealtimeStatus>('connecting');
   const [overview, setOverview] = useState<ChecklistOverviewItem[]>([]);
   const now = useDeadlineClock(overview);
   const [archived, setArchived] = useState(false);
@@ -72,6 +78,9 @@ export default function ProjectScreen() {
     loadedProjectIdRef.current = null;
     setProject(null);
     setTasks([]);
+    setActiveTasks([]);
+    setOverview([]);
+    setMembersOpen(false);
     setEditing(false);
   }, [id]);
   const load = useCallback(async () => {
@@ -89,9 +98,10 @@ export default function ProjectScreen() {
       setEditName(nextProject.name);
       setEditDescription(nextProject.description || "");
       if (nextArchived !== archived) setArchived(nextArchived);
-      const [nextTasks, nextOverview] = await Promise.all([listTasksWithStats(id, nextArchived), listChecklistOverview()]);
+      const [nextTasks, nextOverview, nextActiveTasks] = await Promise.all([listTasksWithStats(id, nextArchived), listChecklistOverview(), nextArchived ? listTasksWithStats(id, false) : Promise.resolve(null)]);
       if (request !== requestRef.current) return;
       setTasks(nextTasks);
+      setActiveTasks(nextActiveTasks ?? nextTasks);
       setOverview(nextOverview.filter((item) => item.project_id === id));
       setOffline(isCachedResult(nextProject) || isCachedResult(nextTasks));
     } catch (e) {
@@ -130,6 +140,7 @@ export default function ProjectScreen() {
       void permissionVersion;
       realtimeConnectedRef.current = false;
       const onStatus = (next: RealtimeStatus) => {
+        setStatus(next);
         if (next === "connected" && !realtimeConnectedRef.current) {
           realtimeConnectedRef.current = true;
           scheduleRefresh();
@@ -249,10 +260,9 @@ export default function ProjectScreen() {
     !showArchivedTasks &&
     project?.status === "active" &&
     (project.role === "owner" || project.role === "admin");
-  const archivedProject = project?.status === 'archived';
-  const complete = archivedProject ? tasks.reduce((sum, t) => sum + t.completedCount, 0) : overview.filter((item) => item.percentage === 100).length;
-  const total = archivedProject ? tasks.reduce((sum, t) => sum + t.itemCount, 0) : overview.length;
-  const percent = archivedProject ? (total ? tasks.reduce((sum, t) => sum + t.progressPercent * t.itemCount, 0) / total : 0) : averageChecklistProgress(overview);
+  const complete = activeTasks.reduce((sum, t) => sum + t.completedCount, 0);
+  const total = activeTasks.reduce((sum, t) => sum + t.itemCount, 0);
+  const percent = total ? activeTasks.reduce((sum, t) => sum + t.progressPercent * t.itemCount, 0) / total : 0;
   const grouped = groupChecklistOverview(overview);
   const deadlineCounts = deadlineSummary(overview, now);
   const projectBadges = project ? <>
@@ -278,7 +288,8 @@ export default function ProjectScreen() {
           title={editing ? "Редактирование проекта" : project?.name || "Проект"}
           subtitle={editing ? "" : project?.description || "Рабочее пространство проекта"}
           breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект" }]}
-          actions={projectBadges}
+          onBack={() => router.dismissTo('/projects')}
+          actions={<RealtimeIndicator status={status} />}
         />
         {project && editing ? (
           <Card>
@@ -339,7 +350,7 @@ export default function ProjectScreen() {
             </View>
             <Progress
               value={percent}
-              label={`${russianCount(tasks.length, ["этап", "этапа", "этапов"])} · ${complete} из ${total} пунктов выполнено`}
+              label={`${russianCount(activeTasks.length, ["этап", "этапа", "этапов"])} · ${complete} из ${total} пунктов выполнено`}
             />
            </Card>
          ) : null}
@@ -373,7 +384,7 @@ export default function ProjectScreen() {
               size="sm"
               variant="outline"
               disabled={busy}
-              onPress={() => router.push(`/projects/${id}/members` as never)}
+              onPress={() => setMembersOpen(true)}
             >
               Участники
             </Button> : null}
@@ -427,6 +438,7 @@ export default function ProjectScreen() {
                     <View style={styles.badges}>
                     {user && t.assignees.includes(user.id) ? <Badge tone="primary">Мой этап</Badge> : null}
                     <TaskStatus status={progressStatus(p, t.status === 'archived')} /></View>
+                    <DeadlineBadge state={deadlineSummary(grouped.tasks.get(t.id) ?? [], now).state} />
                   </View>
                   {t.description ? (
                     <ThemedText type="small" numberOfLines={2}>
@@ -447,6 +459,12 @@ export default function ProjectScreen() {
           </View>
         )}
       </ScrollView>
+      <ModalLayer visible={membersOpen} onClose={() => setMembersOpen(false)} label="Участники проекта">
+        <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }} keyboardShouldPersistTaps="handled">
+          <View style={styles.sectionTitle}><ThemedText type="h2">Участники проекта</ThemedText><Button size="sm" variant="ghost" onPress={() => setMembersOpen(false)}>Закрыть</Button></View>
+          {membersOpen ? <ProjectMembersPanel key={id} projectId={id} embedded onChanged={load} /> : null}
+        </ScrollView>
+      </ModalLayer>
       <ConfirmDialog
         visible={confirm}
         title="Архивировать проект?"

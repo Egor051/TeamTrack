@@ -1,0 +1,32 @@
+import { createElement } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, expect, it, vi } from 'vitest';
+const f = vi.hoisted(() => ({ path: '/projects/p', replace: vi.fn() }));
+vi.mock('expo-router', () => ({ Stack: 'Stack', router: { replace: f.replace }, usePathname: () => f.path }));
+vi.mock('expo-status-bar', () => ({ StatusBar: 'StatusBar' }));
+vi.mock('react-native-safe-area-context', () => ({ SafeAreaProvider: 'SafeAreaProvider' }));
+vi.mock('@/features/auth/AuthProvider', () => ({ AuthProvider: 'AuthProvider', useAuthState: () => ({ isLoading: false, session: true }) }));
+vi.mock('@/lib/local-cache/OfflineBootstrapProvider', () => ({ OfflineRuntimeProvider: 'OfflineRuntimeProvider' }));
+vi.mock('@/lib/local-cache/ConflictGate', () => ({ ConflictGate: 'ConflictGate' }));
+vi.mock('@/components/ui/theme-provider', () => ({ ThemeProvider: 'ThemeProvider', useTheme: () => ({ colors: {}, resolved: 'dark' }) }));
+vi.mock('@/components/pwa-update-banner', () => ({ PwaUpdateBanner: 'PwaUpdateBanner' }));
+import RootLayout from '@/app/_layout';
+let screen: ReactTestRenderer;
+afterEach(async () => { await act(async () => screen?.unmount()); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+it('consumes an already rendered deep-link marker so the first Back cannot reopen the project', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = { __TASKTRACE_INITIAL_PATH__: '/projects/p' }; vi.stubGlobal('window', host); f.path = '/projects/p';
+  await act(async () => { screen = create(createElement(RootLayout)); });
+  expect(host.__TASKTRACE_INITIAL_PATH__).toBeUndefined(); expect(f.replace).not.toHaveBeenCalled();
+  f.path = '/projects'; await act(async () => screen.update(createElement(RootLayout)));
+  expect(f.replace).not.toHaveBeenCalled();
+});
+it('still restores an offline-shell redirect once and leaves subsequent browser history alone', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = { __TASKTRACE_INITIAL_PATH__: '/projects/p/tasks/t' }; vi.stubGlobal('window', host); f.path = '/projects';
+  await act(async () => { screen = create(createElement(RootLayout)); });
+  expect(f.replace).toHaveBeenCalledExactlyOnceWith('/projects/p/tasks/t');
+  f.path = '/projects/p/tasks/t'; await act(async () => screen.update(createElement(RootLayout)));
+  f.path = '/projects'; await act(async () => screen.update(createElement(RootLayout)));
+  expect(f.replace).toHaveBeenCalledOnce();
+});

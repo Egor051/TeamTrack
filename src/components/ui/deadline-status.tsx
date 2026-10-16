@@ -19,11 +19,15 @@ export function OverdueBadge({ overdue }: { overdue: number }) {
   return overdue > 0 ? <Badge tone="danger">Просрочен дедлайн</Badge> : null;
 }
 
+export function DeadlineBadge({ state }: { state: DeadlineState }) {
+  return state === 'normal' ? null : <Badge tone={state === 'overdue' ? 'danger' : 'warning'}>{state === 'overdue' ? 'Просрочен дедлайн' : 'Приближается дедлайн'}</Badge>;
+}
+
 export function ChecklistDeadline({ item, now }: { item: DeadlineItem; now: number }) {
   const state = deadlineState(item, now);
   return item.deadline_at ? <View style={styles.indicators}>
     <ThemedText type="small">Дедлайн: {formatDeadline(item.deadline_at)}</ThemedText>
-    {state !== 'normal' ? <Badge tone={state === 'overdue' ? 'danger' : 'warning'}>{state === 'overdue' ? 'Просрочен дедлайн' : 'Горящий дедлайн'}</Badge> : null}
+    <DeadlineBadge state={state} />
   </View> : null;
 }
 

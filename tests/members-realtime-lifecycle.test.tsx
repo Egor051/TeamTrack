@@ -6,6 +6,7 @@ vi.mock('react-native', () => ({ View: () => null, StyleSheet: { create: (value:
 vi.mock('expo-router', async () => { const React = await import('react'); return { router: { replace: vi.fn() }, useLocalSearchParams: () => ({ id: 'project' }),
   useFocusEffect: (callback: () => void) => React.useEffect(callback, [callback]) }; });
 vi.mock('@/features/auth/PermissionProvider', () => ({ usePermissionVersion: () => f.version }));
+vi.mock('@/features/auth/AuthProvider', () => ({ useUser: () => ({ id: 'owner' }) }));
 vi.mock('@/lib/connectivity/use-online-recovery', () => ({ useOnlineRecovery: () => undefined }));
 vi.mock('@/lib/local-cache/read-freshness', () => ({ isReadAccessPending: () => false }));
 vi.mock('@/lib/local-cache/use-read-model-updates', () => ({ useReadModelUpdates: (load: () => Promise<void>) => ({ scheduleRefresh: load, refreshFromServer: load }) }));

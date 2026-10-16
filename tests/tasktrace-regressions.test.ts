@@ -140,14 +140,14 @@ describe('user-facing checklist history selector', () => {
 });
 
 describe('UI architecture regressions', () => {
-  it('keeps the action log collapsed initially and renders nested confirmation in the parent host', () => {
+  it('keeps the action log collapsed initially and uses the shared nested modal layer', () => {
     const history = readFileSync(resolve(root, 'src/app/(app)/projects/[id]/tasks/[taskId]/history.tsx'), 'utf8');
     const confirm = readFileSync(resolve(root, 'src/components/ui/confirm-dialog.tsx'), 'utf8');
     const task = readFileSync(resolve(root, 'src/app/(app)/projects/[id]/tasks/[taskId].tsx'), 'utf8');
     const dataLayer = readFileSync(resolve(root, 'src/features/projects/projects.ts'), 'utf8');
     expect(history).toContain('useState(false)');
     expect(history).toContain('actionLogExpanded');
-    expect(confirm).toContain('nestedRoot');
+    expect(confirm).toContain('ModalLayer');
     expect(task).toContain('nested');
     expect(task).toContain('showArchivedItems ? "archived" : "active"');
     expect(dataLayer).toContain("mode === 'archived'");

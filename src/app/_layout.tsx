@@ -27,11 +27,13 @@ function RootStack() {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (isLoading || !session || typeof window === 'undefined' || pathname !== '/projects') return;
+    if (isLoading || !session || typeof window === 'undefined' || !pathname.startsWith('/projects')) return;
     const initialPath = (window as Window & { __TASKTRACE_INITIAL_PATH__?: string }).__TASKTRACE_INITIAL_PATH__;
     if (!initialPath || !/^\/projects\/[^/.]+(?:\/[^/.]+)*\/?$/.test(initialPath)) return;
     delete (window as Window & { __TASKTRACE_INITIAL_PATH__?: string }).__TASKTRACE_INITIAL_PATH__;
-    router.replace(initialPath as never);
+    // A directly rendered deep route has already recovered. Leaving this marker
+    // alive would reopen it on the user's first Back to /projects.
+    if (pathname === '/projects') router.replace(initialPath as never);
   }, [isLoading, pathname, session]);
   return (
     <>

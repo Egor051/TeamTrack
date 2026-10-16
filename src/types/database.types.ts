@@ -740,6 +740,7 @@ export type Database = {
         Args: { p_direction: number; p_item_id: string }
         Returns: undefined
       }
+      notification_filter_options: { Args: never; Returns: Json }
       pull_task_item_changes: {
         Args: { p_after_cursor: number; p_limit?: number }
         Returns: Json

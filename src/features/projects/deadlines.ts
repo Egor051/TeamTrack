@@ -63,17 +63,16 @@ export function nextDeadlineBoundary(items: readonly DeadlineItem[], now: number
 }
 
 /** Reject DST gaps rather than silently moving the chosen wall-clock time. */
-export function localDeadline(year: number, month: number, day: number, hour12: number, minute: number, period: 'AM' | 'PM'): Date | null {
-  if (!Number.isInteger(hour12) || hour12 < 1 || hour12 > 12 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
-  const hour = hour12 % 12 + (period === 'PM' ? 12 : 0);
+export function localDeadline(year: number, month: number, day: number, hour: number, minute: number): Date | null {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
   const date = new Date(year, month, day, hour, minute, 0, 0);
   return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
     && date.getHours() === hour && date.getMinutes() === minute ? date : null;
 }
 
 /** A repeated wall-clock time can denote two instants during the autumn fold. */
-export function localDeadlineCandidates(year: number, month: number, day: number, hour12: number, minute: number, period: 'AM' | 'PM'): Date[] {
-  const first = localDeadline(year, month, day, hour12, minute, period);
+export function localDeadlineCandidates(year: number, month: number, day: number, hour: number, minute: number): Date[] {
+  const first = localDeadline(year, month, day, hour, minute);
   if (!first) return [];
   const later = new Date(first.getTime() + 3 * 3_600_000);
   const shift = later.getTimezoneOffset() - first.getTimezoneOffset();

@@ -110,7 +110,7 @@ export default function ProjectDailyProgressScreen() {
         <PageHeader
           title="Прогресс дня"
           subtitle={projectName || "Только сегодняшние увеличения прогресса"}
-          onBack={() => router.replace(`/projects/${id}` as never)}
+          onBack={() => router.dismissTo(`/projects/${id}` as never)}
           backLabel="К проекту"
           breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: "Прогресс дня" }]}
           actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void refreshFromServer()}>Обновить</Button></>}

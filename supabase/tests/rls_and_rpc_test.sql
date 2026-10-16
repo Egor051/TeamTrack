@@ -53,6 +53,22 @@ do $$ begin
 end $$;
 
 -- Inherited roles and explicit checklist-only raise/lower behavior.
+-- Own-role edits are rejected at the RPC boundary, including no-op clears.
+set local role authenticated;
+select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='owner'),true);
+do $$ declare denied boolean; begin
+  denied := false;
+  begin perform public.set_task_member_override((select id from sec_state where key='task'), auth.uid(), 'viewer'); exception when insufficient_privilege then denied := true; end;
+  if not denied then raise exception 'owner changed own checklist role'; end if;
+  denied := false;
+  begin perform public.clear_task_member_override((select id from sec_state where key='task'), auth.uid()); exception when insufficient_privilege then denied := true; end;
+  if not denied then raise exception 'owner cleared own checklist role'; end if;
+  denied := false;
+  begin perform public.change_member_role((select id from sec_state where key='project'), auth.uid(), 'member'); exception when insufficient_privilege then denied := true; end;
+  if not denied then raise exception 'owner changed own project role'; end if;
+end $$;
+reset role;
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='member'),true);
 do $$ begin

@@ -13,8 +13,10 @@ import { durableReadInvalidation, invalidateReadModels, readAccountEpoch, readIn
 import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { createReadRefreshScheduler } from '@/lib/local-cache/refresh-scheduler';
 import { formatDeadline } from '@/features/projects/deadlines';
+import { matchesNotification, type NotificationFilters } from './notification-state';
 
 export type Notification = Database['public']['Tables']['notifications']['Row'];
+export type NotificationFilterOptions = { projects: { id: string; name: string }[]; tasks: { id: string; project_id: string; title: string }[] };
 
 function notificationData(item: Notification): Record<string, unknown> {
   return item.data && typeof item.data === 'object' && !Array.isArray(item.data) ? item.data : {};
@@ -68,7 +70,10 @@ async function readNotificationWindow(): Promise<NotificationWindow> {
     const { data, error } = await uiRead(supabase.from('notifications').select('*').eq('is_read', true)
       .order('created_at', { ascending: false }).order('id', { ascending: false }).range(0, 99));
     if (error) throw error;
-    return { rows: [...unread, ...(data ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)), read_limit: 100 };
+    // A read acknowledgement can move a notice between the two queries.
+    // Prefer the later read row and never publish duplicate IDs.
+    const byId = new Map([...unread, ...(data ?? [])].map((row) => [row.id, row]));
+    return { rows: [...byId.values()].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)), read_limit: 100 };
   });
 }
 async function notificationRead<T>(online: () => Promise<T>, cached: (window: NotificationWindow) => T): Promise<T> {
@@ -102,23 +107,48 @@ async function notificationRead<T>(online: () => Promise<T>, cached: (window: No
     return local(error);
   }
 }
-export async function fetchNotificationPage(limit = 100, offset = 0): Promise<NotificationPage> {
-  if (offset === 0 && limit <= 100) {
+export async function fetchNotificationPage(limit = 100, offset = 0, filters: NotificationFilters = {}): Promise<NotificationPage> {
+  const filtered = Object.entries(filters).some(([key, value]) => !!value && !(key === 'read' && value === 'all'));
+  if (!filtered && offset === 0 && limit <= 100) {
     const window = await readNotificationWindow();
     const offline = isCachedResult(window);
     return { rows: inheritCachedResult(window, window.rows.slice(0, limit)), offline, hasMore: offline ? window.rows.length > limit : window.rows.length >= limit, limited: offline };
   }
   return notificationRead<NotificationPage>(async () => {
-    const { data, error } = await uiRead(supabase.from('notifications').select('*').order('created_at', { ascending: false }).range(offset, offset + limit - 1));
+    let query = supabase.from('notifications').select('*');
+    if (filters.projectId) query = query.eq('project_id', filters.projectId);
+    if (filters.taskId) query = query.eq('task_id', filters.taskId);
+    if (filters.from) query = query.gte('created_at', filters.from);
+    if (filters.to) query = query.lte('created_at', filters.to);
+    if (filters.read && filters.read !== 'all') query = query.eq('is_read', filters.read === 'read');
+    if (filters.action) query = filters.action.startsWith('deadline:') ? query.eq('data->>deadline_event', filters.action.slice(9)) : query.eq('type', filters.action as Notification['type']);
+    const { data, error } = await uiRead(query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + limit - 1));
     if (error) throw error;
     return { rows: data ?? [], offline: false, hasMore: (data?.length ?? 0) === limit, limited: false };
   }, (window) => {
-    return { rows: inheritCachedResult(window, window.rows.slice(offset, offset + limit)), offline: true,
-      hasMore: offset + limit < window.rows.length, limited: true };
+    const rows = window.rows.filter((row) => matchesNotification(row, filters));
+    return { rows: inheritCachedResult(window, rows.slice(offset, offset + limit)), offline: true,
+      hasMore: offset + limit < rows.length, limited: true };
   });
 }
 export async function fetchNotifications(limit = 100, offset = 0) {
   return (await fetchNotificationPage(limit, offset)).rows;
+}
+export async function fetchNotificationFilterOptions(): Promise<NotificationFilterOptions> {
+  return notificationRead(async () => {
+    const { data, error } = await uiRead(supabase.rpc('notification_filter_options'));
+    if (error) throw error;
+    return data as unknown as NotificationFilterOptions;
+  }, (window) => {
+    const projects = new Map<string, { id: string; name: string }>();
+    const tasks = new Map<string, { id: string; project_id: string; title: string }>();
+    for (const row of window.rows) {
+      const data = notificationData(row);
+      if (row.project_id) projects.set(row.project_id, { id: row.project_id, name: String(data.project_name ?? `Проект ${row.project_id.slice(0, 8)}`) });
+      if (row.task_id && row.project_id) tasks.set(row.task_id, { id: row.task_id, project_id: row.project_id, title: String(data.task_title ?? `Этап ${row.task_id.slice(0, 8)}`) });
+    }
+    return { projects: [...projects.values()], tasks: [...tasks.values()] };
+  });
 }
 export async function fetchUnreadCount() {
   const userId = await activeCacheUserId();
@@ -141,14 +171,18 @@ export async function fetchUnreadCount() {
   }
 }
 export async function markAsRead(id: string) {
+  const userId = await activeCacheUserId();
   const { error } = await supabase.rpc('mark_notification_read', { p_notification_id: id });
   if (error) throw error;
-  const userId = await activeCacheUserId(); if (userId) await invalidateReadModels(userId, ['notifications:']);
+  if (userId && await activeCacheUserId() === userId) await invalidateReadModels(userId, ['notifications:'])
+    .catch((error) => console.warn('[TaskTrace] notification cache invalidation deferred', error));
 }
 export async function markAllAsRead() {
+  const userId = await activeCacheUserId();
   const { error } = await supabase.rpc('mark_all_notifications_read');
   if (error) throw error;
-  const userId = await activeCacheUserId(); if (userId) await invalidateReadModels(userId, ['notifications:']);
+  if (userId && await activeCacheUserId() === userId) await invalidateReadModels(userId, ['notifications:'])
+    .catch((error) => console.warn('[TaskTrace] notification cache invalidation deferred', error));
 }
 export function subscribeToNotifications(userId: string, onChange: () => void, onStatus?: (status: RealtimeStatus) => void) {
   const refresh = createReadRefreshScheduler(async () => { onChange(); });

@@ -7,6 +7,23 @@ vi.mock('@/lib/supabase/client', () => ({ supabase: { from: f.from, rpc: f.rpc, 
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeTable: f.subscribe }));
 vi.mock('@/lib/local-cache/driver', async () => import('@/lib/local-cache/driver.web'));
 const queries: { columns: string; head: boolean; read: boolean | undefined }[] = [];
+it('combined filters are sent before the stable page range; filtered reads never truncate the Extended cache', async () => {
+  await seedWindow();
+  const n = await import('@/features/notifications/notifications');
+  const calls: unknown[][] = [];
+  const query = { select: () => query, eq: (...args: unknown[]) => { calls.push(['eq', ...args]); return query; },
+    gte: (...args: unknown[]) => { calls.push(['gte', ...args]); return query; }, lte: (...args: unknown[]) => { calls.push(['lte', ...args]); return query; },
+    order: (...args: unknown[]) => { calls.push(['order', ...args]); return query; }, range: (...args: unknown[]) => { calls.push(['range', ...args]); return query; },
+    then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve) };
+  f.from.mockReturnValue(query);
+  await n.fetchNotificationPage(20, 40, { projectId: 'p', taskId: 't', from: '2026-10-15T12:30:00Z', to: '2026-10-16T12:30:00Z', action: 'deadline:overdue', read: 'unread' });
+  expect(calls).toEqual([
+    ['eq', 'project_id', 'p'], ['eq', 'task_id', 't'], ['gte', 'created_at', '2026-10-15T12:30:00Z'], ['lte', 'created_at', '2026-10-16T12:30:00Z'],
+    ['eq', 'is_read', false], ['eq', 'data->>deadline_event', 'overdue'], ['order', 'created_at', { ascending: false }], ['order', 'id', { ascending: false }], ['range', 40, 59],
+  ]);
+  const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+  expect(JSON.parse((await driver.get('a', 'notifications:window'))!.data).rows).toHaveLength(3);
+});
 beforeEach(async () => {
   vi.resetModules(); vi.clearAllMocks(); queries.length = 0;
   await new Promise<void>((resolve, reject) => { const r = indexedDB.deleteDatabase('tasktrace-local-cache'); r.onsuccess = () => resolve(); r.onerror = () => reject(r.error); });
@@ -39,6 +56,30 @@ it('a stale notification window cannot turn badge refresh into SELECT rows', asy
 it('opening Notifications still downloads all unread and the bounded read window', async () => {
   const n = await import('@/features/notifications/notifications'); expect((await n.fetchNotificationPage()).rows).toHaveLength(3);
   expect(queries).toEqual([{ columns: '*', head: false, read: false }, { columns: '*', head: false, read: true }]);
+});
+it('a notice moving from unread to read between the two window queries appears once with the acknowledged state', async () => {
+  f.from.mockImplementation(() => {
+    let read = false;
+    const query = { select: () => query, eq: (_key: string, value: boolean) => { read = value; return query; }, order: () => query, range: () => query,
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ id: 'moving', created_at: '2026-10-16', is_read: read }], error: null }).then(resolve) };
+    return query;
+  });
+  const n = await import('@/features/notifications/notifications');
+  expect((await n.fetchNotificationPage()).rows).toMatchObject([{ id: 'moving', is_read: true }]);
+  expect((await n.fetchNotificationPage()).rows).toHaveLength(1);
+});
+it('offline combined filtering paginates the saved window without downloading or replacing it', async () => {
+  const rows = [
+    { id: 'new', is_read: false, project_id: 'p', task_id: 't', created_at: '2026-10-16T12:30:00Z', type: 'task_item_changed', data: { deadline_event: 'overdue' } },
+    { id: 'other', is_read: false, project_id: 'q', task_id: 't', created_at: '2026-10-16T12:20:00Z', type: 'task_item_changed', data: { deadline_event: 'overdue' } },
+    { id: 'old', is_read: false, project_id: 'p', task_id: 't', created_at: '2026-10-16T12:10:00Z', type: 'task_item_changed', data: { deadline_event: 'overdue' } },
+  ];
+  f.rows = rows; await seedWindow(); vi.stubGlobal('navigator', { onLine: false });
+  const n = await import('@/features/notifications/notifications');
+  const filters = { projectId: 'p', taskId: 't', action: 'deadline:overdue', read: 'unread' as const, from: '2026-10-16T12:00:00Z', to: '2026-10-16T13:00:00Z' };
+  expect(await n.fetchNotificationPage(1, 0, filters)).toMatchObject({ offline: true, hasMore: true, rows: [{ id: 'new' }] });
+  expect(await n.fetchNotificationPage(1, 1, filters)).toMatchObject({ offline: true, hasMore: false, rows: [{ id: 'old' }] });
+  expect(f.from).not.toHaveBeenCalled();
 });
 it.each(['one', 'all'])('mark %s invalidates both models and badge converges using only HEAD/count', async (mode) => {
   await seedWindow(); const n = await import('@/features/notifications/notifications'); const r = await import('@/lib/local-cache/read-freshness');

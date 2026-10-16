@@ -71,11 +71,11 @@ it('shows deadline events in the existing checklist history after completion and
 
 describe('date and timezone selection', () => {
   it('unambiguously converts noon and midnight', () => {
-    expect(localDeadline(2026, 9, 20, 12, 34, 'AM')?.getHours()).toBe(0);
-    expect(localDeadline(2026, 9, 20, 12, 34, 'PM')?.getHours()).toBe(12);
-    expect(localDeadline(2026, 9, 20, 11, 59, 'PM')?.getHours()).toBe(23);
-    expect(localDeadline(2026, 1, 31, 1, 0, 'AM')).toBeNull();
-    expect(localDeadline(2026, 9, 20, 0, 60, 'AM')).toBeNull();
+    expect(localDeadline(2026, 9, 20, 0, 34)?.getHours()).toBe(0);
+    expect(localDeadline(2026, 9, 20, 12, 34)?.getHours()).toBe(12);
+    expect(localDeadline(2026, 9, 20, 23, 59)?.getHours()).toBe(23);
+    expect(localDeadline(2026, 1, 31, 1, 0)).toBeNull();
+    expect(localDeadline(2026, 9, 20, 0, 60)).toBeNull();
   });
   it.each([
     ['Europe/Simferopol', '2026-10-20T09:34:00.000Z'],
@@ -83,17 +83,17 @@ describe('date and timezone selection', () => {
     ['Asia/Kolkata', '2026-10-20T07:04:00.000Z'],
   ])('stores the chosen local noon as absolute UTC in %s', (timezone, expected) => {
     const url = pathToFileURL(resolve('src/features/projects/deadlines.ts')).href;
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import {localDeadline} from ${JSON.stringify(url)}; process.stdout.write(localDeadline(2026,9,20,12,34,'PM').toISOString());`], { env: { ...process.env, TZ: timezone }, encoding: 'utf8' });
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import {localDeadline} from ${JSON.stringify(url)}; process.stdout.write(localDeadline(2026,9,20,12,34).toISOString());`], { env: { ...process.env, TZ: timezone }, encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0); expect(result.stdout).toBe(expected);
   });
   it('rejects a nonexistent wall time during the DST spring gap', () => {
     const url = pathToFileURL(resolve('src/features/projects/deadlines.ts')).href;
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import {localDeadline} from ${JSON.stringify(url)}; process.stdout.write(String(localDeadline(2026,2,8,2,30,'AM')));`], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import {localDeadline} from ${JSON.stringify(url)}; process.stdout.write(String(localDeadline(2026,2,8,2,30)));`], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0); expect(result.stdout).toBe('null');
   });
   it('offers both absolute instants for a repeated hour and formats fractional timezone offsets', () => {
     const url = pathToFileURL(resolve('src/features/projects/deadlines.ts')).href;
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import {localDeadlineCandidates} from ${JSON.stringify(url)}; process.stdout.write(JSON.stringify(localDeadlineCandidates(2026,10,1,1,30,'AM').map(d=>d.toISOString())));`], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import {localDeadlineCandidates} from ${JSON.stringify(url)}; process.stdout.write(JSON.stringify(localDeadlineCandidates(2026,10,1,1,30).map(d=>d.toISOString())));`], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0); expect(JSON.parse(result.stdout)).toEqual(['2026-11-01T05:30:00.000Z', '2026-11-01T06:30:00.000Z']);
     expect(formatUtcOffset(-330)).toBe('UTC+05:30'); expect(formatUtcOffset(240)).toBe('UTC−04:00');
   });

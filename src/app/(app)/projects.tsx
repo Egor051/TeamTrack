@@ -1,7 +1,7 @@
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { Link, router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Screen } from '@/components/ui/screen';
 import { ThemedText } from '@/components/ui/text';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,6 @@ import { ErrorMessage } from '@/components/ui/error-message';
 import { listProjects, listMyTasks, type ProjectWithRole, type MyTask } from '@/features/projects/projects';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { usePermissionVersion } from '@/features/auth/PermissionProvider';
-import { fetchUnreadCount, subscribeToNotifications } from '@/features/notifications/notifications';
 import { userMessage } from '@/lib/errors/user-message';
 import { useTheme } from '@/components/ui/theme-provider';
 import { layout, spacing } from '@/components/ui/theme';
@@ -49,9 +48,7 @@ export default function ProjectsScreen() {
   const [cachedView, setOffline] = useState(false);
   const [refreshingScope, setRefreshingScope] = useState<string | null>(null);
   const [status, setStatus] = useState<RealtimeStatus>('connecting');
-  const [unread, setUnread] = useState(0);
   const requestRef = useRef(0);
-  const unreadRequestRef = useRef(0);
   const refreshRef = useRef<{ scope: string; promise: Promise<void> } | null>(null);
   const archived = view === 'archived';
   const userId = state.user?.id;
@@ -150,23 +147,7 @@ export default function ProjectsScreen() {
       subscribeTable(table, { userId, onEvent: scheduleRefresh, onStatus }));
     return () => cleanups.forEach((cleanup) => cleanup());
   }, [scheduleRefresh, userId]));
-  useFocusEffect(useCallback(() => {
-    if (!userId) return;
-    let active = true;
-    const refreshUnread = () => {
-      const request = ++unreadRequestRef.current;
-      void fetchUnreadCount().then((count) => {
-        if (active && request === unreadRequestRef.current) setUnread(count);
-      }).catch(() => undefined);
-    };
-    const cleanup = subscribeToNotifications(userId, refreshUnread);
-    refreshUnread();
-    return () => {
-      active = false;
-      unreadRequestRef.current += 1;
-      cleanup();
-    };
-  }, [userId]));
+
   if (!userId) return <LoadingState label="Завершаем сеанс..." />;
   const wide = width >= layout.desktopBreakpoint;
   return <Screen padded={false} centerContent={false}><ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading || refreshing} onRefresh={() => void refresh()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -174,7 +155,7 @@ export default function ProjectsScreen() {
       <View style={styles.brand}><ThemedText type="h1">Проекты</ThemedText>
         <View style={styles.userLine}><ThemedText type="small" style={styles.nickname}>{state.profile?.display_name || state.user?.email}</ThemedText>{width < 700 ? <DeadlineIndicators {...deadlines} /> : null}</View>
       </View>
-      <View style={styles.nav}>{width >= 700 ? <DeadlineIndicators {...deadlines} /> : null}<Link href={'/templates' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline">Шаблоны</Button></Link><Link href={'/notifications' as never} asChild><Button accessibilityRole="link" size="sm" variant="outline" accessibilityLabel="Уведомления">Уведомления{unread ? ` · ${unread}` : ''}</Button></Link><Link href={'/profile' as never} asChild><Button accessibilityRole="link" size="sm" variant="ghost">Профиль</Button></Link></View>
+      <View style={styles.nav}>{width >= 700 ? <DeadlineIndicators {...deadlines} /> : null}</View>
     </View>
     <View style={styles.intro}>
       <View><ThemedText type="h2">Рабочий обзор</ThemedText><ThemedText type="small">Команды и этапы в одном месте.</ThemedText></View>
