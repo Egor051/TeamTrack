@@ -25,9 +25,9 @@ export async function verifyDeadlineCron(sourceContainer, base, upgrade) {
     if (!ready) throw new Error('Disposable Cron database startup failed');
     // template0 avoids the image's preloaded GraphQL/Auth objects and event
     // triggers. Never drop or alter those bundled schemas in the image's DB.
-    sql(`create database ${database} template template0;`, 'postgres');
-    sql(`${base}\ncreate schema extensions; create extension pgcrypto with schema extensions; create publication supabase_realtime; grant usage on schema auth,realtime to authenticated,anon; grant execute on all functions in schema auth to authenticated,anon;\n${upgrade}`);
-    sql(`do $$begin if not exists(select 1 from cron.job where jobname='tasktrace-checklist-deadlines' and schedule='* * * * *' and active and command='select private.process_checklist_deadlines();') then raise exception 'Production Cron migration did not register job'; end if; end$$;
+    sql(`create database ${database} owner postgres template template0;`, 'postgres');
+    sql(`${base}\ngrant usage,create on schema public to postgres; create schema extensions authorization postgres; create extension pgcrypto with schema extensions; create publication supabase_realtime; grant usage on schema auth,realtime to authenticated,anon,postgres; grant execute on all functions in schema auth,realtime to authenticated,anon,postgres; grant all on all tables in schema auth,realtime to postgres; grant all on all sequences in schema auth,realtime to postgres;\n${upgrade}`);
+    sql(`do $$begin if not exists(select 1 from cron.job where jobname='tasktrace-checklist-deadlines' and schedule='* * * * *' and active and username='postgres' and command='select private.process_checklist_deadlines();') then raise exception 'Production Cron migration did not register the postgres job'; end if; end$$;
       select cron.alter_job((select jobid from cron.job where jobname='tasktrace-checklist-deadlines'),schedule:='1 second');
       insert into auth.users(id,email,raw_user_meta_data) values ('96000000-0000-4000-8000-000000000001','cron@test.local','{}');
       set role authenticated; select set_config('request.jwt.claim.sub','96000000-0000-4000-8000-000000000001',false);

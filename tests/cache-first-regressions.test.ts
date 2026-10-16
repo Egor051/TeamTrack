@@ -150,6 +150,37 @@ it('an old request cannot poison a newer successful ACL check or its cache', asy
   gate.resolve({ id: 'p', name: 'old' }); expect(await old).toMatchObject({ name: 'new' });
   expect(await c.getCached('a', 'blocked:p')).toBe(false); expect(await c.getCached('a', 'project:p')).toMatchObject({ name: 'new' });
 });
+it('a data invalidation during commit supersedes the read without reporting a server access denial', async () => {
+  const driver = await save();
+  const cache = await import('@/lib/local-cache/cache');
+  const freshness = await import('@/lib/local-cache/read-freshness');
+  const { isExplicitAccessError } = await import('@/lib/connectivity/errors');
+  const { ResourceAccessDeniedError } = await import('@/lib/errors/domain-errors');
+  const gate = deferred<void>();
+  const original = driver.commitCacheBatch.bind(driver);
+  let entered = false;
+  vi.spyOn(driver, 'commitCacheBatch').mockImplementation(async (...args) => {
+    if (!entered && args[1].some((entry) => entry.key === 'project:p')) {
+      entered = true;
+      await gate.promise;
+    }
+    return original(...args);
+  });
+  const reading = cache.readCachedModel('project:p', async () => ({ id: 'p', name: 'server' }), {
+    projectId: 'p', forceRefresh: true, clearProjectBlockOnSuccess: true,
+  }).catch((error: unknown) => error);
+  await vi.waitFor(() => expect(entered).toBe(true));
+  await freshness.invalidateReadModels('a', ['project:p'], 'data');
+  gate.resolve();
+  const superseded = await reading;
+  expect(superseded).toBeInstanceOf(Error);
+  expect(isExplicitAccessError(superseded)).toBe(false);
+  expect(await cache.getCached('a', 'blocked:p')).not.toBe(true);
+  expect(isExplicitAccessError(new ResourceAccessDeniedError('RLS denied'))).toBe(true);
+  expect(await cache.readCachedModel('project:p', async () => ({ id: 'p', name: 'latest' }), {
+    projectId: 'p', forceRefresh: true, clearProjectBlockOnSuccess: true,
+  })).toMatchObject({ name: 'latest' });
+});
 it('ACL quarantine survives a reload and is isolated by account', async () => {
   await save(); await save('project:p', { id: 'p', name: 'b' }, 0, 'b');
   await (await import('@/lib/local-cache/read-freshness')).invalidateReadModels('a', ['project:p'], 'access');

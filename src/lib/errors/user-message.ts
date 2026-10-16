@@ -4,6 +4,8 @@ export function userMessage(error: unknown, fallback: string): string {
   if (process.env.NODE_ENV !== 'production' && !(error instanceof ResourceAccessDeniedError)) console.error('[TaskTrace]', error);
   const value = error as { message?: string; code?: string; status?: number } | null;
   const message = value?.message?.toLowerCase() ?? '';
+  if (value?.code === 'TT_MEMBER_LOOKUP') return 'Не удалось добавить участника по указанному идентификатору.';
+  if (value?.code === 'PT429') return 'Слишком много попыток добавления участников. Повторите через минуту.';
   if (error instanceof ResourceAccessDeniedError) return error.message;
   if (message === 'для этого действия требуется подключение к интернету.') return 'Для этого действия требуется подключение к интернету.';
   if (message.includes('user not found')) return 'Пользователь не найден.';

@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Linking from 'expo-linking';
 import { supabase, probeSupabaseConnectivity } from '@/lib/supabase/client';
 import { monitorConnectivity, subscribeConnectivity, usesLocalReads } from '@/lib/connectivity/state';
 import type { Profile } from '@/lib/supabase/client';
 import type { AuthState } from './types';
-import { mapSupabaseAuthError } from '@/lib/errors/auth-errors';
+import { mapSupabaseAuthError, weakPasswordMessage } from '@/lib/errors/auth-errors';
 import {
   signUp as authSignUp,
   signIn as authSignIn,
@@ -26,6 +26,7 @@ import { clearReadFreshness, currentReadAccount, setReadAccount } from '@/lib/lo
 
 type AuthContextType = {
   state: AuthState;
+  passwordWarning: string | null;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -62,6 +63,8 @@ async function fetchProfile(): Promise<Profile | null> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(initialState);
+  const [passwordNotice, setPasswordNotice] = useState<{ userId: string; message: string } | null>(null);
+  const authAttempt = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const scheduleSessionApply = (session: AuthState['session']) => {
       if (cancelled) return;
       const nextUserId = session?.user?.id ?? null;
+      setPasswordNotice((previous) => previous?.userId === nextUserId ? previous : null);
       // Fence callbacks synchronously, before publishing a different namespace.
       if (nextUserId !== currentReadAccount()) closeAllRealtimeChannels();
       setReadAccount(nextUserId);
@@ -133,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
         scheduleSessionApply(session);
       } else if (event === 'SIGNED_OUT') {
+        authAttempt.current += 1;
         closeAllRealtimeChannels();
         scheduleSessionApply(null);
       }
@@ -197,9 +202,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    const attempt = ++authAttempt.current;
+    setPasswordNotice(null);
     setState((prev) => ({ ...prev, error: null }));
     try {
-      await authSignIn({ email, password });
+      const data = await authSignIn({ email, password });
+      if (attempt === authAttempt.current && data?.user?.id === currentReadAccount() && data.weakPassword) {
+        setPasswordNotice({ userId: data.user.id, message: weakPasswordMessage(data.weakPassword) });
+      }
     } catch (e) {
       handleError(e);
       throw e;
@@ -207,6 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    authAttempt.current += 1;
     setState((prev) => ({ ...prev, error: null }));
     try {
       closeAllRealtimeChannels();
@@ -214,6 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReadAccount(null);
       clearReadFreshness();
       clearRuntimeConfig();
+      setPasswordNotice(null);
       setState((prev) => ({ ...prev, isLoading: false, session: null, user: null, profile: null, error: null }));
     } catch (e) {
       handleError(e);
@@ -232,9 +244,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updatePassword = async (newPassword: string) => {
+    const userId = state.user?.id;
+    const attempt = ++authAttempt.current;
     setState((prev) => ({ ...prev, error: null }));
     try {
       await authUpdatePassword(newPassword);
+      if (attempt === authAttempt.current && userId && currentReadAccount() === userId) setPasswordNotice((previous) => previous?.userId === userId ? null : previous);
     } catch (e) {
       handleError(e);
       throw e;
@@ -275,6 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextType = {
     state,
+    passwordWarning: passwordNotice && passwordNotice.userId === state.user?.id ? passwordNotice.message : null,
     signUp,
     signIn,
     signOut,

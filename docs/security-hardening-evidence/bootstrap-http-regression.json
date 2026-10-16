@@ -1,0 +1,24 @@
+{
+  "legacy": null,
+  "stable": {
+    "datasets": 15,
+    "rounds": 10,
+    "separate_http_pages": 150,
+    "snapshot_at": "2026-10-16T20:16:51.508727+00:00"
+  },
+  "mutation": {
+    "status": 409,
+    "code": "PT409",
+    "offset": 0,
+    "dataset": "items",
+    "snapshot_at": "2026-10-16T20:16:51.508727+00:00",
+    "actual_revision": "c91e6286aa66dc8f598389a6cb79b035",
+    "expected_revision": "8931b14d6f4f184ab7a9f36900b8a5cd",
+    "recovery_status": 200
+  },
+  "counts": {
+    "manifest": 12,
+    "page": 152,
+    "conflict": 1
+  }
+}

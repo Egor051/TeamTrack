@@ -31,7 +31,7 @@ const errorMap: Record<SupabaseErrorCode, string> = {
   invalid_login_credentials: 'Неверные учетные данные',
   email_not_confirmed: 'Подтвердите email, пожалуйста',
   email_in_use: 'Этот email уже используется',
-  weak_password: 'Слишком легкий пароль (минимум 8 символов, нужны буквы и цифры)',
+  weak_password: 'Пароль не соответствует требованиям безопасности. Выберите более длинный и уникальный пароль.',
   user_not_found: 'Пользователь не найден',
   invalid_password: 'Неверный пароль',
   session_expired: 'Сессия истекла. Пожалуйста, войдите заново',
@@ -62,6 +62,18 @@ export function emailSendRetryDelay(error: unknown): number | null {
  * Map a Supabase auth error to a user-friendly message.
  * Falls back to a generic message if the error code is unknown.
  */
+/** Only known server reasons are shown; raw messages may contain internal data. */
+export function weakPasswordMessage(value: unknown): string {
+  const warning = value as { reasons?: unknown; weak_password?: { reasons?: unknown } } | null;
+  const reasons = warning?.reasons ?? warning?.weak_password?.reasons;
+  if (Array.isArray(reasons)) {
+    if (reasons.includes('pwned')) return 'Этот пароль найден в известных утечках. Выберите другой, уникальный пароль.';
+    if (reasons.includes('length')) return 'Пароль слишком короткий. Увеличьте его длину.';
+    if (reasons.includes('characters')) return 'Пароль не соответствует требованиям сложности. Выберите более сложный пароль.';
+  }
+  return errorMap.weak_password;
+}
+
 export function mapSupabaseAuthError(
   error: unknown,
 ): string {
@@ -81,6 +93,7 @@ export function mapSupabaseAuthError(
   if (emailSendRetryDelay(err) !== null) {
     return 'Письмо уже было отправлено. Повторная отправка будет доступна через некоторое время.';
   }
+  if (err?.code === 'weak_password') return weakPasswordMessage(error);
   if (err?.code && Object.values(errorMap).includes(errorMap[err.code as SupabaseErrorCode] ?? '')) {
     return errorMap[err.code as SupabaseErrorCode];
   }

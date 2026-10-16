@@ -5,7 +5,7 @@ import pg from 'pg';
 import { PostgrestClient } from '@supabase/postgrest-js';
 import { verifyDeadlineBrowser } from './checklist-deadline-browser.mjs';
 
-export async function verifyChecklistDeadlineIntegration(port, database, container) {
+export async function verifyChecklistDeadlineIntegration(port, database, container, providerContainer=container) {
   if (!/^teamtrack_audit_\d+$/.test(database)) throw new Error('Isolated database required');
   const db = new pg.Client({ host: '127.0.0.1', port, database, user: 'supabase_admin', password: 'postgres' });
   const docker = (args) => {
@@ -13,7 +13,7 @@ export async function verifyChecklistDeadlineIntegration(port, database, contain
     if (r.status !== 0) throw new Error(r.stderr || r.stdout); return r.stdout.trim();
   };
   const network = docker(['inspect', container, '--format', '{{.HostConfig.NetworkMode}}']);
-  const image = docker(['inspect', container.replace('supabase_db_', 'supabase_rest_'), '--format', '{{.Config.Image}}']);
+  const image = docker(['inspect', providerContainer.replace('supabase_db_', 'supabase_rest_'), '--format', '{{.Config.Image}}']);
   const name = `tasktrace-deadline-api-${process.pid}`;
   const secret = randomUUID() + randomUUID();
   const token = (sub) => {

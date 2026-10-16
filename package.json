@@ -60,6 +60,9 @@
     "test": "npm run check:db && npm run typecheck && npm run lint && npm run test:unit",
     "test:unit": "vitest run",
     "test:sql": "node scripts/run-sql-tests.mjs",
+    "test:sql:isolated": "node scripts/run-audit-sql-tests.mjs",
+    "test:security": "node scripts/test-security-hardening.mjs && node scripts/test-security-hardening.mjs --hosted",
+    "test:backend:isolated": "node scripts/run-security-integrations.mjs",
     "test:backend": "node scripts/run-backend-integration-tests.mjs && node scripts/run-pkce-integration-tests.mjs && node scripts/run-concurrency-tests.mjs && node scripts/run-bootstrap-integration-tests.mjs",
     "gen:types": "node scripts/gen-types.mjs"
   },

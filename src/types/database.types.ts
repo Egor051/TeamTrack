@@ -508,7 +508,7 @@ export type Database = {
           p_project_id: string
           p_role: Database["public"]["Enums"]["project_role"]
         }
-        Returns: undefined
+        Returns: Json
       }
       add_task_assignee: {
         Args: { p_task_id: string; p_user_id: string }
@@ -794,6 +794,10 @@ export type Database = {
       }
       set_task_item_percentage: {
         Args: { p_percentage: number; p_task_item_id: string }
+        Returns: number
+      }
+      set_task_item_progress: {
+        Args: { p_completion_percent: number; p_task_item_id: string }
         Returns: number
       }
       set_task_item_state: {

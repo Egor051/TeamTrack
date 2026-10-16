@@ -1,0 +1,204 @@
+{
+  "date": "2026-10-16",
+  "head": "2f1f0cc726d1a97219063a70d71cea6968b70443",
+  "production_changes_applied": false,
+  "hosted_version": "17.6.1.171",
+  "hosted_catalog_diff": {},
+  "hosted_advisor": {
+    "ERROR": 0,
+    "WARN": 60,
+    "INFO": 7
+  },
+  "isolated_advisor": {
+    "ERROR": 0,
+    "WARN": 56,
+    "INFO": 8
+  },
+  "unit_tests": {
+    "passed": 651,
+    "failed": 0,
+    "files": 57
+  },
+  "sql_suites_per_version": 15,
+  "matrix": [
+    {
+      "version": "17.6",
+      "lineage": "fresh",
+      "rpc": 57,
+      "scenarios": 646,
+      "concurrency": 70,
+      "file": "pg17.6-fresh.json"
+    },
+    {
+      "version": "17.6",
+      "lineage": "hosted",
+      "rpc": 57,
+      "scenarios": 646,
+      "concurrency": 70,
+      "file": "pg17.6-hosted.json"
+    },
+    {
+      "version": "17.11",
+      "lineage": "fresh",
+      "rpc": 57,
+      "scenarios": 646,
+      "concurrency": 70,
+      "file": "pg17.11-fresh.json"
+    },
+    {
+      "version": "17.11",
+      "lineage": "hosted",
+      "rpc": 57,
+      "scenarios": 646,
+      "concurrency": 70,
+      "file": "pg17.11-hosted.json"
+    }
+  ],
+  "api_checks_total": 2584,
+  "canonical_diff": {
+    "functions": [
+      {
+        "id": "public/prevent_history_mutation//postgres",
+        "left": {
+          "acl": "postgres=X/postgres",
+          "name": "prevent_history_mutation",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "definer": false,
+          "arguments": "",
+          "definition": "create or replace function public . prevent_history_mutation ( ) returns trigger language plpgsql set search_path to 'pg_catalog' , 'pg_temp' as $ function $ begin raise exception 'immutable history: % on public.% is not allowed (append-only table)' , tg_op , tg_table_name using errcode = 'check_violation' ; end $ function $"
+        },
+        "right": {
+          "acl": "authenticated=X/postgres,postgres=X/postgres",
+          "name": "prevent_history_mutation",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "definer": false,
+          "arguments": "",
+          "definition": "create or replace function public . prevent_history_mutation ( ) returns trigger language plpgsql set search_path to 'pg_catalog' , 'pg_temp' as $ function $ begin raise exception 'immutable history: % on public.% is not allowed (append-only table)' , tg_op , tg_table_name using errcode = 'check_violation' ; end $ function $"
+        }
+      },
+      {
+        "id": "public/set_updated_at//postgres",
+        "left": {
+          "acl": "postgres=X/postgres",
+          "name": "set_updated_at",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "definer": false,
+          "arguments": "",
+          "definition": "create or replace function public . set_updated_at ( ) returns trigger language plpgsql set search_path to 'pg_catalog' , 'pg_temp' as $ function $ begin new . updated_at = now ( ) ; return new ; end $ function $"
+        },
+        "right": {
+          "acl": "authenticated=X/postgres,postgres=X/postgres",
+          "name": "set_updated_at",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "definer": false,
+          "arguments": "",
+          "definition": "create or replace function public . set_updated_at ( ) returns trigger language plpgsql set search_path to 'pg_catalog' , 'pg_temp' as $ function $ begin new . updated_at = now ( ) ; return new ; end $ function $"
+        }
+      }
+    ]
+  },
+  "migration_manifest": [
+    {
+      "version": "20261016191158",
+      "file": "20261016191158_reconcile_security_schema.sql",
+      "sha256": "4c3951acffe8f6d16b7764d4d4de934ada735b1435a24f03c33d533d371f7966",
+      "already_applied": false
+    },
+    {
+      "version": "20261016191208",
+      "file": "20261016191208_secure_application_default_privileges.sql",
+      "sha256": "4d8e0e464ad5015b3f01cf56963c42f994b07a1632b280a586bfe9cfcb407906",
+      "already_applied": false
+    },
+    {
+      "version": "20261016191219",
+      "file": "20261016191219_pin_history_timestamp_search_paths.sql",
+      "sha256": "d4bd4aef46bf23056389e0532823202cd14517ec9ae0b5eb903a79ebf9b49d5e",
+      "already_applied": false
+    },
+    {
+      "version": "20261016191229",
+      "file": "20261016191229_restrict_service_rpc_execution.sql",
+      "sha256": "d437013ebb7b402be23c8cf53ed26dcc7b4572f698545c5fd019328d92fb85aa",
+      "already_applied": false
+    },
+    {
+      "version": "20261016191239",
+      "file": "20261016191239_progress_alias_security_invoker.sql",
+      "sha256": "1d22cfa8bd356ebf411721fbc00bbc4db55007b5ac31c3c22d2738c78f773942",
+      "already_applied": false
+    },
+    {
+      "version": "20261016191251",
+      "file": "20261016191251_member_identifier_abuse_protection.sql",
+      "sha256": "ac484615ee124cc434ec69cf42afc2cd369bbfa1c83ecc16a1e015381297a7d4",
+      "already_applied": false
+    },
+    {
+      "version": "20261016191301",
+      "file": "20261016191301_minimize_client_table_privileges.sql",
+      "sha256": "93cc690226286612e402340284b8340337047a5ceb4c78b40ced1c2fde5af99d",
+      "already_applied": false
+    }
+  ],
+  "hosted_advisor_categories": [
+    {
+      "name": "rls_enabled_no_policy",
+      "level": "INFO",
+      "count": 7
+    },
+    {
+      "name": "function_search_path_mutable",
+      "level": "WARN",
+      "count": 2
+    },
+    {
+      "name": "authenticated_security_definer_function_executable",
+      "level": "WARN",
+      "count": 57
+    },
+    {
+      "name": "auth_leaked_password_protection",
+      "level": "WARN",
+      "count": 1
+    }
+  ],
+  "final_verification_at": "2026-10-16T23:38:22.015Z",
+  "project_timezone": "Europe/Simferopol",
+  "browser": {
+    "passed": 4,
+    "failed": 0,
+    "details": "browser-results.json",
+    "password": "password-browser.json"
+  },
+  "backend_integration_scripts_per_version": 6,
+  "native_exports": {
+    "android": "PASS",
+    "ios": "PASS",
+    "physical_device_testing": false
+  },
+  "web_export": {
+    "production_build": "PASS",
+    "normal_project_configuration_restored": true
+  },
+  "upgrade_eligibility": {
+    "verified": false,
+    "reason": "Dashboard requires sign-in; connected API does not expose per-project upgrade eligibility"
+  }
+}

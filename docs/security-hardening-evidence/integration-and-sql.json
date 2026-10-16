@@ -1,0 +1,53 @@
+{
+  "sql_suites_17_11": [
+    "audit_upgrade_test.sql",
+    "audit_template_ordering_test.sql",
+    "initial_schema_smoke_test.sql",
+    "stage_visibility_test.sql",
+    "rls_and_rpc_test.sql",
+    "notifications_test.sql",
+    "full_integration_test.sql",
+    "hard_delete_history_test.sql",
+    "task_enhancements_test.sql",
+    "offline_operation_receipts_test.sql",
+    "offline_pull_conflicts_test.sql",
+    "offline_phase6_runtime_retention_test.sql",
+    "account_offline_bootstrap_test.sql",
+    "checklist_deadlines_test.sql",
+    "security_privilege_hardening_test.sql"
+  ],
+  "sql_suites_passed": 15,
+  "integration_scripts_17_11": [
+    {
+      "script": "scripts/run-backend-integration-tests.mjs",
+      "exit_code": 0,
+      "pass_markers": 1
+    },
+    {
+      "script": "scripts/run-pkce-integration-tests.mjs",
+      "exit_code": 0,
+      "pass_markers": 1
+    },
+    {
+      "script": "scripts/run-concurrency-tests.mjs",
+      "exit_code": 0,
+      "pass_markers": 0
+    },
+    {
+      "script": "scripts/run-bootstrap-integration-tests.mjs",
+      "exit_code": 0,
+      "pass_markers": 3
+    },
+    {
+      "script": "scripts/password-auth-integration.mjs",
+      "exit_code": 0,
+      "pass_markers": 1
+    },
+    {
+      "script": "scripts/security-realtime-lifecycle.mjs",
+      "exit_code": 0,
+      "pass_markers": 1
+    }
+  ],
+  "note": "pass_markers are printed checkpoints, not a count of individual assertions"
+}

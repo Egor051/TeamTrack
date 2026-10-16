@@ -1,0 +1,327 @@
+[
+  {
+    "version": "20260901000000",
+    "name": "initial_schema",
+    "statements_sha256": "c2e45028e1d581d5d1e55e98401e056bd2ff5897bb509aeb5a0ec406eaec5399"
+  },
+  {
+    "version": "20260901203058",
+    "name": "initial_schema",
+    "statements_sha256": "6fd6240264a4f7bfaa36f2103d93bd8babff2cd63c20cbf756c66a7a230b9f7f"
+  },
+  {
+    "version": "20260901203100",
+    "name": "rls_authorization",
+    "statements_sha256": "fc69fed2b098803856931ff5a5083b5c0e141e88aeb7d3fc05eac745d4d3809e"
+  },
+  {
+    "version": "20260901203102",
+    "name": "profile_provisioning",
+    "statements_sha256": "ae0919b33a4a1ec8f286ba89017a65fc9f227018d3e5e237725b67de5b61b6a5"
+  },
+  {
+    "version": "20260901210712",
+    "name": "enable_tasktrace_realtime",
+    "statements_sha256": "889a447001ce80e8b08aa38869e32b7e528904e575bf0113c6751e5e34f8e3bb"
+  },
+  {
+    "version": "20260901210737",
+    "name": "enable_tasktrace_realtime",
+    "statements_sha256": "dfaa2555077c6c3ed9fae7c9a8826a6eb320c4453b996e4c99e20c8abce40257"
+  },
+  {
+    "version": "20260901211502",
+    "name": "enable_tasktrace_realtime_after_provisioning",
+    "statements_sha256": "df9f1d81453b021f484270873ef8b84af7da52bcd1b9e6fdd2c48a14126d499f"
+  },
+  {
+    "version": "20260902000000",
+    "name": "rls_authorization",
+    "statements_sha256": "e0b95b39d40a51ae3233aa02f7bdb2f732167493f67c09a3f6ad48210f224b99"
+  },
+  {
+    "version": "20260903000000",
+    "name": "profile_provisioning",
+    "statements_sha256": "0cdd8445105f4a658e2d6acdf486c3853da061e07d62ed6f4e82093be9467e95"
+  },
+  {
+    "version": "20260903224258",
+    "name": "hosted_reconciliation_phase_a",
+    "statements_sha256": "2bdf69c2ca4c408bc0b300ae40e57d8aef0fa5694622ec8dac4808bf0d441768"
+  },
+  {
+    "version": "20260903224414",
+    "name": "hosted_reconciliation_phase_b",
+    "statements_sha256": "538f1402034bbb5d0bd1ebe3d892696532b2321bc8c66ca365de99279f920164"
+  },
+  {
+    "version": "20260903224523",
+    "name": "hosted_reconciliation_phase_c",
+    "statements_sha256": "28ca4501677f005c2d5fead14dd91157bfc64ec1e185ac135b01f3f828c62947"
+  },
+  {
+    "version": "20260904000000",
+    "name": "enable_tasktrace_realtime_after_provisioning",
+    "statements_sha256": "b006a0d29cb2da7d27d64f064d385633190d26d77d2911c4e0a86e96f0ad45e9"
+  },
+  {
+    "version": "20260904142023",
+    "name": "add_project_member_by_identifier",
+    "statements_sha256": "b1563dfe160c9d632d7b19388012ef753a2ad28384c9adcc5d29cb10637a07a7"
+  },
+  {
+    "version": "20260904201318",
+    "name": "add_project_member_by_identifier",
+    "statements_sha256": "8c23db68446bc8aebf21df7a3c1d9bde7472a70bad4042d5a1903b4b880abbc2"
+  },
+  {
+    "version": "20260904204217",
+    "name": "restore_and_update_project",
+    "statements_sha256": "3271de32d883b710952c8ea6f92a8df61f2e7e5c910087032dbdbc4405c17b19"
+  },
+  {
+    "version": "20260904204514",
+    "name": "restore_and_update_project",
+    "statements_sha256": "9d9366d1435695c9a9961e5dc7e298b9b753bba723c0572eb197de1118bb2684"
+  },
+  {
+    "version": "20260905000000",
+    "name": "notifications",
+    "statements_sha256": "d5ae66bf8722ccadea2a3a1c7d7a2f2568ac35ac8aa4409b70ab32905e8dceaf"
+  },
+  {
+    "version": "20260905120000",
+    "name": "contextual_notifications",
+    "statements_sha256": "c89700b69257770793a87fad05d22cb159606f39b77c894d8b78ddad738ff0d8"
+  },
+  {
+    "version": "20260905172931",
+    "name": "contextual_notifications",
+    "statements_sha256": "29fc8b304264d72062ff52a5a00bf35493ba41b0874fd6e064dda465df767a13"
+  },
+  {
+    "version": "20260905203929",
+    "name": "production_hardening_fixes",
+    "statements_sha256": "ce5f522befffdcd662377fe5a4cb5ed74bfcfe745dc6007ebb7ee752d2762314"
+  },
+  {
+    "version": "20260906000000",
+    "name": "harden_authenticated_table_grants",
+    "statements_sha256": "cf53eeb39d810776fc2df44a5dade046b92ee1c48510799cfe5dcb2b8ab77c15"
+  },
+  {
+    "version": "20260906184242",
+    "name": "immutable_history_hard_delete_fix",
+    "statements_sha256": "937a34b997084d63f3d0e3b438f6ef676c4ca1e8d5126a5830da34aa1bc12a4e"
+  },
+  {
+    "version": "20260906185345",
+    "name": "projects_comment_cleanup",
+    "statements_sha256": "a18f31a87bdca8e5c08c9a05574970d1562461a1b6cf54b29e7ee17c609c2483"
+  },
+  {
+    "version": "20260907000000",
+    "name": "lock_notification_helpers",
+    "statements_sha256": "ef28df70df945f661e9f2dbbef426890cc87984838acbe231373a7c0e6d1e2e9"
+  },
+  {
+    "version": "20260908000000",
+    "name": "security_hardening",
+    "statements_sha256": "8841225d92d379076b7d3f4293e7ca0c6ae8b94768055fadde3c563c7ad7267e"
+  },
+  {
+    "version": "20260909000000",
+    "name": "restrict_private_function_grants",
+    "statements_sha256": "60b44169aafd8790236cbe409374f86b94d4a994f03a1b6fc926aded310eb488"
+  },
+  {
+    "version": "20260909221947",
+    "name": "task_enhancements",
+    "statements_sha256": "8906b63a4f9d932551031bb2d9eacea16251a06e7809aa5ba65637cf9065d887"
+  },
+  {
+    "version": "20260909222310",
+    "name": "reconcile_task_edit_comments_progress_templates",
+    "statements_sha256": "02a1bc54f110f924aa8348c43a1b5743d93521b2b647033c68cab13dafc2ed10"
+  },
+  {
+    "version": "20260909222314",
+    "name": "fix_task_status_delete_trigger",
+    "statements_sha256": "c7269a917e4b3f2e1860d298dbf27a04e2bea77db433e8d25363714c0445aba2"
+  },
+  {
+    "version": "20260909231213",
+    "name": "recreate_create_task_from_template_percentage",
+    "statements_sha256": "5bc09f00a9977a5adc585d908033538bd8343386dfa3171adb3a2b02888570f2"
+  },
+  {
+    "version": "20260909231225",
+    "name": "lock_create_task_from_template_execute",
+    "statements_sha256": "ce6afa611212017c3a28388cebbdc62bf9e80a7f6d3c75448a248ecf0315eea5"
+  },
+  {
+    "version": "20260910000000",
+    "name": "concurrency_and_input_hardening",
+    "statements_sha256": "aaf028c7f513a22620e6c3f4b715e46670d4602d654e27dde4300ea3eb0ade3e"
+  },
+  {
+    "version": "20260911000000",
+    "name": "schema_acl_hardening",
+    "statements_sha256": "04aeb6870d23a52b0b534270c983a1b2e81020b647644e1e045dc6a1bfcd800a"
+  },
+  {
+    "version": "20260911203043",
+    "name": "task_item_audit_and_template_cleanup",
+    "statements_sha256": "0187cdb87577d95d0696fde6a8e029abff7085b1f4b1a9a634347217e283c3d4"
+  },
+  {
+    "version": "20260911210124",
+    "name": "reconcile_task_item_audit_and_templates",
+    "statements_sha256": "fbdef731aa6dcf23d9c8253435c44fb90440e0511c06288191b18fb464a73f0e"
+  },
+  {
+    "version": "20260912000000",
+    "name": "private_function_acl_hardening",
+    "statements_sha256": "71e92075cadf669636a4a676e92756ee097d0f8af87d37291997d4ecded96045"
+  },
+  {
+    "version": "20260913000000",
+    "name": "profile_column_acl",
+    "statements_sha256": "a8f05545e287bfa90b00712f4fb6f4211eab42303d8c077daf9c528fddeed292"
+  },
+  {
+    "version": "20260914000000",
+    "name": "hosted_reconciliation_phase_a",
+    "statements_sha256": "13fa7e6a8464f618d8445e3cfeff07095b2686c9cf4125db96c30a37d2ab597e"
+  },
+  {
+    "version": "20260915000000",
+    "name": "hosted_reconciliation_phase_b",
+    "statements_sha256": "ec3af03e0a37d98c0f963770833f923014eb5a2a830c8badea1c0ae2882e8c53"
+  },
+  {
+    "version": "20260916000000",
+    "name": "production_hardening_fixes",
+    "statements_sha256": "20c20a2a96edb52ba71447013c34f85891f4bcdc691f32a7c90702c857c86574"
+  },
+  {
+    "version": "20260917000000",
+    "name": "improve_pass",
+    "statements_sha256": "3bbb91143d3ba3920f45d4c10c85668dffc2c135e753274e57239ebaa01251d9"
+  },
+  {
+    "version": "20260918000000",
+    "name": "add_update_my_profile",
+    "statements_sha256": "685ca45abe5e2e478b246c37c0a58dc4e42e263d544e1f1360c4013f9dd9e880"
+  },
+  {
+    "version": "20260918000917",
+    "name": "project_member_task_visibility",
+    "statements_sha256": "b98a12fd2190fb32704bb953cd449d1fb3feeebb2b4bee56e3026b334e01e574"
+  },
+  {
+    "version": "20260918001643",
+    "name": "checklist_permissions_stage_order_and_ui_support",
+    "statements_sha256": "21332b0420d9ba3a571b70b5381bb9105fc7441892c22ad968a36ffb5c7a8375"
+  },
+  {
+    "version": "20260918013357",
+    "name": "disallow_member_task_item_text_edits",
+    "statements_sha256": "2fb7abc5c1a36ce72bf3942acc32714e32d5ddea0ce4391109e4e29afa1dcebf"
+  },
+  {
+    "version": "20260919000001",
+    "name": "reconcile_task_item_audit_and_templates",
+    "statements_sha256": "d6241a116199eac1c8047b22045d77acc9e389639e25c6b24802e72d200240f9"
+  },
+  {
+    "version": "20260920000000",
+    "name": "last_editor_empty_state",
+    "statements_sha256": "f578bf12b41d2eb5285892977d22739284f9eb486f5af92aada0ba5e792b6627"
+  },
+  {
+    "version": "20260920130249",
+    "name": "inherit_project_member_task_access",
+    "statements_sha256": "53a8c6fcfbd519efab00e739a9336ccf6e6632ff7a274c3705d19f37cbb2cf77"
+  },
+  {
+    "version": "20260921000000",
+    "name": "rename_task_ui_to_stages",
+    "statements_sha256": "cf23a7decf3c4188b0a7199fdafe728cdbfd0df897c304d4962686f379a33c4c"
+  },
+  {
+    "version": "20260921112916",
+    "name": "canonical_task_role",
+    "statements_sha256": "36086681bb471e2d43b3ac26aa02cd15c28afb0f950a853072e60bb0d93218ed"
+  },
+  {
+    "version": "20260922000000",
+    "name": "daily_progress_audit",
+    "statements_sha256": "c99e6122b819d853e21b92b58352a1dd8166a09263e2e2bff9747d65204595da"
+  },
+  {
+    "version": "20260928135023",
+    "name": "backend_security_correctness_remediation",
+    "statements_sha256": "8c72702578a1e00a323113d6b097689dd71db2d21e57c03df351a009d672ff28"
+  },
+  {
+    "version": "20260928135405",
+    "name": "reconcile_hosted_task_enhancements_for_remediation",
+    "statements_sha256": "ad7f212920db2e8ad7fd078f8c7bc2cc04383642bf329eb6cb4bb7af9320f1ce"
+  },
+  {
+    "version": "20260928135413",
+    "name": "implement_backend_remediation",
+    "statements_sha256": "2a2205d4565cfd495c4f091b3ce0fd66612f04dbca67767ae710f8b5b8dd64c2"
+  },
+  {
+    "version": "20260929060607",
+    "name": "offline_operation_receipts",
+    "statements_sha256": "270792231f0454fa98ce8bb18ed099953eae59ba0d9e0c22c6deb0e7ce239b52"
+  },
+  {
+    "version": "20260929065857",
+    "name": "offline_pull_conflicts",
+    "statements_sha256": "f0c4efb02866bdabefe82693fb88cabcf75653d6d3ac7bbc6fc248e878edddb5"
+  },
+  {
+    "version": "20260929205347",
+    "name": "offline_phase6_runtime_retention",
+    "statements_sha256": "234a231ac5f828ac7aaa3c98975644f9837ce98114cfbbe9034a87817d6cf59b"
+  },
+  {
+    "version": "20261001162836",
+    "name": "account_offline_bootstrap",
+    "statements_sha256": "811539a194060f40ef980085f5118061283aa045194235eb18130f987c261757"
+  },
+  {
+    "version": "20261001214834",
+    "name": "offline_bootstrap_stable_snapshots",
+    "statements_sha256": "8e72c2733ac102b3c55f92947249bfd6c70f99aec71b129ddd9e3e3b9facba4b"
+  },
+  {
+    "version": "20261005084257",
+    "name": "audit_template_ordering",
+    "statements_sha256": "0982707dad10f7f5b11e7e09c5a3e964ab00044a0b69d398a3ec3fc1c522c082"
+  },
+  {
+    "version": "20261015205014",
+    "name": "checklist_deadlines",
+    "statements_sha256": "01c146e99efabba2331fd279c312c3976a786c26c3599f8411de43ee2a2e1f24"
+  },
+  {
+    "version": "20261015205434",
+    "name": "schedule_checklist_deadlines",
+    "statements_sha256": "98f6250b63ab654cabd3317203747212fe08bb6a191219208f01daa37dca9f37"
+  },
+  {
+    "version": "20261016174131",
+    "name": "prevent_self_role_changes",
+    "statements_sha256": "d8f91e6c84b738101264dd5d4db7cbf985a16dc163a5d7c93f72186dab33af50"
+  },
+  {
+    "version": "20261016174144",
+    "name": "notification_filter_options",
+    "statements_sha256": "77f18c5b6f1e6e8ad5ec41fe46f8559673eee1f414e3f8d0343cab9e611d48de"
+  }
+]

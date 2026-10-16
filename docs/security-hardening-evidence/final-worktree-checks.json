@@ -1,0 +1,265 @@
+{
+  "checked_at": "2026-10-16T23:53:48.501Z",
+  "head": "2f1f0cc726d1a97219063a70d71cea6968b70443",
+  "origin_main_matches": true,
+  "index_empty": false,
+  "diff_whitespace_errors": 0,
+  "new_and_changed_files_trailing_whitespace_errors": 0,
+  "heuristic_secret_findings": 0,
+  "secret_scan_scope": [
+    "private-key",
+    "supabase-secret",
+    "live-secret",
+    "jwt-literal"
+  ],
+  "checked_files": 59,
+  "node_syntax_checks": 22,
+  "json_parse_checks": 16,
+  "note": "Pre-commit audit after removing extra blank EOF lines and refreshing migration SHA256 values. No code or SQL semantics changed. This generated record is excluded from its own hash manifest. Heuristic secret checks are not a proof that no possible secret exists.",
+  "files": [
+    {
+      "file": "docs/security-hardening-2026-10-16.md",
+      "sha256": "7b9c0e0699ac205bc0c8e0aa877317449c011cd884cb8164b3e6950d3a1c4d41"
+    },
+    {
+      "file": "docs/security-hardening-evidence/backup-restore.json",
+      "sha256": "009b22644bd6edfd2e2f18bb9a0b62f4b52991f1823e688091eb9fe482d84fea"
+    },
+    {
+      "file": "docs/security-hardening-evidence/bootstrap-http-regression.json",
+      "sha256": "5443faae134f16799e9f0887ff143982911cdba65584ddf79c563664fab67fda"
+    },
+    {
+      "file": "docs/security-hardening-evidence/browser-results.json",
+      "sha256": "5b493680415e80e88d6b27f8fca6040901c4ebc0e0bc8328455125544b00e430"
+    },
+    {
+      "file": "docs/security-hardening-evidence/hosted-history-manifest.json",
+      "sha256": "72b56c093a7fd0ca6330561c195bf8e1822805dc35c47d8aba74236d30c31fee"
+    },
+    {
+      "file": "docs/security-hardening-evidence/integration-and-sql.json",
+      "sha256": "6b6a6f48b5b640e248a853258976c387281e22b8e40706438a3893c66e44331b"
+    },
+    {
+      "file": "docs/security-hardening-evidence/password-browser.json",
+      "sha256": "76ab8dc8e3ff692a9ec07d5f0fa8beccff4e90c573611782fb6c5fb2e5f8437d"
+    },
+    {
+      "file": "docs/security-hardening-evidence/pg17.11-fresh.json",
+      "sha256": "0bf5f51fa477cb2d91a9f54091a4b75f35f190effb0daacf4df18a271e28c96d"
+    },
+    {
+      "file": "docs/security-hardening-evidence/pg17.11-hosted.json",
+      "sha256": "0bf5f51fa477cb2d91a9f54091a4b75f35f190effb0daacf4df18a271e28c96d"
+    },
+    {
+      "file": "docs/security-hardening-evidence/pg17.6-fresh.json",
+      "sha256": "0bf5f51fa477cb2d91a9f54091a4b75f35f190effb0daacf4df18a271e28c96d"
+    },
+    {
+      "file": "docs/security-hardening-evidence/pg17.6-hosted.json",
+      "sha256": "0bf5f51fa477cb2d91a9f54091a4b75f35f190effb0daacf4df18a271e28c96d"
+    },
+    {
+      "file": "docs/security-hardening-evidence/realtime-17.11.json",
+      "sha256": "4250c155f7a999578303eda088db6a9868f90553edd2bb3ee4031e529daeccd5"
+    },
+    {
+      "file": "docs/security-hardening-evidence/realtime-17.6.json",
+      "sha256": "4250c155f7a999578303eda088db6a9868f90553edd2bb3ee4031e529daeccd5"
+    },
+    {
+      "file": "docs/security-hardening-evidence/scheduler-browser.json",
+      "sha256": "e8258d8cc5728d3d99222d1610bfd29f3dc3a21b939f1901e544f40e47f7f1da"
+    },
+    {
+      "file": "docs/security-hardening-evidence/summary.json",
+      "sha256": "b2641ffcbcf6f05ca3e2a286a177da653c2cf0165878d0e82378a26944e04741"
+    },
+    {
+      "file": "package.json",
+      "sha256": "42bce1b4353586e9a91d42f4cda2a98ce8ad09a8aa2ff0fa51a05e7dfb27548b"
+    },
+    {
+      "file": "scripts/build-phase6-local-smoke.mjs",
+      "sha256": "134bb373a7c634c153e4dc7d6ac07a0cca405ef631828ef2ae45a4fb57cd66e5"
+    },
+    {
+      "file": "scripts/checklist-deadline-cron.mjs",
+      "sha256": "30f3aa41d41d90dd1e93175aa4e857ff610a16f44d8c04a6f1a7a48800d116c1"
+    },
+    {
+      "file": "scripts/checklist-deadline-integration.mjs",
+      "sha256": "89bbee0c827e48a251885e9005b2cbf147e66a777d6d56f49085f85bb9260fb9"
+    },
+    {
+      "file": "scripts/compare-security-baseline.mjs",
+      "sha256": "786c75d041d679152ee4752168cc05e899c5dc900411e8d8cbe280fcaebf0680"
+    },
+    {
+      "file": "scripts/local-supabase-status.mjs",
+      "sha256": "4d6905f6e761e6139822e91e950e5139680ca6fe9b0bf3851fe7d70e0394f7cb"
+    },
+    {
+      "file": "scripts/password-auth-integration.mjs",
+      "sha256": "e207e57b281d6eb00114d01254743bdf204e089130094309229b8884d7eb44c9"
+    },
+    {
+      "file": "scripts/password-security-browser-smoke.mjs",
+      "sha256": "a264e08d620e7d0c7acdbd211410dc63b90ad6813a2d4639a0e57688196d9220"
+    },
+    {
+      "file": "scripts/phase5-browser-smoke.mjs",
+      "sha256": "bae063577cf85bf860bf001e0aa960dd2dea4fead8ca3ef7808a4ec5f613ae10"
+    },
+    {
+      "file": "scripts/phase6-browser-smoke.mjs",
+      "sha256": "9497b0735c174eeb2b912d429fbf8917ccb695293c0566c0b68b357a0a1f36ae"
+    },
+    {
+      "file": "scripts/prepare-security-deploy-plan.mjs",
+      "sha256": "75a2296e1bd71aca729dac2febf1dfae908d0df9ba644f6f0ca60c9f85ab7849"
+    },
+    {
+      "file": "scripts/run-audit-sql-tests.mjs",
+      "sha256": "34c7aee3815599ebb87116b42b7d5c313904fbe35cf3896abb941d9705d20cda"
+    },
+    {
+      "file": "scripts/run-pkce-integration-tests.mjs",
+      "sha256": "a5400e8e7335d2249f8565d162204d75352f880b3d675384b3c680a79fd311e9"
+    },
+    {
+      "file": "scripts/run-security-integrations.mjs",
+      "sha256": "32da2e12f61c862a3d66262c21528c5dc008caaace94bedf96bb37c047fc4035"
+    },
+    {
+      "file": "scripts/security-hosted-fixture.mjs",
+      "sha256": "e4ddebd0794f6f52eaf9a0f89572bccc290db5011f496a75aa9f26a7b65a4625"
+    },
+    {
+      "file": "scripts/security-realtime-lifecycle.mjs",
+      "sha256": "78f7ee3835ceca09ab0e63337d33552018472eb7604382c416619a6521f45cae"
+    },
+    {
+      "file": "scripts/security-receipt-races.mjs",
+      "sha256": "e80e5b2ad21c367593c947bb0add8637cf4d144071515ffafd6c8af08acf023c"
+    },
+    {
+      "file": "scripts/security-test-api.mjs",
+      "sha256": "5ef1c57b5fc459ec4a470ae36e3d82f3f7044cab156d5c868b33483c154198c5"
+    },
+    {
+      "file": "scripts/security-test-harness.mjs",
+      "sha256": "09b28daca64c969e473672ac0fbf118854622ba5a55c1c41d86f325fcc346e62"
+    },
+    {
+      "file": "scripts/test-security-deploy-plan.mjs",
+      "sha256": "becb8c4e7c0af22e2fe4a29ffe396f304413ebf02910013e1a65f07f1c229997"
+    },
+    {
+      "file": "scripts/test-security-hardening.mjs",
+      "sha256": "3cc3026d83d8678be1411f8cf958cbeb5c3614d46030bba731714375e8ff5de9"
+    },
+    {
+      "file": "scripts/test-security-postgres-upgrade.mjs",
+      "sha256": "0f8cdb7369b4d5934ac859136ba107db68c66d2a7dcb15e269427c9b05ce4c4e"
+    },
+    {
+      "file": "scripts/verify-security-convergence.mjs",
+      "sha256": "029b80d114774ec988b8ea53eec4f1a748157e7b8fbd66dbf69fda0034aa268e"
+    },
+    {
+      "file": "src/app/(app)/_layout.tsx",
+      "sha256": "8d91a3628554511c905d5826a7b8cbf860a6ed903b567f04f1c9ac05b974a1a0"
+    },
+    {
+      "file": "src/app/(auth)/reset-password.tsx",
+      "sha256": "80584c7c91d0d8b872c74da2655e0b568f3ca0fe15cc3ac7da47bc3520354f28"
+    },
+    {
+      "file": "src/features/auth/AuthProvider.tsx",
+      "sha256": "b0bba8303f269fc0ab8c10a7632267870ba2e234f1fe34b6aea7c8e9145b7512"
+    },
+    {
+      "file": "src/features/auth/components/password-security-notice.tsx",
+      "sha256": "9dad588cc6ae58bc109810d6a895b52a0585660330dc7a4476ba4abafb184ba0"
+    },
+    {
+      "file": "src/lib/errors/auth-errors.ts",
+      "sha256": "2c6efdae482f260fc39e48cb4b26f195ad8cbb7d4eb4b2bfc9f23bfd6a698117"
+    },
+    {
+      "file": "src/lib/errors/user-message.ts",
+      "sha256": "be8bbb170f35b4e7b3c19cec0b0590f9c577c9be2f444ea4553217f2c5370dbe"
+    },
+    {
+      "file": "src/lib/local-cache/cache.ts",
+      "sha256": "a9f7e2e3627d7eb886bfc9cd8d47da2d304263bf588c131cee7190708f98b139"
+    },
+    {
+      "file": "src/types/database.types.ts",
+      "sha256": "4ca405df39e68f252a33596207bb7ff84f6a1a64150cbf52be7863d0d2649190"
+    },
+    {
+      "file": "supabase/migrations/20261016191158_reconcile_security_schema.sql",
+      "sha256": "4c3951acffe8f6d16b7764d4d4de934ada735b1435a24f03c33d533d371f7966"
+    },
+    {
+      "file": "supabase/migrations/20261016191208_secure_application_default_privileges.sql",
+      "sha256": "4d8e0e464ad5015b3f01cf56963c42f994b07a1632b280a586bfe9cfcb407906"
+    },
+    {
+      "file": "supabase/migrations/20261016191219_pin_history_timestamp_search_paths.sql",
+      "sha256": "d4bd4aef46bf23056389e0532823202cd14517ec9ae0b5eb903a79ebf9b49d5e"
+    },
+    {
+      "file": "supabase/migrations/20261016191229_restrict_service_rpc_execution.sql",
+      "sha256": "d437013ebb7b402be23c8cf53ed26dcc7b4572f698545c5fd019328d92fb85aa"
+    },
+    {
+      "file": "supabase/migrations/20261016191239_progress_alias_security_invoker.sql",
+      "sha256": "1d22cfa8bd356ebf411721fbc00bbc4db55007b5ac31c3c22d2738c78f773942"
+    },
+    {
+      "file": "supabase/migrations/20261016191251_member_identifier_abuse_protection.sql",
+      "sha256": "ac484615ee124cc434ec69cf42afc2cd369bbfa1c83ecc16a1e015381297a7d4"
+    },
+    {
+      "file": "supabase/migrations/20261016191301_minimize_client_table_privileges.sql",
+      "sha256": "93cc690226286612e402340284b8340337047a5ceb4c78b40ced1c2fde5af99d"
+    },
+    {
+      "file": "supabase/tests/fixtures/hosted_security_baseline_20261016.json",
+      "sha256": "88bcd7835f5eb22a2583a05150c4f9d04bc4b16da38833983daba56ec18d038c"
+    },
+    {
+      "file": "supabase/tests/security_privilege_hardening_test.sql",
+      "sha256": "1d1eb2732db31d4231edecd27980c6498511b789adca29637cc34afc1b7bcc99"
+    },
+    {
+      "file": "supabase/tests/security_snapshot.sql",
+      "sha256": "8b07cdfa9b706cd2222f7269aeb9ea295ecfcf00451491d9b7ea77cdd4999756"
+    },
+    {
+      "file": "tests/cache-first-regressions.test.ts",
+      "sha256": "c9b9d4c7ce5303df71b7ba2b955938503425d5879dae32d78aa5dac970958329"
+    },
+    {
+      "file": "tests/password-security-ui.test.tsx",
+      "sha256": "057b47969680a2da20377d40bf9ed46ec234ecc08be7f843789f801ac39cc3e3"
+    },
+    {
+      "file": "tests/password-security.test.ts",
+      "sha256": "50ab4aa63bed07f893cc054e94acd355175d7cc592d6624f0509acf01174cebd"
+    }
+  ],
+  "cleanup": {
+    "isolated_databases_remaining": 0,
+    "temporary_test_containers_remaining": 0,
+    "temporary_stack_config_files_remaining": 0,
+    "shared_local_database_reset": false
+  },
+  "audit_stage": "pre-commit",
+  "staged_phase_files": 60
+}

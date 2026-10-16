@@ -1,0 +1,29 @@
+{
+  "desktop": {
+    "aligned": true,
+    "centered": true,
+    "height": 40,
+    "overflow": false,
+    "stacked": true,
+    "width": 288
+  },
+  "mobile": {
+    "aligned": true,
+    "centered": false,
+    "height": 40,
+    "overflow": false,
+    "stacked": true,
+    "width": 342
+  },
+  "idle_seconds": 45,
+  "idle_requests": 0,
+  "recovered_pages": [
+    {
+      "p_dataset": "items",
+      "p_limit": 500,
+      "p_offset": 0,
+      "p_revision": "6a593f2d62e59e602fbb19a7ef4e3ebf",
+      "p_snapshot_at": "2026-10-16T20:30:54.958338+00:00"
+    }
+  ]
+}

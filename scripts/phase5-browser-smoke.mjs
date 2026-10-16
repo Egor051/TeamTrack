@@ -4,7 +4,7 @@ import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
 
 const local = getLocalSupabaseStatus();
 const address = new URL(local.API_URL);
-if (address.hostname !== '127.0.0.1' || address.port !== '55431')
+if (address.hostname !== '127.0.0.1' || (!process.env.TASKTRACE_ISOLATED_CONFIG && address.port !== '55431'))
   throw new Error('Browser smoke setup only supports the local Supabase API');
 const password = 'LocalPhase5#123';
 

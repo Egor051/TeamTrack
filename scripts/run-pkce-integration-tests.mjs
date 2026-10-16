@@ -72,6 +72,7 @@ async function verifyLinkFromMail(message) {
   const candidates = body.match(/https?:\/\/[^\s"'<>]+/g) ?? [];
   const verifyUrl = candidates.find((value) => value.includes('/auth/v1/verify?'));
   assert.ok(verifyUrl, 'Supabase verification URL was absent from local email');
+  assert.equal(new URL(verifyUrl).origin, new URL(local.API_URL).origin, 'Verification must stay inside the selected test stack');
 
   const verify = await fetch(verifyUrl, { redirect: 'manual' });
   assert.ok(verify.status >= 300 && verify.status < 400, `GoTrue verify returned ${verify.status}`);
@@ -87,7 +88,10 @@ function assertStrictCallback(callback, kind) {
   assert.equal(callback.port, expected.port);
   assert.equal(callback.pathname.replace(/\/$/, ''), expected.pathname.replace(/\/$/, ''));
   assert.equal(callback.searchParams.get('auth_type'), kind);
-  assert.match(callback.searchParams.get('code') ?? '', /^[A-Za-z0-9._~-]{8,4096}$/);
+  assert.match(callback.searchParams.get('code') ?? '', /^[A-Za-z0-9._~-]{8,4096}$/, JSON.stringify({
+    error: callback.searchParams.get('error'), code: callback.searchParams.get('error_code'),
+    description: callback.searchParams.get('error_description'),
+  }));
   assert.match(callback.searchParams.get('sb_flow_id') ?? '', /^[A-Za-z0-9_-]{8,64}$/);
   assert.equal(callback.hash, '');
   assert.deepEqual([...new Set(callback.searchParams.keys())].sort(), ['auth_type', 'code', 'sb_flow_id']);

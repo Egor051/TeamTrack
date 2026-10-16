@@ -1,0 +1,14 @@
+{
+  "checks": [
+    "project and user topics enforce current membership/identity",
+    "authorized reconnect/rejoin receives a new Broadcast",
+    "revoke immediately fences RLS/new writes; fresh/re-authenticated joins fail; foreign project gets no events",
+    "restored membership can rejoin and read again",
+    "downgraded viewer retains read subscription and cannot mutate"
+  ],
+  "checks_passed": 5,
+  "cached_events_after_revoke": 1,
+  "cached_payload_contains_only_routing_metadata": true,
+  "fresh_joins_after_revoke_denied": true,
+  "foreign_project_events": 0
+}

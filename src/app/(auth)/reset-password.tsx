@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { mapSupabaseAuthError } from '@/lib/errors/auth-errors';
 import { AuthForm, AuthLink, AuthNotice, readAuthInputValue } from '@/features/auth/components/auth-form';
 
 export default function ResetPasswordScreen() {
@@ -42,7 +43,7 @@ export default function ResetPasswordScreen() {
     submittingRef.current = true;
     setBusy(true);
     try { await updatePassword(nextPassword); setDone(true); }
-    catch { setError('Не удалось обновить пароль. Попробуйте ещё раз или запросите новую ссылку.'); }
+    catch (e) { setError(mapSupabaseAuthError(e)); }
     finally { submittingRef.current = false; setBusy(false); }
   }
 

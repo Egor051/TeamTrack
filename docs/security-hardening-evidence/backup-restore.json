@@ -1,0 +1,12 @@
+{
+  "source": "PostgreSQL 17.6",
+  "target": "PostgreSQL 17.11",
+  "image": "public.ecr.aws/supabase/postgres:17.11.0.004",
+  "schema_semantically_equal": true,
+  "cosmetic_differences": [
+    "profiles CHECK deparser flattens associative AND parentheses"
+  ],
+  "data_audit_feed_receipt_checksum_equal": true,
+  "historical_ack_equal": true,
+  "duplicate_side_effects": false
+}

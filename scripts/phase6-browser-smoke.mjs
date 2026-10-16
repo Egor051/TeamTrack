@@ -16,7 +16,7 @@ for (const raw of [local.API_URL, local.DB_URL]) {
   const url = new URL(raw);
   if (url.hostname !== '127.0.0.1') throw new Error('Phase 6 browser smoke requires local Supabase');
 }
-if (new URL(local.API_URL).port !== '55431') throw new Error('Unexpected local Supabase API port');
+if (!process.env.TASKTRACE_ISOLATED_CONFIG && new URL(local.API_URL).port !== '55431') throw new Error('Unexpected local Supabase API port');
 const db = new pg.Client({ connectionString: local.DB_URL });
 const base = 'http://127.0.0.1:4174';
 const session = `phase6-smoke-${Date.now()}`;

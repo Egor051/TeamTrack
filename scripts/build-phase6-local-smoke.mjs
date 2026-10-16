@@ -4,7 +4,7 @@ import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
 
 const local = getLocalSupabaseStatus();
 const url = new URL(local.API_URL);
-if (url.hostname !== '127.0.0.1' || url.port !== '55431') throw new Error('Local Supabase required');
+if (url.hostname !== '127.0.0.1' || (!process.env.TASKTRACE_ISOLATED_CONFIG && url.port !== '55431')) throw new Error('Local Supabase required');
 const command = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : 'npm';
 const args = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm', 'run', 'build:web'] : ['run', 'build:web'];
 const result = spawnSync(command, args, {

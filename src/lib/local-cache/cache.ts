@@ -17,7 +17,9 @@ const refreshes = new Map<string, { version: number; promise: Promise<unknown> }
 const failedRefreshes = new Set<string>();
 // A lifecycle fence is not a new server denial. In particular an old response
 // must never persist a block after a newer ACL check has already succeeded.
-class SupersededReadError extends ResourceAccessDeniedError {}
+class SupersededReadError extends Error {
+  readonly name = 'SupersededReadError';
+}
 export function isLocalResult(value: unknown): boolean {
   return value !== null && typeof value === 'object' && localResults.has(value);
 }

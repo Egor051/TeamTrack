@@ -1,0 +1,108 @@
+{
+  "suites_passed": 4,
+  "suites_failed": 0,
+  "final_runs": [
+    {
+      "script": "scripts/password-security-browser-smoke.mjs",
+      "exit_code": 0,
+      "checkpoint_count": 1,
+      "checkpoints": [
+        "PASS password browser: real weak-password login, authenticated warning at four widths, notice link, real update, warning removal and subsequent login"
+      ],
+      "elapsed_ms": 57142,
+      "log_sha256": "be1325894a90b453a4e132fb8fafa6bb3a7460c83b098f71439687cbb98ceecb",
+      "full_log": "C:\\Users\\chupa\\.codex\\visualizations\\2026\\10\\16\\01a145f8-2f1a-71d2-a85d-12e99db4b049\\security-remediation\\password-security-browser-smoke-37944.log"
+    },
+    {
+      "script": "scripts/account-offline-browser-smoke.mjs",
+      "exit_code": 0,
+      "checkpoint_count": 26,
+      "checkpoints": [
+        "PASS automatic basic bootstrap, independent projects indicators and PWA assets",
+        "PASS navigation button/breadcrumb → project → first browser back, direct links and reload",
+        "PASS three Offline → Online cycles, cached projects/project/stage, mounted route recovery without reload",
+        "PASS automatic recovery, Refresh joins live work through deadline, late response cannot overwrite ready",
+        "PASS fresh-ready Refresh fetches overview, skips account preload/mutations, retains readiness certificate",
+        "PASS ready + focus/visibility/tab switching without false syncing",
+        "PASS 20s scheduler idle without HTTP, automatic targeted missing-page recovery, stable desktop/390px layout",
+        "PASS offline direct reload /projects",
+        "PASS offline direct reload /projects/:project",
+        "PASS offline direct reload /projects/2e478a60-28d7-4c34-be32-a0a9af584445",
+        "PASS offline direct reload /projects/:project/members",
+        "PASS offline direct reload /projects/:project/tasks/:task",
+        "PASS offline direct reload /projects/2e478a60-28d7-4c34-be32-a0a9af584445/tasks/5342b081-ad6d-49a6-ad72-e9490e5018cb",
+        "PASS offline direct reload /projects/:project/progress",
+        "PASS offline direct reload /projects/:project/tasks/:task/progress",
+        "PASS offline direct reload /profile",
+        "PASS offline direct reload /templates",
+        "PASS cached templates and contents in the new-task form offline",
+        "PASS cached template expansion and archived checklist tab",
+        "PASS expired runtime snapshot + offline hard reload + checkbox/percentage/comment + durable UI/outbox",
+        "PASS reconnect revalidation, three server receipts, outbox cleared and final online reload",
+        "PASS cross-tab server disable blocks new writes and retains the pending operation",
+        "PASS Extended 94% interruption → network loss → coalesced reconnect → ready; late response ignored",
+        "PASS profile choice placement, basic default, extended switch and persisted setting",
+        "PASS extended history and bounded notifications pagination offline",
+        "PASS extended → basic readiness offline"
+      ],
+      "elapsed_ms": 449463,
+      "log_sha256": "0f494a0181c4b141564d2880175a1339fc8b0918228a29c362cb7a7ff70f1fe7",
+      "full_log": "C:\\Users\\chupa\\.codex\\visualizations\\2026\\10\\16\\01a145f8-2f1a-71d2-a85d-12e99db4b049\\security-remediation\\account-offline-browser-smoke-37944.log"
+    },
+    {
+      "script": "scripts/phase6-browser-smoke.mjs",
+      "exit_code": 0,
+      "checkpoint_count": 8,
+      "checkpoints": [
+        "PASS one compact indicator on task, task progress, history and project progress",
+        "PASS local-first online edit",
+        "PASS offline edit, F5, reconnect, status",
+        "PASS conflict persistence and server resolution",
+        "PASS remote write kill switch",
+        "PASS multi-tab queue and one receipt",
+        "PASS service-worker update with pending operation",
+        "PASS failed operation persistence and explicit retry"
+      ],
+      "elapsed_ms": 295406,
+      "log_sha256": "ec3ab10992ea2616c0c074ea6351aa42d75d0d5796d22a7df26439d0956d08b2",
+      "full_log": "C:\\Users\\chupa\\.codex\\visualizations\\2026\\10\\16\\01a145f8-2f1a-71d2-a85d-12e99db4b049\\security-remediation\\phase6-browser-smoke-39740.log"
+    }
+  ],
+  "deadline_suite": {
+    "script": "scripts/checklist-deadline-browser.mjs",
+    "passed": true,
+    "scope": "synthetic UI auth fixture; actual isolated RPC/database; not a live Auth/Realtime browser acceptance",
+    "run_timing": "completed before cache cancellation classification fix; Account Offline, Phase 6 and password suites completed afterward",
+    "proof_images": [
+      {
+        "file": ".expo/deadline-evidence/desktop.png",
+        "sha256": "c61442b4623575729db9f7483205cfc21477a9d55293a757545909e8713462d5"
+      },
+      {
+        "file": ".expo/deadline-evidence/mobile.png",
+        "sha256": "026210af0ab4c5d89acd52c8b146c6176e5f33a5eddea7377c55f35f7df86eda"
+      },
+      {
+        "file": ".expo/deadline-evidence/members.png",
+        "sha256": "443652f99f6e8557cae46cde5394103716179b44ac4397999a8a22dbd1e5a688"
+      },
+      {
+        "file": ".expo/deadline-evidence/hours.png",
+        "sha256": "fbef80bb8c62a6e8ea9f4c9c8e6f02a1cd9f31ac42c19073081496b6bb736850"
+      },
+      {
+        "file": ".expo/deadline-evidence/picker.png",
+        "sha256": "81485b4d41f127510223da2061bf813259fbd26f0da6e747088a5d429ed4b705"
+      },
+      {
+        "file": ".expo/deadline-evidence/notifications.png",
+        "sha256": "62a0d1c56e4172c90ccc1006ef70d578896c9f8ef5d3cb5f2be71d1b22fe28eb"
+      },
+      {
+        "file": ".expo/deadline-evidence/action-filter.png",
+        "sha256": "13118265c4ba0b9d3618bdd05442fd39cd2d0e8eacc3cd3973617dee22e45320"
+      }
+    ]
+  },
+  "note": "Checkpoints are printed groups, not individual assertion counts. Earlier failed development runs are described in the report."
+}

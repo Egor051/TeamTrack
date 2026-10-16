@@ -1,0 +1,2652 @@
+{
+  "coverage": [
+    "add_project_member",
+    "add_project_member_by_identifier",
+    "add_task_assignee",
+    "apply_task_item_comment_operation",
+    "apply_task_item_comment_operation_v2",
+    "apply_task_item_percentage_operation",
+    "apply_task_item_percentage_operation_v2",
+    "apply_task_item_state_operation",
+    "apply_task_item_state_operation_v2",
+    "archive_project",
+    "archive_task",
+    "archive_task_item",
+    "archive_task_template",
+    "change_member_role",
+    "clear_task_member_override",
+    "create_project",
+    "create_task",
+    "create_task_from_template",
+    "create_task_item",
+    "create_task_template",
+    "create_task_template_item",
+    "delete_task_template_item",
+    "get_my_profile",
+    "get_my_task_role",
+    "get_offline_runtime_config",
+    "get_task_item_sync_cursor",
+    "get_task_template",
+    "hard_delete_project",
+    "hard_delete_task",
+    "hard_delete_task_item",
+    "list_task_item_last_editors",
+    "list_task_member_overrides",
+    "list_task_template_items",
+    "list_task_templates",
+    "mark_all_notifications_read",
+    "mark_notification_read",
+    "move_task",
+    "move_task_template_item",
+    "pull_task_item_changes",
+    "pull_task_item_changes_v2",
+    "remove_project_member",
+    "remove_task_assignee",
+    "restore_project",
+    "restore_task",
+    "set_task_item_comment",
+    "set_task_item_deadline",
+    "set_task_item_percentage",
+    "set_task_item_progress",
+    "set_task_item_state",
+    "set_task_member_override",
+    "transfer_project_ownership",
+    "update_my_profile",
+    "update_project",
+    "update_task",
+    "update_task_item",
+    "update_task_template",
+    "update_task_template_item"
+  ],
+  "checks": [
+    {
+      "name": "add_project_member: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "add_project_member: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "add_project_member_by_identifier: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_project_member_by_identifier: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "add_project_member_by_identifier: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "add_task_assignee: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "add_task_assignee: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "add_task_assignee: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "apply_task_item_comment_operation: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_comment_operation: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "apply_task_item_state_operation: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_state_operation: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "archive_project: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_project: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "archive_project: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "archive_task: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "archive_task: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "archive_task_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "archive_task_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "archive_task_template: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "archive_task_template: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "archive_task_template: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "change_member_role: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "change_member_role: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "clear_task_member_override: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "clear_task_member_override: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "create_project: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_project: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_project: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_project: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_project: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_project: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_project: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "create_project: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "create_task: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "create_task: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "create_task_from_template: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_from_template: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "create_task_from_template: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "create_task_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "create_task_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "create_task_template: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "create_task_template: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "create_task_template_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "create_task_template_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "create_task_template_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "delete_task_template_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "delete_task_template_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "delete_task_template_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "get_my_profile: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_profile: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_profile: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_profile: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_profile: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_profile: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "get_my_profile: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "get_my_task_role: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_my_task_role: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "get_my_task_role: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "get_offline_runtime_config: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_offline_runtime_config: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_offline_runtime_config: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_offline_runtime_config: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_offline_runtime_config: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_offline_runtime_config: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "get_offline_runtime_config: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "get_task_item_sync_cursor: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_item_sync_cursor: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_item_sync_cursor: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_item_sync_cursor: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_item_sync_cursor: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_item_sync_cursor: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "get_task_item_sync_cursor: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "get_task_template: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_template: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_template: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_template: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_template: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_template: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_template: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "get_task_template: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "get_task_template: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "hard_delete_project: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: active/archived inverse state",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_project: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "hard_delete_project: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "hard_delete_task: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: active/archived inverse state",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "hard_delete_task: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "hard_delete_task_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: active/archived inverse state",
+      "kind": "adversarial"
+    },
+    {
+      "name": "hard_delete_task_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "hard_delete_task_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "list_task_item_last_editors: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_item_last_editors: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_item_last_editors: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_item_last_editors: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_item_last_editors: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_item_last_editors: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_item_last_editors: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_item_last_editors: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "list_task_item_last_editors: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "list_task_member_overrides: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_member_overrides: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "list_task_member_overrides: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "list_task_template_items: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_template_items: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_template_items: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_template_items: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_template_items: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_template_items: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_template_items: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_template_items: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "list_task_template_items: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "list_task_templates: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_templates: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_templates: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_templates: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_templates: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "list_task_templates: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "list_task_templates: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "mark_all_notifications_read: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_all_notifications_read: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_all_notifications_read: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_all_notifications_read: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_all_notifications_read: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_all_notifications_read: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "mark_all_notifications_read: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "mark_notification_read: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_notification_read: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_notification_read: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_notification_read: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_notification_read: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_notification_read: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "mark_notification_read: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "mark_notification_read: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "move_task: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "move_task: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "move_task_template_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "move_task_template_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "move_task_template_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "pull_task_item_changes: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "pull_task_item_changes: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "pull_task_item_changes_v2: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes_v2: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes_v2: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes_v2: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes_v2: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes_v2: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "pull_task_item_changes_v2: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "pull_task_item_changes_v2: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "remove_project_member: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_project_member: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "remove_project_member: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "remove_task_assignee: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "remove_task_assignee: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "remove_task_assignee: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "restore_project: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: active/archived inverse state",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_project: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "restore_project: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "restore_task: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: active/archived inverse state",
+      "kind": "adversarial"
+    },
+    {
+      "name": "restore_task: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "restore_task: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "set_task_item_comment: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_comment: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "set_task_item_comment: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "set_task_item_deadline: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_deadline: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "set_task_item_deadline: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "set_task_item_percentage: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_percentage: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "set_task_item_percentage: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "set_task_item_progress: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_progress: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "set_task_item_progress: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "set_task_item_state: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_item_state: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "set_task_item_state: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "set_task_member_override: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "set_task_member_override: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "transfer_project_ownership: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "transfer_project_ownership: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "transfer_project_ownership: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "update_my_profile: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_my_profile: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_my_profile: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_my_profile: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_my_profile: self/global contract preserved",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_my_profile: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_my_profile: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "update_my_profile: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "update_project: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_project: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "update_project: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "update_task: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "update_task: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "update_task_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "update_task_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "update_task_template: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "update_task_template: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "update_task_template_item: anonymous",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: service_role",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: forged actor argument",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: malformed JSON cannot execute",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: outsider",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: insufficient viewer",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: NULL safe",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: foreign UUID",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: archived state contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "update_task_template_item: two concurrent authorized requests",
+      "kind": "concurrency"
+    },
+    {
+      "name": "update_task_template_item: authorized",
+      "kind": "rpc"
+    },
+    {
+      "name": "profiles: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "projects: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "tasks: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_items: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "project_members: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_members: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_assignees: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "audit_log: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "item_actions: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "notifications: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "checklist_overview: foreign rows hidden by real Data API RLS",
+      "kind": "adversarial"
+    },
+    {
+      "name": "profiles: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "projects: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "project_members: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "tasks: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_items: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_members: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_assignees: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_templates: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_template_items: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "audit_log: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "item_actions: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "notifications: anonymous reads and direct INSERT/UPDATE/DELETE denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_templates: RPC-only table SELECT denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_template_items: RPC-only table SELECT denied",
+      "kind": "adversarial"
+    },
+    {
+      "name": "checklist_deadline_state: private schema is not exposed",
+      "kind": "adversarial"
+    },
+    {
+      "name": "client_operation_receipts: private schema is not exposed",
+      "kind": "adversarial"
+    },
+    {
+      "name": "offline_runtime_config: private schema is not exposed",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_item_sync_changes: private schema is not exposed",
+      "kind": "adversarial"
+    },
+    {
+      "name": "task_item_sync_retention: private schema is not exposed",
+      "kind": "adversarial"
+    },
+    {
+      "name": "member_identifier_limits: private schema is not exposed",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: self-change or self-escalation",
+      "kind": "adversarial"
+    },
+    {
+      "name": "set_task_member_override: self-change or self-escalation",
+      "kind": "adversarial"
+    },
+    {
+      "name": "clear_task_member_override: self-change or self-escalation",
+      "kind": "adversarial"
+    },
+    {
+      "name": "change_member_role: self-change or self-escalation",
+      "kind": "adversarial"
+    },
+    {
+      "name": "lookup rejects invalid bounded input {\"p_identifier\":\"\"}",
+      "kind": "adversarial"
+    },
+    {
+      "name": "lookup rejects invalid bounded input {\"p_identifier\":\"   \"}",
+      "kind": "adversarial"
+    },
+    {
+      "name": "lookup rejects invalid bounded input {\"p_identifier\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "kind": "adversarial"
+    },
+    {
+      "name": "lookup rejects invalid bounded input {\"p_role\":null}",
+      "kind": "adversarial"
+    },
+    {
+      "name": "lookup rejects invalid bounded input {\"p_role\":\"owner\"}",
+      "kind": "adversarial"
+    },
+    {
+      "name": "lookup rejects invalid bounded input {\"p_project_id\":null}",
+      "kind": "adversarial"
+    },
+    {
+      "name": "not-found, existing member and ambiguous name have identical HTTP errors and no business side effects",
+      "kind": "adversarial"
+    },
+    {
+      "name": "failed HTTP lookups persist quota; SDK recognizes 429; business stores unchanged",
+      "kind": "adversarial"
+    },
+    {
+      "name": "client tx=rollback preference cannot bypass quota",
+      "kind": "adversarial"
+    },
+    {
+      "name": "quota expires",
+      "kind": "adversarial"
+    },
+    {
+      "name": "parallel lookup quota cannot be overspent across different projects",
+      "kind": "concurrency"
+    },
+    {
+      "name": "an independent actor has a separate quota",
+      "kind": "adversarial"
+    },
+    {
+      "name": "valid email lookup trims/case-normalizes and preserves the membership success contract",
+      "kind": "adversarial"
+    },
+    {
+      "name": "ACK after revoke: historical own response only; new/mismatched/foreign operation rejected",
+      "kind": "adversarial"
+    },
+    {
+      "name": "ACK after downgrade: historical own response only; new/mismatched/foreign operation rejected",
+      "kind": "adversarial"
+    },
+    {
+      "name": "ACK after archive: historical own response only; new/mismatched/foreign operation rejected",
+      "kind": "adversarial"
+    },
+    {
+      "name": "ACK after delete: historical own response only; new/mismatched/foreign operation rejected",
+      "kind": "adversarial"
+    },
+    {
+      "name": "apply_task_item_comment_operation: concurrent duplicates have one receipt, audit, feed and notification fanout",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_percentage_operation: concurrent duplicates have one receipt, audit, feed and notification fanout",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_state_operation: concurrent duplicates have one receipt, audit, feed and notification fanout",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_comment_operation_v2: concurrent duplicates have one receipt, audit, feed and notification fanout",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_percentage_operation_v2: concurrent duplicates have one receipt, audit, feed and notification fanout",
+      "kind": "concurrency"
+    },
+    {
+      "name": "apply_task_item_state_operation_v2: concurrent duplicates have one receipt, audit, feed and notification fanout",
+      "kind": "concurrency"
+    },
+    {
+      "name": "two independent CAS operations: exactly one mutation and one conflict",
+      "kind": "concurrency"
+    },
+    {
+      "name": "waiting write vs committed revoke: current permission/state rechecked",
+      "kind": "concurrency"
+    },
+    {
+      "name": "waiting write vs committed downgrade: current permission/state rechecked",
+      "kind": "concurrency"
+    },
+    {
+      "name": "waiting write vs committed archive: current permission/state rechecked",
+      "kind": "concurrency"
+    },
+    {
+      "name": "waiting write vs committed delete: current permission/state rechecked",
+      "kind": "concurrency"
+    },
+    {
+      "name": "two ownership transfers: one current owner and one rejected stale owner",
+      "kind": "concurrency"
+    }
+  ],
+  "counts": {
+    "rpc": 57,
+    "scenarios": 646,
+    "concurrency": 70
+  }
+}

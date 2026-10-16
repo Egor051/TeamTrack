@@ -1,10 +1,20 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const root = resolve(import.meta.dirname, '..');
 const SUPABASE_CLI = 'supabase@2.116.0';
 
 export function getLocalSupabaseStatus() {
+  if (process.env.TASKTRACE_ISOLATED_CONFIG) {
+    const status = JSON.parse(readFileSync(process.env.TASKTRACE_ISOLATED_CONFIG, 'utf8'));
+    const db = new URL(status.DB_URL);
+    if (status.kind !== 'tasktrace-isolated-security-test'
+      || !/^\/teamtrack_audit_\d+$/.test(db.pathname)
+      || [status.API_URL, status.DB_URL, status.MAILPIT_URL].some((raw) => new URL(raw).hostname !== '127.0.0.1'))
+      throw new Error('An isolated loopback test stack is required');
+    return status;
+  }
   const npxArgs = ['--yes', SUPABASE_CLI, 'status', '--output', 'json'];
   const command = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : 'npx';
   const args = process.platform === 'win32'

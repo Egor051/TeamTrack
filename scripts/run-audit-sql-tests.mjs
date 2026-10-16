@@ -6,6 +6,7 @@ import { verifyTemplateConcurrency } from './audit-template-concurrency.mjs';
 import { localDbBridge } from './local-db-bridge.mjs';
 import { verifyChecklistDeadlineIntegration } from './checklist-deadline-integration.mjs';
 import { verifyDeadlineCron } from './checklist-deadline-cron.mjs';
+import { securityDatabaseContainers } from './security-test-harness.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 function docker(args, input) {
@@ -14,23 +15,21 @@ function docker(args, input) {
   if (result.status !== 0) throw new Error(result.stderr || result.stdout || `docker exited ${result.status}`);
   return result.stdout;
 }
-const containers = docker(['ps', '--filter', 'name=supabase_db_', '--format', '{{.Names}}']).trim().split(/\r?\n/).filter(Boolean);
-if (containers.length !== 1) throw new Error('Expected exactly one already running local Supabase database');
-const container = containers[0];
+const {container,providerContainer} = securityDatabaseContainers();
 const database = `teamtrack_audit_${process.pid}`;
 const sql = (source, db = database) => docker(['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'supabase_admin', '-d', db], `set search_path = public, extensions;\n${source}`);
-const base = docker(['exec', container, 'pg_dump', '-U', 'postgres', '-d', 'postgres', '--schema-only', '--no-owner', '--no-privileges', '--schema=auth', '--schema=realtime'])
+const base = docker(['exec', providerContainer, 'pg_dump', '-U', 'postgres', '-d', 'postgres', '--schema-only', '--no-owner', '--no-privileges', '--schema=auth', '--schema=realtime'])
   .replace(/^CREATE TRIGGER[^\n]*EXECUTE FUNCTION (?:private|public)\.[^\n]*;\r?\n/gm, '')
   .replace(/^CREATE POLICY tasktrace_broadcast_read[^\n]*;\r?\n/gm, '');
-sql(`create database ${database};`, 'postgres');
+sql(`create database ${database} owner postgres;`, 'postgres');
 let bridge;
 try {
   sql(base);
-  sql('create schema extensions; create extension pgcrypto with schema extensions; create publication supabase_realtime; grant usage on schema auth, realtime to authenticated, anon; grant execute on all functions in schema auth to authenticated, anon;');
+  sql('create schema extensions; create extension pgcrypto with schema extensions; create publication supabase_realtime; grant usage on schema public to postgres; grant create on schema public to postgres; grant usage on schema auth, realtime to authenticated, anon, postgres; grant execute on all functions in schema auth, realtime to authenticated, anon, postgres; grant all on all tables in schema auth,realtime to postgres; grant all on all sequences in schema auth,realtime to postgres;');
   const migrations = readdirSync(resolve(root, 'supabase/migrations')).filter((name) => name.endsWith('.sql')).sort();
   let upgrade = '';
   for (const name of migrations) {
-    upgrade += `\n\\echo Migration ${name}\nset search_path = public, extensions;\n`;
+    upgrade += `\n\\echo Migration ${name}\nset role postgres; set search_path = public, extensions;\n`;
     if (name === '20260927181857_implement_backend_remediation.sql') {
       upgrade += readFileSync(resolve(root, 'supabase/tests/audit_upgrade_fixture.sql'), 'utf8') + '\n';
     }
@@ -38,9 +37,9 @@ try {
     upgrade += readFileSync(resolve(root, 'supabase/migrations', name), 'utf8') + '\n';
   }
   sql(upgrade);
-  console.log('PASS UPGRADE: all migrations applied to legacy valid data in an isolated database');
+  console.log('PASS UPGRADE: all migrations applied in isolation, including pre-existing invalid text and historical ordering data');
   const suites = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
-  for (const file of suites.length ? suites : ['audit_upgrade_test.sql', 'audit_template_ordering_test.sql', 'initial_schema_smoke_test.sql', 'stage_visibility_test.sql', 'rls_and_rpc_test.sql', 'notifications_test.sql', 'full_integration_test.sql', 'hard_delete_history_test.sql', 'task_enhancements_test.sql', 'offline_operation_receipts_test.sql', 'offline_pull_conflicts_test.sql', 'offline_phase6_runtime_retention_test.sql', 'account_offline_bootstrap_test.sql', 'checklist_deadlines_test.sql']) {
+  for (const file of suites.length ? suites : ['audit_upgrade_test.sql', 'audit_template_ordering_test.sql', 'initial_schema_smoke_test.sql', 'stage_visibility_test.sql', 'rls_and_rpc_test.sql', 'notifications_test.sql', 'full_integration_test.sql', 'hard_delete_history_test.sql', 'task_enhancements_test.sql', 'offline_operation_receipts_test.sql', 'offline_pull_conflicts_test.sql', 'offline_phase6_runtime_retention_test.sql', 'account_offline_bootstrap_test.sql', 'checklist_deadlines_test.sql', 'security_privilege_hardening_test.sql']) {
     sql(readFileSync(resolve(root, 'supabase/tests', file), 'utf8'));
     console.log(`PASS ${file}`);
   }
@@ -60,7 +59,7 @@ try {
     // Use the same generator image as the local Supabase CLI, directly inside
     // its network (Docker Desktop host-network loopback is not portable).
     const network = docker(['inspect', container, '--format', '{{.HostConfig.NetworkMode}}']).trim();
-    const image = docker(['inspect', container.replace('supabase_db_', 'supabase_pg_meta_'), '--format', '{{.Config.Image}}']).trim();
+    const image = docker(['inspect', providerContainer.replace('supabase_db_', 'supabase_pg_meta_'), '--format', '{{.Config.Image}}']).trim();
     const generated = docker(['run', '--rm', '--network', network,
       '-e', `PG_META_DB_HOST=${container}`, '-e', `PG_META_DB_NAME=${database}`,
       '-e', 'PG_META_DB_USER=supabase_admin', '-e', 'PG_META_GENERATE_TYPES=typescript',
@@ -69,7 +68,7 @@ try {
     console.log('PASS generated database types from the migrated isolated database');
   }
   await verifyTemplateConcurrency(port, database);
-  await verifyChecklistDeadlineIntegration(port, database, container);
+  await verifyChecklistDeadlineIntegration(port, database, container, providerContainer);
   if (process.argv.includes('--cron')) await verifyDeadlineCron(container, base, upgrade);
 } finally {
   bridge?.close();
