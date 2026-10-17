@@ -290,7 +290,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     const existing = refreshes.get(id);
     if (existing?.version === invalidation.version) return (existing.promise as Promise<T>).then(async (value) => {
       if (await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline || (userId && accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline)))) throw new SupersededReadError('Сеанс или доступ изменился во время загрузки.');
-      return options.filterCached && userId ? options.filterCached(userId, value) : value;
+      return options.filterCached && userId ? inheritCachedResult(value, await options.filterCached(userId, value)) : value;
     });
     const promise = refresh().finally(() => { if (refreshes.get(id)?.promise === promise) refreshes.delete(id); });
     refreshes.set(id, { version: invalidation.version, promise }); return promise;

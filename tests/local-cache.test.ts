@@ -25,7 +25,7 @@ vi.mock('@/lib/local-cache/driver', () => ({
   localCacheDriver: { get: fixtures.get, put: fixtures.put, putIfUnchanged: fixtures.putIfUnchanged, remove: fixtures.remove, commitCacheBatch: fixtures.commitCacheBatch, listEntries: fixtures.listEntries },
 }));
 
-import { filterBlockedProjects, isCachedResult, readThroughCache } from '@/lib/local-cache/cache';
+import { filterBlockedProjects, isCachedResult, readThroughCache, readCachedModel } from '@/lib/local-cache/cache';
 import { getProject, getTask, listProjectTasks, listProjects } from '@/features/projects/projects';
 import { reportConnectivitySuccess } from '@/lib/connectivity/state';
 import { getCurrentUser } from '@/features/auth/auth';
@@ -72,6 +72,23 @@ beforeEach(() => {
 });
 
 describe('read-through cache', () => {
+  it('all coalesced filtered readers retain transport-fallback provenance', async () => {
+    const key = 'audit:task-a:90days';
+    const saved = [{ id: 1, created_at: '2026-10-17T00:00:00Z' }];
+    await readThroughCache(key, async () => saved);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const online = vi.fn(async () => { await gate; throw networkError; });
+    const options = { forceRefresh: true, filterCached: async (_user: string, rows: typeof saved) => rows.filter(() => true) };
+    const first = readCachedModel(key, online, options);
+    const joined = readCachedModel(key, online, options);
+    await vi.waitFor(() => expect(online).toHaveBeenCalledOnce());
+    release();
+    const results = await Promise.all([first, joined]);
+    expect(results).toEqual([saved, saved]);
+    expect(results.map(isCachedResult)).toEqual([true, true]);
+    expect(online).toHaveBeenCalledOnce();
+  });
   it('overview reordering does not invalidate fresh preparation; an actual project change does', async () => {
     const changed = vi.fn(); const off = subscribeReadModelCommits(changed);
     try {

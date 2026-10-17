@@ -38,7 +38,30 @@ const { count, size, warnings } = await workboxBuild.generateSW({
     // external API hosts are never intercepted by this navigation fallback.
     urlPattern: isAppNavigation,
     handler: 'NetworkOnly',
-    options: { precacheFallback: { fallbackURL: '/offline-shell.html' } },
+    // A mobile connection can stay "online" while its HTML request stalls.
+    // Release the existing precached shell without waiting for a TCP failure.
+    options: {
+      // Workbox 7's generateSW rejects NetworkOnly.networkTimeoutSeconds,
+      // although the runtime strategy supports it. Abort via its fetch plugin
+      // so the existing PrecacheFallbackPlugin handles the same error path.
+      plugins: [{
+        requestWillFetch: async ({ request, state }) => {
+          const controller = new AbortController();
+          const abort = () => controller.abort();
+          const timer = setTimeout(abort, 5000);
+          request.signal.addEventListener('abort', abort, { once: true });
+          if (request.signal.aborted) abort();
+          state.dispose = () => {
+            clearTimeout(timer);
+            request.signal.removeEventListener('abort', abort);
+          };
+          return new Request(request, { signal: controller.signal });
+        },
+        fetchDidSucceed: async ({ response, state }) => { state.dispose?.(); return response; },
+        fetchDidFail: async ({ state }) => { state.dispose?.(); },
+      }],
+      precacheFallback: { fallbackURL: '/offline-shell.html' },
+    },
   }],
 });
 

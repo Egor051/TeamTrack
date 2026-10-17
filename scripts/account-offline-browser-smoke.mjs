@@ -72,8 +72,10 @@ async function eventually(probe, label, timeout = 45_000) {
 }
 const body = () => browser('get','text','body');
 const has = (text) => eventually(() => body().includes(text), text);
-async function open(route, text, { readiness = false } = {}) {
-  browser('open', base + route); await has(text);
+async function open(route, text, { readiness = false, offline = false } = {}) {
+  browser('open', base + route);
+  if (offline) check(browser('eval', 'navigator.onLine') === 'false', 'Browser driver lost offline emulation during navigation');
+  await has(text);
   check(browser('get','url') === base + route, `Route changed on reload: ${route}`);
   if (!readiness) check(!body().includes('Офлайн: '), `Offline readiness indicator leaked to ${route}`);
 }
@@ -220,7 +222,10 @@ async function lifecycleRegressions(taskId) {
   browser('eval', `(async function(){const db=await new Promise(function(ok,no){const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=function(){ok(r.result)};r.onerror=function(){no(r.error)}});try{await new Promise(function(ok,no){const tx=db.transaction('entries','readwrite');tx.objectStore('entries').delete('${userId}:bootstrap:metadata');tx.oncomplete=function(){ok()};tx.onerror=function(){no(tx.error)}})}finally{db.close()}return true})()`);
   check(metadata() === null, 'Preparation metadata was not cleared before offline start');
   browser('reload'); await has('Офлайн: ожидание сети');
-  check(metadata()?.status === 'offline_waiting', 'Offline preparation did not settle');
+  // Waiting is derived from the authoritative runtime pipeline. A cold offline
+  // start need not recreate deleted durable metadata before reconnecting.
+  check(!metadata()?.offline_ready, 'Missing preparation evidence was advertised ready');
+  check(!['running', 'updating'].includes(metadata()?.status), 'Offline startup persisted live preparation state');
   // Hold one manifest response. Refresh must join healthy live work until its
   // deadline, then recover the incomplete cache; a late response stays fenced.
   browser('eval', `window.__held=false;window.__fetch=window.fetch;window.fetch=function(input,init){if(!window.__held&&String(input).includes('/rpc/get_offline_account_manifest')){window.__held=true;return new Promise(function(ok,no){window.__fetch(input,init).then(function(response){window.__late=function(){ok(response)}},no)})}return window.__fetch(input,init)};true`);
@@ -451,8 +456,8 @@ try {
   browser('screenshot', resolve(root,'.expo/account-offline-profile.png'));
   console.log('PASS profile choice placement, basic default, extended switch and persisted setting');
   browser('set','offline','on');
-  await open(`/projects/${projectId}/tasks/${taskId}/history`, 'Показана сохранённая история за последние 90 дней');
-  await open('/notifications','Показаны сохранённые уведомления');
+  await open(`/projects/${projectId}/tasks/${taskId}/history`, 'Показана сохранённая история за последние 90 дней', { offline: true });
+  await open('/notifications','Показаны сохранённые уведомления', { offline: true });
   const notices = browser('snapshot','-i'); browser('click', ref(notices, 'Загрузить ещё')); await has('Офлайн уведомление 200');
   check(metadata().datasets.notifications.count === 220, 'Notifications were not all unread plus latest 100 read');
   console.log('PASS extended history and bounded notifications pagination offline');

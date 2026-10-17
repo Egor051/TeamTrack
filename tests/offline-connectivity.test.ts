@@ -14,7 +14,7 @@ import { readThroughCache, putCached, isCachedResult, isTransportFailure } from 
 import { getReadSession } from '@/lib/supabase/session';
 import { getConnectivityState, reportConnectivitySuccess, monitorConnectivity, revalidateConnectivity,
   reportConnectivityFailure, CONNECTIVITY_PROBE_INTERVAL_MS } from '@/lib/connectivity/state';
-import { connectivityFetch, AUTH_REVALIDATION_TIMEOUT_MS } from '@/lib/connectivity/fetch';
+import { connectivityFetch, AUTH_REVALIDATION_TIMEOUT_MS, AUTH_REQUEST_TIMEOUT_MS } from '@/lib/connectivity/fetch';
 import { uiRead } from '@/lib/supabase/ui-read';
 import { PostgrestClient } from '@supabase/postgrest-js';
 import { AbortController as NativeAbortController } from 'abort-controller';
@@ -214,6 +214,45 @@ describe('automatic cache read connectivity', () => {
       await vi.waitFor(() => expect(auth.getSession).toHaveBeenCalled()); await vi.advanceTimersByTimeAsync(AUTH_REVALIDATION_TIMEOUT_MS); await recovering;
       expect(getConnectivityState()).toBe('degraded');
       await expect(connectivityFetch('https://server.test/auth/v1/user')).rejects.toMatchObject({ name: 'AbortError' });
+    } finally { cleanup(); }
+  });
+  it('a stalled first refresh through the real SDK releases persisted identity and IndexedDB reads without a network toggle', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    let available = false;
+    const stored = new Map<string, string>([['stalled-session', JSON.stringify({ user: { id: 'user-a' },
+      access_token: 'expired-token', refresh_token: 'saved-refresh-token', expires_at: 1, token_type: 'bearer' })]]);
+    const fetch = vi.fn((input, init) => {
+      if (available) return Promise.resolve(new Response(String(input).includes('/token?')
+        ? JSON.stringify({ access_token: 'renewed-token', refresh_token: 'rotated-refresh-token', token_type: 'bearer',
+          expires_in: 3600, user: { id: 'user-a' } }) : '[]', { status: 200 }));
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('Aborted'), { name: 'AbortError' })));
+      });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const auth = new GoTrueClient({ url: 'https://server.test/auth/v1', storageKey: 'stalled-session',
+      autoRefreshToken: false, detectSessionInUrl: false, fetch: connectivityFetch,
+      storage: { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => { stored.set(key, value); }, removeItem: (key) => { stored.delete(key); } } });
+    await auth.initialize();
+    const sdkRestore = auth.getSession();
+    f.session.mockImplementation(() => auth.getSession());
+    const restore = getReadSession();
+    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS);
+    expect(getConnectivityState()).toBe('degraded');
+    expect((await restore).data.session?.user.id).toBe('user-a');
+    expect(await readThroughCache('projects:active', vi.fn())).toEqual([{ id: 'project-a' }]);
+    expect(JSON.parse(stored.get('stalled-session')!).refresh_token).toBe('saved-refresh-token');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect((await sdkRestore).error).not.toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
+    available = true;
+    const cleanup = monitorConnectivity(() => probeSupabase('https://server.test', 'publishable', auth));
+    try {
+      await vi.advanceTimersByTimeAsync(65_000);
+      expect(getConnectivityState()).toBe('online');
+      expect((await auth.getSession()).data.session?.access_token).toBe('renewed-token');
+      expect(JSON.parse(stored.get('stalled-session')!).refresh_token).toBe('rotated-refresh-token');
+      expect(fetch.mock.calls.filter(([input]) => String(input).includes('/token?'))).toHaveLength(2);
     } finally { cleanup(); }
   });
   it('recovers an expired session through the real SDK refresh cooldown without blocking local reads', async () => {
