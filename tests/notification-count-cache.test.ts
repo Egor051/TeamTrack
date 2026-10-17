@@ -12,14 +12,15 @@ it('combined filters are sent before the stable page range; filtered reads never
   const n = await import('@/features/notifications/notifications');
   const calls: unknown[][] = [];
   const query = { select: () => query, eq: (...args: unknown[]) => { calls.push(['eq', ...args]); return query; },
+    in: (...args: unknown[]) => { calls.push(['in', ...args]); return query; }, or: (...args: unknown[]) => { calls.push(['or', ...args]); return query; },
     gte: (...args: unknown[]) => { calls.push(['gte', ...args]); return query; }, lte: (...args: unknown[]) => { calls.push(['lte', ...args]); return query; },
     order: (...args: unknown[]) => { calls.push(['order', ...args]); return query; }, range: (...args: unknown[]) => { calls.push(['range', ...args]); return query; },
     then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve) };
   f.from.mockReturnValue(query);
-  await n.fetchNotificationPage(20, 40, { projectId: 'p', taskId: 't', from: '2026-10-15T12:30:00Z', to: '2026-10-16T12:30:00Z', action: 'deadline:overdue', read: 'unread' });
+  await n.fetchNotificationPage(20, 40, { projectIds: ['p', 'p2'], taskIds: ['t', 't2'], from: '2026-10-15T12:30:00Z', to: '2026-10-16T12:30:00Z', actions: ['deadline:overdue', 'task_assigned'], reads: ['unread'] });
   expect(calls).toEqual([
-    ['eq', 'project_id', 'p'], ['eq', 'task_id', 't'], ['gte', 'created_at', '2026-10-15T12:30:00Z'], ['lte', 'created_at', '2026-10-16T12:30:00Z'],
-    ['eq', 'is_read', false], ['eq', 'data->>deadline_event', 'overdue'], ['order', 'created_at', { ascending: false }], ['order', 'id', { ascending: false }], ['range', 40, 59],
+    ['in', 'project_id', ['p', 'p2']], ['in', 'task_id', ['t', 't2']], ['gte', 'created_at', '2026-10-15T12:30:00Z'], ['lte', 'created_at', '2026-10-16T12:30:00Z'],
+    ['eq', 'is_read', false], ['or', 'type.in.(task_assigned),data->>deadline_event.in.(overdue)'], ['order', 'created_at', { ascending: false }], ['order', 'id', { ascending: false }], ['range', 40, 59],
   ]);
   const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
   expect(JSON.parse((await driver.get('a', 'notifications:window'))!.data).rows).toHaveLength(3);

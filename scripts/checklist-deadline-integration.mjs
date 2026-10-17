@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import pg from 'pg';
 import { PostgrestClient } from '@supabase/postgrest-js';
 import { verifyDeadlineBrowser } from './checklist-deadline-browser.mjs';
+import { verifyStageMembershipIntegration } from './stage-membership-integration.mjs';
 
 export async function verifyChecklistDeadlineIntegration(port, database, container, providerContainer=container) {
   if (!/^teamtrack_audit_\d+$/.test(database)) throw new Error('Isolated database required');
@@ -97,6 +98,7 @@ export async function verifyChecklistDeadlineIntegration(port, database, contain
     await data(owner.rpc('set_task_item_deadline', { p_task_item_id: item, p_expected_version: latest.sync_version }));
     assert.equal((await data(owner.from('checklist_overview').select('deadline_at').eq('id', item).single())).deadline_at, null);
     console.log('PASS server worker concurrency: notifications without an app, retry deduplication, completion/reopening, deadline removal');
+    await verifyStageMembershipIntegration({ api, db, owner, token, project, task, item });
     if (process.argv.includes('--browser')) await verifyDeadlineBrowser({ api, db, owner, ids, token, project, task, item });
   } finally {
     spawnSync('docker', ['rm', '-f', name], { encoding: 'utf8' }); await db.end().catch(() => undefined);

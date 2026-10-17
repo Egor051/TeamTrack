@@ -32,14 +32,9 @@ import { subscribeMany, type RealtimeStatus } from '@/lib/supabase/realtime';
 import { layout, spacing } from '@/components/ui/theme';
 import { useTheme } from '@/components/ui/theme-provider';
 
+import { roleLabels, projectRoleDescriptions as roleDescriptions } from './role-descriptions';
+
 const roles: ProjectRole[] = ['admin', 'member', 'viewer'];
-const roleLabels: Record<ProjectRole, string> = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
-const roleDescriptions: Record<ProjectRole, string> = {
-  owner: 'Полный контроль над проектом: участники, роли, этапы и передача владения.',
-  admin: 'Управляет участниками, доступом к этапам, исполнителями и архивированием. Не может передавать владение и менять права другого администратора.',
-  member: 'Работает с доступными ему этапами и изменяет чек-листы. Не может управлять участниками и ролями проекта.',
-  viewer: 'Просматривает доступные данные. Не может изменять этапы и чек-листы.',
-};
 const roleOptions = roles.map((role) => ({ value: role, label: roleLabels[role] }));
 
 export function ProjectMembersPanel({ projectId, embedded = false, onChanged }: { projectId: string; embedded?: boolean; onChanged?: () => Promise<void> }) {

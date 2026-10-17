@@ -1,6 +1,22 @@
 import type { Notification } from './notifications';
 
-export type NotificationFilters = { projectId?: string; taskId?: string; from?: string; to?: string; action?: string; read?: 'all' | 'unread' | 'read' };
+export type NotificationFilters = {
+  projectIds?: string[]; taskIds?: string[]; actions?: string[]; reads?: ('unread' | 'read')[];
+  from?: string; to?: string;
+  // Retain the previous call shape for existing consumers.
+  projectId?: string; taskId?: string; action?: string; read?: 'all' | 'unread' | 'read';
+};
+export function notificationFilterValues(filters: NotificationFilters) {
+  return {
+    projectIds: filters.projectIds ?? (filters.projectId ? [filters.projectId] : []),
+    taskIds: filters.taskIds ?? (filters.taskId ? [filters.taskId] : []),
+    actions: filters.actions ?? (filters.action ? [filters.action] : []),
+    reads: filters.reads ?? (filters.read && filters.read !== 'all' ? [filters.read] : []),
+  };
+}
+export function hasNotificationFilters(filters: NotificationFilters): boolean {
+  return Object.values(notificationFilterValues(filters)).some((values) => values.length > 0) || !!filters.from || !!filters.to;
+}
 export function notificationEvent(item: Notification): string {
   const data = item.data as Record<string, unknown> | null;
   return typeof data?.deadline_event === 'string' ? `deadline:${data.deadline_event}` : item.type;
@@ -11,10 +27,11 @@ export function notificationTone(item: Notification): 'neutral' | 'warning' | 'd
     : ['deadline:urgent', 'deadline:reopened_urgent'].includes(event) ? 'warning' : 'neutral';
 }
 export function matchesNotification(item: Notification, filters: NotificationFilters): boolean {
-  return (!filters.projectId || item.project_id === filters.projectId) && (!filters.taskId || item.task_id === filters.taskId)
+  const { projectIds, taskIds, actions, reads } = notificationFilterValues(filters);
+  return (!projectIds.length || projectIds.includes(item.project_id ?? '')) && (!taskIds.length || taskIds.includes(item.task_id ?? ''))
     && (!filters.from || Date.parse(item.created_at) >= Date.parse(filters.from)) && (!filters.to || Date.parse(item.created_at) <= Date.parse(filters.to))
-    && (!filters.action || (filters.action.startsWith('deadline:') ? notificationEvent(item) === filters.action : item.type === filters.action))
-    && (!filters.read || filters.read === 'all' || item.is_read === (filters.read === 'read'));
+    && (!actions.length || actions.some((action) => action.startsWith('deadline:') ? notificationEvent(item) === action : item.type === action))
+    && (!reads.length || reads.includes(item.is_read ? 'read' : 'unread'));
 }
 
 // Read is monotonic for a notification ID. Keep acknowledgements through late

@@ -39,7 +39,7 @@ try {
   sql(upgrade);
   console.log('PASS UPGRADE: all migrations applied in isolation, including pre-existing invalid text and historical ordering data');
   const suites = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
-  for (const file of suites.length ? suites : ['audit_upgrade_test.sql', 'audit_template_ordering_test.sql', 'initial_schema_smoke_test.sql', 'stage_visibility_test.sql', 'rls_and_rpc_test.sql', 'notifications_test.sql', 'full_integration_test.sql', 'hard_delete_history_test.sql', 'task_enhancements_test.sql', 'offline_operation_receipts_test.sql', 'offline_pull_conflicts_test.sql', 'offline_phase6_runtime_retention_test.sql', 'account_offline_bootstrap_test.sql', 'checklist_deadlines_test.sql', 'security_privilege_hardening_test.sql']) {
+  for (const file of suites.length ? suites : ['independent_stage_membership_test.sql', 'audit_upgrade_test.sql', 'audit_template_ordering_test.sql', 'initial_schema_smoke_test.sql', 'stage_visibility_test.sql', 'rls_and_rpc_test.sql', 'notifications_test.sql', 'full_integration_test.sql', 'hard_delete_history_test.sql', 'task_enhancements_test.sql', 'offline_operation_receipts_test.sql', 'offline_pull_conflicts_test.sql', 'offline_phase6_runtime_retention_test.sql', 'account_offline_bootstrap_test.sql', 'checklist_deadlines_test.sql', 'security_privilege_hardening_test.sql']) {
     sql(readFileSync(resolve(root, 'supabase/tests', file), 'utf8'));
     console.log(`PASS ${file}`);
   }

@@ -97,7 +97,7 @@ function createSharedChannel(topic: string, userId: string | null): SharedChanne
           // reconnects. Fence fresh cached models before status listeners read.
           const prefixes = kind === 'user' ? ['projects:', 'my-tasks:', 'checklist-overview', 'notifications:']
             : kind === 'project' ? [`project:${id}`, `tasks:${id}`, `task-stats:${id}:`, 'checklist-overview']
-            : [`task:${id}`, `items:${id}:`, `assignees:${id}`, `task-role:${id}`, `last-editors:${id}`, `audit:${id}:`, 'checklist-overview'];
+            : [`task:${id}`, `task-context:${id}`, `task-participants:${id}`, `items:${id}:`, `assignees:${id}`, `task-role:${id}`, `last-editors:${id}`, `audit:${id}:`, 'checklist-overview'];
           void invalidateReadModels(entry.userId, prefixes, 'refresh').catch((error) => console.warn('[TaskTrace] reconnect invalidation failed', error));
         }
         broadcastStatus(entry, 'connected');

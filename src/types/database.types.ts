@@ -312,6 +312,7 @@ export type Database = {
       task_members: {
         Row: {
           created_at: string
+          is_direct: boolean
           role_override: Database["public"]["Enums"]["project_role"] | null
           set_at: string
           set_by: string
@@ -320,6 +321,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          is_direct?: boolean
           role_override?: Database["public"]["Enums"]["project_role"] | null
           set_at?: string
           set_by: string
@@ -328,6 +330,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          is_direct?: boolean
           role_override?: Database["public"]["Enums"]["project_role"] | null
           set_at?: string
           set_by?: string
@@ -514,6 +517,14 @@ export type Database = {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
       }
+      add_task_member_by_identifier: {
+        Args: {
+          p_identifier: string
+          p_role: Database["public"]["Enums"]["project_role"]
+          p_task_id: string
+        }
+        Returns: Json
+      }
       apply_task_item_comment_operation: {
         Args: {
           p_comment: string
@@ -675,6 +686,7 @@ export type Database = {
           }
       get_offline_runtime_config: { Args: never; Returns: Json }
       get_task_item_sync_cursor: { Args: never; Returns: number }
+      get_task_project_context: { Args: { p_task_id: string }; Returns: Json }
       get_task_template: { Args: { p_template_id: string }; Returns: Json }
       hard_delete_project: {
         Args: { p_project_id: string }
@@ -700,6 +712,18 @@ export type Database = {
           role_override: Database["public"]["Enums"]["project_role"]
           set_at: string
           set_by: string
+          user_id: string
+        }[]
+      }
+      list_task_participants: {
+        Args: { p_task_id: string }
+        Returns: {
+          direct_role: Database["public"]["Enums"]["project_role"]
+          display_name: string
+          effective_role: Database["public"]["Enums"]["project_role"]
+          is_direct: boolean
+          project_role: Database["public"]["Enums"]["project_role"]
+          set_at: string
           user_id: string
         }[]
       }
@@ -754,6 +778,10 @@ export type Database = {
         Returns: undefined
       }
       remove_task_assignee: {
+        Args: { p_task_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      remove_task_member: {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
       }
@@ -836,10 +864,25 @@ export type Database = {
         Args: { p_description: string; p_name: string; p_project_id: string }
         Returns: undefined
       }
-      update_task: {
-        Args: { p_description?: string; p_task_id: string; p_title?: string }
-        Returns: undefined
-      }
+      update_task:
+        | {
+            Args: {
+              p_description?: string
+              p_task_id: string
+              p_title?: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_description: string
+              p_expected_description: string
+              p_expected_title: string
+              p_task_id: string
+              p_title: string
+            }
+            Returns: undefined
+          }
       update_task_item: {
         Args: {
           p_description?: string

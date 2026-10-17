@@ -4,7 +4,7 @@ import { connectivityFetch } from '@/lib/connectivity/fetch';
 import { boundedOperation } from '@/lib/connectivity/deadline';
 import { supabase, type Database } from '@/lib/supabase/client';
 import { supabaseEnv } from '@/lib/env';
-import { activeCacheUserId, getCached, isTransportFailure } from './cache';
+import { activeCacheUserId, getCached, isTaskProjectBlocked, isTransportFailure } from './cache';
 import { announceConflictChange, recordConflict, unresolvedConflicts } from './conflicts';
 import { localCacheDriver } from './driver';
 import { listPendingOperations, offlineSyncEnabled } from './outbox';
@@ -496,7 +496,6 @@ export async function retryFailedOperation(userId: string, operationId: string):
   }
   if (!await sameUser(userId)) throw new Error('Сеанс изменился.');
   await localCacheDriver.remove(userId, `blocked-task:${failed.task_id}`);
-  await localCacheDriver.remove(userId, `blocked:${failed.project_id}`);
   await localCacheDriver.markOperation(userId, operationId, 'pending');
   announceSyncChange(userId);
   await syncPendingOperations(userId, true);
@@ -509,7 +508,7 @@ export async function discardFailedOperation(userId: string, operationId: string
   const failed = (await listPendingOperations(userId)).find((row) => row.operation_id === operationId && row.status === 'failed');
   if (!failed) throw new Error('Неудавшееся изменение не найдено.');
   const locallyBlocked = await getCached<boolean>(userId, `blocked-task:${failed.task_id}`)
-    || await getCached<boolean>(userId, `blocked:${failed.project_id}`);
+    || await isTaskProjectBlocked(userId, failed.task_id, failed.project_id);
   const client = await clientFor(userId);
   let serverState: ReconciledItem | null = null;
   let useCachedSnapshot = !client;
@@ -521,7 +520,6 @@ export async function discardFailedOperation(userId: string, operationId: string
       serverState = await fetchServerItem(client, failed.task_item_id);
       if (await sameUser(userId)) {
         await localCacheDriver.remove(userId, `blocked-task:${failed.task_id}`);
-        await localCacheDriver.remove(userId, `blocked:${failed.project_id}`);
       }
     } catch (error) {
       if (!isTransportFailure(error)) throw error;

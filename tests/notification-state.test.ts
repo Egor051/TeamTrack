@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { matchesNotification, notificationTone, NotificationReadState } from '@/features/notifications/notification-state';
+import { hasNotificationFilters, matchesNotification, notificationTone, NotificationReadState } from '@/features/notifications/notification-state';
 import type { Notification } from '@/features/notifications/notifications';
 const notice = (props: Partial<Notification> = {}): Notification => ({ id: 'a', user_id: 'u', project_id: 'p', task_id: 't', type: 'task_item_changed',
   data: { deadline_event: 'overdue' }, dedupe_key: 'test', created_at: '2026-10-16T12:30:00Z', title: 'Notice', body: '', is_read: false, read_at: null, ...props });
@@ -37,4 +37,16 @@ it('deadline severity comes from structured events and remains independent from 
   expect(notificationTone(notice({ is_read: true }))).toBe('danger');
   expect(notificationTone(notice({ data: { deadline_event: 'urgent' } }))).toBe('warning');
   expect(notificationTone(notice({ title: 'Просрочен дедлайн', data: { deadline_event: 'removed' } }))).toBe('neutral');
+});
+it('ORs choices within each category and ANDs projects, stages, actions, read state and period', () => {
+  const filters = { projectIds: ['p', 'second'], taskIds: ['t', 'other'], actions: ['deadline:overdue', 'task_assigned'], reads: ['unread' as const] };
+  expect(matchesNotification(notice(), filters)).toBe(true);
+  expect(matchesNotification(notice({ project_id: 'second', task_id: 'other', type: 'task_assigned', data: {} }), filters)).toBe(true);
+  expect(matchesNotification(notice({ project_id: 'outside' }), filters)).toBe(false);
+  expect(matchesNotification(notice({ task_id: 'outside' }), filters)).toBe(false);
+  expect(matchesNotification(notice({ is_read: true }), filters)).toBe(false);
+  expect(matchesNotification(notice({ data: { deadline_event: 'urgent' } }), filters)).toBe(false);
+  expect(matchesNotification(notice({ is_read: true }), { ...filters, reads: ['read', 'unread'] })).toBe(true);
+  expect(matchesNotification(notice(), { projectIds: [], taskIds: [], actions: [], reads: [] })).toBe(true);
+  expect(hasNotificationFilters({ projectIds: [], taskIds: [], actions: [], reads: [] })).toBe(false);
 });

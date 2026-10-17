@@ -4,7 +4,6 @@ import { ConnectivityUnavailableError, isExplicitAccessError, isTransportFailure
 import { localCacheDriver } from './driver';
 import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
 import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
-import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import { announceReadModelCommit, overviewReadModelChanged } from './read-model-events';
 import { confirmReadFreshness, durableReadInvalidation, freshnessKey, GLOBAL_ACL_KEY, invalidateReadModels, isReadModelKey, readAccountEpoch, READ_FRESHNESS_MS, readConfirmationEntries, readInvalidation, settleReadInvalidations, type DurableReadInvalidation } from './read-freshness';
 import type { TaskItem } from '@/lib/supabase/client';
@@ -17,7 +16,7 @@ const refreshes = new Map<string, { version: number; promise: Promise<unknown> }
 const failedRefreshes = new Set<string>();
 // A lifecycle fence is not a new server denial. In particular an old response
 // must never persist a block after a newer ACL check has already succeeded.
-class SupersededReadError extends Error {
+export class SupersededReadError extends Error {
   readonly name = 'SupersededReadError';
 }
 export function isLocalResult(value: unknown): boolean {
@@ -59,6 +58,14 @@ async function sessionUserId(): Promise<string | null> {
 
 export async function activeCacheUserId(): Promise<string | null> {
   return sessionUserId();
+}
+
+export async function isTaskProjectBlocked(userId: string, taskId: string, projectId: string): Promise<boolean> {
+  if (!await getCached<boolean>(userId, `blocked:${projectId}`)) return false;
+  // A denied project page must not revoke a separately authorized stage.
+  // getCached observes the same per-account ACL fences as every read model.
+  const context = await getCached<{ id: string; role: string | null }>(userId, `task-context:${taskId}`);
+  return !context || context.id !== projectId || context.role !== null;
 }
 
 export async function getCached<T>(userId: string, key: string): Promise<T | null> {
@@ -185,13 +192,13 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
   const local = async (error: unknown): Promise<T> => {
     let parentProjectId: string | undefined;
     if (!userId || await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline) throw error;
-    if (accessCheck || readInvalidation(userId, key).kind === 'access') throw new ResourceAccessDeniedError('Подтверждаем актуальный доступ к данным.');
+    if (accessCheck || readInvalidation(userId, key).kind === 'access') throw new SupersededReadError('Подтверждаем актуальный доступ к данным.');
     if (options.projectId && await getCached<boolean>(userId, `blocked:${options.projectId}`)) throw error;
     if (options.taskId && await getCached<boolean>(userId, `blocked-task:${options.taskId}`)) throw error;
     if (options.taskId) {
       const task = await getCached<{ project_id: string }>(userId, `task:${options.taskId}`);
       parentProjectId = task?.project_id;
-      if (task && await getCached<boolean>(userId, `blocked:${task.project_id}`)) throw error;
+      if (task && await isTaskProjectBlocked(userId, options.taskId, task.project_id)) throw error;
     }
     const cached = await getCached<T>(userId, key);
     if (cached === null) throw error;
@@ -200,7 +207,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     const pending = options.cacheFirst ? await durableReadInvalidation(userId, key) : null;
     if (readInvalidation(userId, key).kind === 'access' || pending?.kind === 'access') throw new SupersededReadError('Доступ изменился во время загрузки.');
     if (accessKeys.some((accessKey) => cacheAccessDecision(userId, accessKey))
-      || (parentProjectId && cacheAccessDecision(userId, `blocked:${parentProjectId}`))) throw error;
+      || (parentProjectId && options.taskId && await isTaskProjectBlocked(userId, options.taskId, parentProjectId))) throw error;
     return markCached(value);
   };
   if (usesLocalReads()) return local(new ConnectivityUnavailableError());

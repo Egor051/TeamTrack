@@ -25,9 +25,9 @@ export function DeadlineBadge({ state }: { state: DeadlineState }) {
 
 export function ChecklistDeadline({ item, now }: { item: DeadlineItem; now: number }) {
   const state = deadlineState(item, now);
-  return item.deadline_at ? <View style={styles.indicators}>
-    <ThemedText type="small">Дедлайн: {formatDeadline(item.deadline_at)}</ThemedText>
+  return item.deadline_at ? <View style={styles.checklistDeadline}>
     <DeadlineBadge state={state} />
+    <ThemedText type="small" style={styles.deadlineDate}>Дедлайн: {formatDeadline(item.deadline_at)}</ThemedText>
   </View> : null;
 }
 
@@ -64,6 +64,8 @@ export function DeadlineCard({ state, children, ...props }: ComponentProps<typeo
 }
 
 const styles = StyleSheet.create({
+  checklistDeadline: { alignSelf: 'flex-end', alignItems: 'flex-end', gap: 8, maxWidth: '100%', minWidth: 0 },
+  deadlineDate: { textAlign: 'right', flexShrink: 1 },
   indicators: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, maxWidth: '100%', minWidth: 0, flexShrink: 1 },
   tint: { borderRadius: 8 }, fill: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
 });

@@ -413,7 +413,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
             const before = await step(() => localCacheDriver.listEntries(userId));
             committed = accountReadModels(userId, rows, verified, before);
             const keys = new Set(committed.map((e) => e.key));
-            const removed = before.filter((e) => (/^(task-overrides:|template:|template-items:|daily-audit:)/.test(e.key) && !keys.has(e.key))
+            const removed = before.filter((e) => (/^(task-context:|task-participants:|task-overrides:|template:|template-items:|daily-audit:)/.test(e.key) && !keys.has(e.key))
               || /^items:.*:all$/.test(e.key)).map((e) => e.key);
             const readKeys = committed.filter((e) => isReadModelKey(e.key)).map((e) => e.key);
             if (readKeys.some((key) => readInvalidation(userId, key).version > freshnessBaseline))

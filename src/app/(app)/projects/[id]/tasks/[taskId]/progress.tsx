@@ -12,7 +12,7 @@ import { ThemedText } from "@/components/ui/text";
 import { RealtimeIndicator } from "@/components/ui/realtime-indicator";
 import { ErrorMessage } from "@/components/ui/error-message";
 import {
-  getProject,
+  getTaskProjectContext,
   getTask,
   listTaskDailyProgress,
   type DailyProgressEntry,
@@ -32,6 +32,7 @@ export default function DailyProgress() {
   const permissionVersion = usePermissionVersion();
   const [taskTitle, setTaskTitle] = useState("");
   const [projectName, setProjectName] = useState("");
+  const [projectAccessible, setProjectAccessible] = useState(false);
   const [progress, setProgress] = useState<DailyProgressEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -49,12 +50,13 @@ export default function DailyProgress() {
     try {
       const [task, project, dailyProgress] = await Promise.all([
         getTask(taskId, id),
-        getProject(id),
+        getTaskProjectContext(taskId),
         listTaskDailyProgress(id, taskId),
       ]);
       if (request !== requestRef.current) return;
       setTaskTitle(task.title);
       setProjectName(project.name);
+      setProjectAccessible(!!project.role);
       setProgress(dailyProgress);
       setLoaded(true);
     } catch (e) {
@@ -97,7 +99,7 @@ export default function DailyProgress() {
         }
       };
       return subscribeMany([
-        { table: "projects", options: { projectId: id, onEvent, onStatus } },
+        { table: "projects", options: { taskId, onEvent, onStatus } },
         { table: "task_items", options: { taskId, onEvent, onStatus } },
         { table: "tasks", options: { taskId, onEvent, onStatus } },
       ]);
@@ -117,7 +119,7 @@ export default function DailyProgress() {
           subtitle={taskTitle || "Только сегодняшние увеличения прогресса"}
           onBack={() => router.dismissTo(`/projects/${id}/tasks/${taskId}` as never)}
           backLabel="К этапу"
-          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "Прогресс дня" }]}
+          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", ...(projectAccessible ? { href: `/projects/${id}` } : {}) }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "Прогресс дня" }]}
           actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void refreshFromServer()}>Обновить</Button></>}
         />
         {error && loaded ? <View style={styles.feedback}><ErrorMessage message={error} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить прогресс</Button></View> : null}

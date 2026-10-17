@@ -1,13 +1,15 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const f = vi.hoisted(() => ({ user: 'a', expired: false, invalid: false }));
-vi.mock('@/lib/supabase/client', () => ({ supabase: { auth: { getSession: async () => ({
+const f = vi.hoisted(() => ({ user: 'a', expired: false, invalid: false, rpc: vi.fn() }));
+vi.mock('@/lib/supabase/client', () => ({ supabase: { rpc: f.rpc, auth: { getSession: async () => ({
   data: { session: f.user ? { user: { id: f.user }, expires_at: f.expired ? 1 : Date.now() / 1000 + 3600 } : null },
   error: f.invalid ? { status: 401 } : null,
 }) } } }));
 vi.mock('@/lib/local-cache/driver', async () => await import('@/lib/local-cache/driver.web'));
+vi.mock('@/features/auth/auth', () => ({ getCurrentUser: vi.fn() }));
 beforeEach(async () => {
   vi.resetModules(); f.user = 'a'; f.expired = false; f.invalid = false;
+  f.rpc.mockReset();
   await new Promise<void>((resolve, reject) => { const r = indexedDB.deleteDatabase('tasktrace-local-cache'); r.onsuccess = () => resolve(); r.onerror = () => reject(r.error); });
   (await import('@/lib/local-cache/read-freshness')).setReadAccount('a');
 });
@@ -18,6 +20,31 @@ async function save(key = 'project:p', value: unknown = { id: 'p', name: 'saved'
   return driver;
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; }
+it('only authoritative project membership in stage context can clear a project quarantine', async () => {
+  const task = '00000000-0000-4000-8000-000000000001';
+  const c = await import('@/lib/local-cache/cache'); const r = await import('@/lib/local-cache/read-freshness');
+  const { getTaskProjectContext } = await import('@/features/projects/projects');
+  await c.putCached('a', 'blocked:p', true); vi.stubGlobal('navigator', { onLine: true });
+  f.rpc.mockResolvedValue({ data: { id: 'p', name: 'Parent', role: 'member', status: 'active' }, error: null });
+  expect((await getTaskProjectContext(task)).role).toBe('member'); expect(await c.getCached('a', 'blocked:p')).toBeFalsy();
+  await c.putCached('a', 'blocked:p', true); await r.invalidateReadModels('a', [`task-context:${task}`], 'refresh');
+  f.rpc.mockResolvedValue({ data: { id: 'p', name: 'Parent', role: null, status: 'active' }, error: null });
+  expect((await getTaskProjectContext(task)).role).toBeNull(); expect(await c.getCached('a', 'blocked:p')).toBe(true);
+});
+it('a denied project page preserves independently confirmed stage cache; stage revocation and ACL fences still deny it', async () => {
+  await save('task:t', { id: 't', project_id: 'p' }); await save('task-context:t', { id: 'p', name: 'Parent label', role: null });
+  await save('items:t:active', [{ id: 'item' }]);
+  const c = await import('@/lib/local-cache/cache'); const r = await import('@/lib/local-cache/read-freshness');
+  await c.putCached('a', 'blocked:p', true);
+  vi.stubGlobal('navigator', { onLine: false });
+  expect(await c.readCachedModel('items:t:active', async () => [], { taskId: 't' })).toEqual([{ id: 'item' }]);
+  await c.putCached('a', 'blocked-task:t', true);
+  await expect(c.readCachedModel('items:t:active', async () => [], { taskId: 't' })).rejects.toThrow();
+  await save('task:other', { id: 'other', project_id: 'p' }); await save('task-context:other', { id: 'p', role: null }); await save('items:other:active', []);
+  await r.invalidateReadModels('a', undefined, 'access');
+  expect(await c.getCached('a', 'task-context:other')).toBeNull();
+  await expect(c.readCachedModel('items:other:active', async () => [], { taskId: 'other' })).rejects.toBeInstanceOf(c.SupersededReadError);
+});
 it('one global ACL signal writes one durable fence for hundreds of models; acknowledgements remain model-specific after reload', async () => {
   const driver = await save(); for (let i = 0; i < 100; i++) await save(`task:${i}`, { id: `${i}` });
   await save('project:p', { id: 'p', name: 'b' }, 0, 'b');

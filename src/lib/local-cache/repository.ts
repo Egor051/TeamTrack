@@ -1,7 +1,7 @@
 import type { TaskItem } from '@/lib/supabase/client';
 import { supabase } from '@/lib/supabase/client';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
-import { activeCacheUserId, getCached, readCachedModel, inheritCachedResult } from './cache';
+import { activeCacheUserId, getCached, readCachedModel, inheritCachedResult, SupersededReadError, isTaskProjectBlocked } from './cache';
 import { cacheAccessDecision } from './access-state';
 import { localCacheDriver } from './driver';
 import { applyPendingOperations, listPendingOperations } from './outbox';
@@ -26,17 +26,18 @@ export const ChecklistLocalRepository = {
     await ensureUser(userId);
     if (await getCached<boolean>(userId, `blocked-task:${taskId}`)) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     const task = await getCached<{ project_id: string }>(userId, `task:${taskId}`);
-    if (task && await getCached<boolean>(userId, `blocked:${task.project_id}`)) throw new ResourceAccessDeniedError('Нет доступа к проекту.');
+    if (task && await isTaskProjectBlocked(userId, taskId, task.project_id)) throw new ResourceAccessDeniedError('Нет доступа к проекту.');
     const confirmed = await getCached<TaskItem[]>(userId, key(taskId, mode));
     if (!confirmed) return null;
     const pending = await listPendingOperations(userId, taskId);
     const revoked = await getCached<boolean>(userId, `blocked-task:${taskId}`)
-      || (task && await getCached<boolean>(userId, `blocked:${task.project_id}`));
+      || (task && await isTaskProjectBlocked(userId, taskId, task.project_id));
     await ensureUser(userId);
     const access = await durableReadInvalidation(userId, key(taskId, mode));
-    if (readAccountEpoch() !== accountBaseline || access.kind === 'access' || readInvalidation(userId, key(taskId, mode)).kind === 'access'
-      || revoked || cacheAccessDecision(userId, `blocked-task:${taskId}`)
-      || (task && cacheAccessDecision(userId, `blocked:${task.project_id}`))) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
+    if (readAccountEpoch() !== accountBaseline || access.kind === 'access' || readInvalidation(userId, key(taskId, mode)).kind === 'access')
+      throw new SupersededReadError('Сеанс или доступ изменился во время загрузки.');
+    if (revoked || cacheAccessDecision(userId, `blocked-task:${taskId}`)
+      || (task && await isTaskProjectBlocked(userId, taskId, task.project_id))) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return applyPendingOperations(confirmed, pending, userId, taskId);
   },
   async refreshTaskItems(userId: string, taskId: string, mode: ChecklistMode, forceRefresh = true): Promise<TaskItem[]> {
@@ -66,14 +67,14 @@ export const ChecklistLocalRepository = {
       }
       await ensureUser(userId);
       return rows;
-    }, { taskId, projectId: parent?.project_id, clearTaskBlockOnSuccess: true, forceRefresh,
+    }, { taskId, clearTaskBlockOnSuccess: true, forceRefresh,
       onServerCommit: async (rows) => { if (old?.data !== JSON.stringify(rows)) announceSyncChange(userId); } });
     await ensureUser(userId);
     const pending = await listPendingOperations(userId, taskId);
     if (readAccountEpoch() !== accountBaseline || readInvalidation(userId, key(taskId, mode)).kind === 'access'
-      || (await durableReadInvalidation(userId, key(taskId, mode))).kind === 'access') throw new ResourceAccessDeniedError('Сеанс или доступ изменился во время загрузки.');
+      || (await durableReadInvalidation(userId, key(taskId, mode))).kind === 'access') throw new SupersededReadError('Сеанс или доступ изменился во время загрузки.');
     if (await getCached<boolean>(userId, `blocked-task:${taskId}`)
-      || (parent && await getCached<boolean>(userId, `blocked:${parent.project_id}`))) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
+      || (parent && await isTaskProjectBlocked(userId, taskId, parent.project_id))) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return inheritCachedResult(confirmed, applyPendingOperations(confirmed, pending, userId, taskId));
   },
   subscribe: subscribeSyncChanges,

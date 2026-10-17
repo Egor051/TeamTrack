@@ -3,7 +3,7 @@ import type { CacheEntry } from './types';
 
 export const READ_FRESHNESS_MS = 60_000;
 export const READ_MODEL_PREFIXES = ['projects:', 'project:', 'tasks:', 'task:', 'task-stats:', 'my-tasks:', 'items:', 'checklist-overview',
-  'members:', 'assignees:', 'task-role:', 'task-overrides:', 'last-editors:', 'audit:', 'daily-audit:',
+  'members:', 'assignees:', 'task-role:', 'task-context:', 'task-participants:', 'task-overrides:', 'last-editors:', 'audit:', 'daily-audit:',
   'templates', 'template:', 'template-items:', 'notifications:', 'profile:self'];
 export type InvalidationKind = 'data' | 'refresh' | 'access';
 type Wave = { version: number; prefixes: string[]; kind: InvalidationKind };
@@ -136,7 +136,7 @@ export async function scopeReadPrefixes(userId: string, scope: ReadScope): Promi
   const taskIds = scope.taskId ? [scope.taskId] : (await localCacheDriver.listEntries(userId, 'task:'))
     .filter((entry) => { try { return JSON.parse(entry.data).project_id === project; } catch { return false; } }).map((entry) => entry.key.slice(5));
   return ['checklist-overview', ...(project ? [`project:${project}`, `tasks:${project}`, `task-stats:${project}:`, `members:${project}`, `daily-audit:${project}:`] : []),
-    ...taskIds.flatMap((task) => [`task:${task}`, `items:${task}:`, `task-role:${task}`, `task-overrides:${task}`, `assignees:${task}`, `last-editors:${task}`, `audit:${task}:`])];
+    ...taskIds.flatMap((task) => [`task:${task}`, `items:${task}:`, `task-role:${task}`, `task-context:${task}`, `task-participants:${task}`, `task-overrides:${task}`, `assignees:${task}`, `last-editors:${task}`, `audit:${task}:`])];
 }
 export function isAclTable(table: string): boolean { return table === 'project_members' || table === 'task_members'; }
 export async function invalidateRealtimeModels(userId: string, table: string, scope: ReadScope, operation = 'UPDATE'): Promise<void> {
@@ -150,11 +150,11 @@ export async function invalidateRealtimeModels(userId: string, table: string, sc
     ...(scope.taskId ? [`task:${scope.taskId}`, `items:${scope.taskId}:`, `assignees:${scope.taskId}`, `last-editors:${scope.taskId}`, `audit:${scope.taskId}:`] : ['task:', 'items:', 'assignees:', 'last-editors:', 'audit:']),
   ] : READ_MODEL_PREFIXES;
   const prefixes = table === 'notifications' ? ['notifications:']
-    : table === 'profiles' ? ['profile:self', 'members:']
+    : table === 'profiles' ? ['profile:self', 'members:', 'task-participants:']
     : table === 'task_templates' || table === 'task_template_items' ? ['templates', 'template:', 'template-items:']
     : table === 'task_items' || table === 'audit_log' ? [...keys.filter((key) => /^(items:|task:|tasks:|task-stats:|last-editors:|audit:|daily-audit:)/.test(key)), 'my-tasks:', 'checklist-overview']
     : table === 'task_assignees' ? [...keys.filter((key) => /^(assignees:|task-stats:)/.test(key)), 'my-tasks:']
     : table === 'tasks' ? [...keys.filter((key) => /^(task:|tasks:|task-stats:)/.test(key)), 'my-tasks:', 'checklist-overview']
-    : table === 'projects' ? [...keys.filter((key) => key.startsWith('project:')), 'projects:', 'my-tasks:', 'checklist-overview'] : keys;
+    : table === 'projects' ? [...keys.filter((key) => key.startsWith('project:')), 'task-context:', 'projects:', 'my-tasks:', 'checklist-overview'] : keys;
   await invalidateReadModels(userId, prefixes);
 }

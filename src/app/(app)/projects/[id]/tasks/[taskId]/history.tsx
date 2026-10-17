@@ -16,12 +16,12 @@ import { ErrorMessage } from "@/components/ui/error-message";
 import {
   listTaskAudit,
   listTaskItems,
-  listProjectMembers,
+  listTaskParticipants,
   getTask,
-  getProject,
+  getTaskProjectContext,
   type AuditEntry,
   type TaskItem,
-  type ProjectMember,
+  type TaskParticipant,
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
@@ -65,9 +65,10 @@ export default function History() {
   const permissionVersion = usePermissionVersion();
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [items, setItems] = useState<TaskItem[]>([]);
-  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [members, setMembers] = useState<TaskParticipant[]>([]);
   const [taskTitle, setTaskTitle] = useState("");
   const [projectName, setProjectName] = useState("");
+  const [projectAccessible, setProjectAccessible] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -87,9 +88,9 @@ export default function History() {
       const [au, it, ms, task, project] = await Promise.all([
         listTaskAudit(id, taskId),
         listTaskItems(taskId, "all"),
-        listProjectMembers(id),
+        listTaskParticipants(taskId),
         getTask(taskId, id),
-        getProject(id),
+        getTaskProjectContext(taskId),
       ]);
       if (request !== requestRef.current) return;
       setAudit(au);
@@ -98,6 +99,7 @@ export default function History() {
       setMembers(ms);
       setTaskTitle(task.title);
       setProjectName(project.name);
+      setProjectAccessible(!!project.role);
       setLoaded(true);
       setError("");
     } catch (e) {
@@ -141,7 +143,7 @@ export default function History() {
       return subscribeMany([
         {
           table: "projects",
-          options: { projectId: id, onEvent: scheduleRefresh, onStatus },
+          options: { taskId, onEvent: scheduleRefresh, onStatus },
         },
         {
           table: "tasks",
@@ -171,7 +173,7 @@ export default function History() {
   const memberName = new Map(
     members.map((m) => [
       m.user_id,
-      m.profile?.display_name || m.user_id.slice(0, 8),
+      m.display_name || m.user_id.slice(0, 8),
     ]),
   );
   const checklistHistory = selectChecklistHistory(audit);
@@ -198,7 +200,7 @@ export default function History() {
           subtitle={taskTitle || "Изменения чек-листа и действия участников"}
           onBack={() => router.dismissTo(`/projects/${id}/tasks/${taskId}` as never)}
           backLabel="К этапу"
-          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", href: `/projects/${id}` }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "История" }]}
+          breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: projectName || "Проект", ...(projectAccessible ? { href: `/projects/${id}` } : {}) }, { label: taskTitle || "Этап", href: `/projects/${id}/tasks/${taskId}` }, { label: "История" }]}
           actions={<><RealtimeIndicator status={status} /><Button size="sm" variant="outline" loading={loading} disabled={loading} onPress={() => void refreshFromServer()}>Обновить</Button></>}
         />
         {offline ? <Card><ThemedText type="small">Показана сохранённая история за последние 90 дней. Более старая история требует подключения.</ThemedText></Card> : null}

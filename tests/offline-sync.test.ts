@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
   bootstrapChange: false, pullRequests: [] as number[],
   configSync: true, configAvailable: true,
   switchAfterSend: false,
-  missingItem: false,
+  missingItem: false, noSession: false, removed: [] as string[],
   updates: [] as { isSyncing?: boolean }[],
 }));
 
@@ -38,7 +38,7 @@ const builder = (table = 'task_items') => {
 };
 
 vi.mock('@/lib/supabase/client', () => ({ supabase: {
-  auth: { getSession: async () => ({ data: { session: { user: { id: state.userId }, access_token: `token-${state.userId}` } }, error: null }) },
+  auth: { getSession: async () => ({ data: { session: state.noSession ? null : { user: { id: state.userId }, access_token: `token-${state.userId}` } }, error: null }) },
 } }));
 vi.mock('react-native', () => ({ AppState: { addEventListener: () => ({ remove: () => undefined }) } }));
 vi.mock('@react-native-community/netinfo', () => ({ default: { addEventListener: () => () => undefined } }));
@@ -78,6 +78,7 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: str
 vi.mock('@/lib/env', () => ({ supabaseEnv: () => ({ url: 'http://local.test', anonKey: 'public-key' }) }));
 vi.mock('@/lib/local-cache/cache', () => ({
   activeCacheUserId: async () => state.userId,
+  getCached: async (_user: string, key: string) => key === 'blocked:project', isTaskProjectBlocked: async () => false,
   isTransportFailure: (error: { message?: string }) => /failed to fetch/i.test(error.message ?? ''),
 }));
 vi.mock('@/lib/local-cache/runtime-config', () => ({
@@ -90,7 +91,7 @@ vi.mock('@/lib/local-cache/status', () => ({
   markSuccessfulSync: async () => undefined,
 }));
 vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
-  get: async () => state.localCursor === null ? null : { data: JSON.stringify(state.localCursor) },
+  get: async (_user: string, key: string) => state.entries.find((entry) => entry.key === key) ?? (state.localCursor === null ? null : { data: JSON.stringify(state.localCursor) }),
   initializePullCursor: async (_userId: string, cursor: number) => {
     if (state.localCursor !== null) return false;
     state.localCursor = cursor;
@@ -110,7 +111,8 @@ vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
     current.data = entry.data;
     return true;
   },
-  remove: async () => undefined,
+  remove: async (_user: string, key: string) => { state.removed.push(key); },
+  discardFailedChain: async (_user: string, task: string, item: string) => { state.operations = state.operations.filter((row) => row.task_id !== task || row.task_item_id !== item); },
   listConflicts: async (userId: string) => state.conflicts.filter((row) => row.user_id === userId),
   createConflict: async (conflict: SyncConflict) => {
     const index = state.conflicts.findIndex((row) => row.conflict_id === conflict.conflict_id);
@@ -162,7 +164,7 @@ vi.mock('@/lib/local-cache/outbox', async (importOriginal) => ({
     .sort((a, b) => a.sequence - b.sequence),
 }));
 
-import { cancelPendingSync, chooseMine, syncPendingOperations } from '@/lib/local-cache/sync';
+import { cancelPendingSync, chooseMine, syncPendingOperations, retryFailedOperation, discardFailedOperation } from '@/lib/local-cache/sync';
 import { registerOfflineWork } from '@/lib/local-cache/work-requests';
 import { chooseServer, unresolvedConflicts } from '@/lib/local-cache/conflicts';
 
@@ -182,6 +184,7 @@ it.each(['archived', 'deleted'])('AUD-08: an ACKed %s item releases the queue', 
 });
 
 beforeEach(() => {
+  state.noSession = false; state.removed = [];
   state.userId = 'user-a'; state.operations = []; state.conflicts = []; state.updates = [];
   state.missingItem = false;
   state.server = { id: 'item', task_id: 'task', title: 'Item', percentage: 20, is_completed: false,
@@ -194,6 +197,17 @@ beforeEach(() => {
 });
 
 describe('Phase 5 offline replay', () => {
+  it('retrying a stage operation never clears project access quarantine on the strength of a task read', async () => {
+    state.operations = [{ ...operation(1, 'set_task_item_percentage', { percentage: 40 }), status: 'failed' }];
+    await retryFailedOperation('user-a', 'operation-1');
+    expect(state.removed).toContain('blocked-task:task'); expect(state.removed).not.toContain('blocked:project');
+  });
+  it('a stage-only user can discard a failed local change offline without clearing project quarantine', async () => {
+    state.operations = [{ ...operation(1, 'set_task_item_percentage', { percentage: 40 }), status: 'failed' }];
+    state.noSession = true; state.entries = [{ user_id: 'user-a', key: 'items:task:active', data: JSON.stringify([state.server]), schema_version: 1, last_synced_at: '' }];
+    await discardFailedOperation('user-a', 'operation-1');
+    expect(state.operations).toEqual([]); expect(state.removed).not.toContain('blocked:project');
+  });
   it('disabled sync with no queued work does not schedule endless capability checks', async () => {
     const work = vi.fn(async (_reason: string, _delayMs?: number) => undefined); const unregister = registerOfflineWork('user-a', work);
     try {

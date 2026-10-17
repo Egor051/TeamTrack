@@ -1,0 +1,26 @@
+import { createElement } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, expect, it, vi } from 'vitest';
+vi.mock('react-native', () => ({ View: 'View', StyleSheet: { create: (value: unknown) => value } }));
+vi.mock('@/components/ui/card', () => ({ Card: 'Card' }));
+vi.mock('@/components/ui/button', () => ({ Button: 'Button' }));
+vi.mock('@/components/ui/select', () => ({ MultiSelect: 'MultiSelect' }));
+vi.mock('@/components/ui/text', () => ({ ThemedText: 'Text' }));
+vi.mock('@/components/ui/error-message', () => ({ ErrorMessage: 'ErrorMessage' }));
+vi.mock('@/components/ui/deadline-picker', () => ({ DeadlinePicker: 'DeadlinePicker' }));
+import { NotificationFilters } from '@/features/notifications/notification-filters';
+let renderer: ReactTestRenderer;
+afterEach(async () => { await act(async () => renderer?.unmount()); vi.unstubAllGlobals(); });
+it('selection and reset leave the applied list intact until Apply, including the date range', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const apply = vi.fn();
+  await act(async () => { renderer = create(createElement(NotificationFilters, { value: { actions: ['task_assigned'] }, onApply: apply, options: { projects: [], tasks: [] } })); });
+  await act(async () => renderer.root.findByProps({ accessibilityLabel: 'Фильтр по действию' }).props.onChange(['deadline:overdue', 'task_assigned']));
+  expect(apply).not.toHaveBeenCalled();
+  await act(async () => renderer.root.findByProps({ children: 'Применить' }).props.onPress());
+  expect(apply.mock.calls[0][0].actions).toEqual(['deadline:overdue', 'task_assigned']);
+  await act(async () => renderer.root.findByProps({ children: 'Сбросить фильтры' }).props.onPress());
+  expect(apply).toHaveBeenCalledOnce();
+  await act(async () => renderer.root.findByProps({ children: 'Применить' }).props.onPress());
+  expect(apply.mock.calls[1][0]).toEqual({ projectIds: [], taskIds: [], actions: [], reads: [] });
+});

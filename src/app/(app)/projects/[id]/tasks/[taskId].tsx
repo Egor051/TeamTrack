@@ -4,7 +4,8 @@ import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCallback, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { ModalLayer } from '@/components/ui/modal-layer';
-import { ProjectMembersPanel } from '@/features/projects/project-members-panel';
+import { TaskMembersPanel } from '@/features/projects/task-members-panel';
+import { taskReadStep } from '@/features/projects/task-read';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/ui/screen";
@@ -21,12 +22,11 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { RealtimeIndicator } from "@/components/ui/realtime-indicator";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getTask,
-  getProject,
+  getTaskProjectContext,
   listTaskItems,
   createTaskItem,
   updateTaskItem,
@@ -37,25 +37,18 @@ import {
   setTaskItemComment,
   setTaskItemDeadline,
   updateTask,
-  listProjectMembers,
+  listTaskParticipants,
   listTaskAssignees,
   getMyTaskRole,
-  listTaskMemberOverrides,
-  setTaskMemberOverride,
-  clearTaskMemberOverride,
   listTaskItemLastEditors,
-  addTaskAssignee,
-  removeTaskAssignee,
   archiveTask,
   hardDeleteTask,
   restoreTask,
   type Task,
   type TaskItem,
-  type ProjectMember,
-  type ProjectWithRole,
   type ProjectRole,
-  type TaskChecklistRole,
-  type TaskMemberOverride,
+  type TaskProjectContext,
+  type TaskParticipant,
   type TaskItemLastEditor,
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
@@ -64,7 +57,7 @@ import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
-import { activeCacheUserId, getCached, isCachedResult, isExplicitAccessError, isTransportFailure } from "@/lib/local-cache/cache";
+import { activeCacheUserId, getCached, isCachedResult, isExplicitAccessError, isTransportFailure, SupersededReadError, isTaskProjectBlocked } from "@/lib/local-cache/cache";
 import { filterChecklistItems, formatChecklistComment, parsePercentageInput } from "@/features/projects/checklist";
 import { formatLastEditorSummary } from "@/features/projects/history-format";
 import { applyPendingOperations, listPendingOperations, offlineWriteEnabled, type SupportedEdit } from "@/lib/local-cache/outbox";
@@ -78,7 +71,7 @@ import { useDeadlineClock } from '@/features/projects/use-deadline-clock';
 import { deadlineState, deadlineSummary, progressStatus } from '@/features/projects/deadlines';
 import { russianCount } from '@/lib/russian';
 
-const projectRoleLabels: Record<ProjectMember["role"], string> = {
+const projectRoleLabels: Record<ProjectRole, string> = {
   owner: "Владелец",
   admin: "Администратор",
   member: "Участник",
@@ -94,14 +87,13 @@ export default function TaskScreen() {
   const user = useUser();
   const permissionVersion = usePermissionVersion();
   const [task, setTask] = useState<Task | null>(null);
-  const [project, setProject] = useState<ProjectWithRole | null>(null);
+  const [project, setProject] = useState<TaskProjectContext | null>(null);
   const [items, setItems] = useState<TaskItem[]>([]);
   const [summaryItems, setSummaryItems] = useState<TaskItem[]>([]);
   const [loadedView, setLoadedView] = useState<"active" | "archived" | null>(null);
   const [lastEditors, setLastEditors] = useState<Map<string, TaskItemLastEditor>>(new Map());
-  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [participants, setParticipants] = useState<TaskParticipant[]>([]);
   const [effectiveTaskRole, setEffectiveTaskRole] = useState<ProjectRole | null>(null);
-  const [taskMemberOverrides, setTaskMemberOverrides] = useState<TaskMemberOverride[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
@@ -125,6 +117,9 @@ export default function TaskScreen() {
   const [editComment, setEditComment] = useState("");
   const [editPercentage, setEditPercentage] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState("");
+  const [supplementaryError, setSupplementaryError] = useState("");
+  const [taskEditBase, setTaskEditBase] = useState<Pick<Task, 'id' | 'title' | 'description'> | null>(null);
+  const snapshotRef = useRef<{ scope: string; participants: TaskParticipant[]; assignees: string[]; editors: TaskItemLastEditor[] } | null>(null);
   const [offline, setOffline] = useState(false);
   const [offlineForEdits, setOfflineForEdits] = useState(false);
   const [pendingItemIds, setPendingItemIds] = useState<Set<string>>(new Set());
@@ -152,39 +147,32 @@ export default function TaskScreen() {
     if (isReadAccessPending(`task:${taskId}`)) setEffectiveTaskRole(null);
     const request = ++requestRef.current;
     setLoadError("");
+    const scope = [user.id, id, taskId, showArchivedItems].join(':');
+    const previous = snapshotRef.current?.scope === scope ? snapshotRef.current : null;
     let supplementaryOffline = false;
-    async function optional<T>(promise: Promise<T>, fallback: T): Promise<T> {
-      try { return await promise; }
+    let supplementaryFailed = false;
+    async function optional<T>(step: string, read: () => Promise<T>, fallback: T): Promise<T> {
+      try { return await taskReadStep(step, read); }
       catch (error) {
-        if (!isTransportFailure(error)) throw error;
-        supplementaryOffline = true;
+        if (error instanceof SupersededReadError || isExplicitAccessError(error)) throw error;
+        supplementaryOffline ||= isTransportFailure(error);
+        supplementaryFailed = true;
         return fallback;
       }
     }
     try {
-      const [
-        nextTask,
-        nextProject,
-        nextItems,
-        nextProjectMembers,
-        nextAssignees,
-        nextLastEditors,
-        nextActiveItems,
-        nextTaskRole,
-      ] = await Promise.all([
-        getTask(taskId, id),
-        getProject(id),
-        listTaskItems(taskId, showArchivedItems ? "archived" : "active"),
-        optional(listProjectMembers(id), [] as ProjectMember[]),
-        optional(listTaskAssignees(taskId), [] as string[]),
-        optional(listTaskItemLastEditors(taskId), [] as TaskItemLastEditor[]),
-        showArchivedItems ? optional(listTaskItems(taskId, "active"), [] as TaskItem[]) : Promise.resolve(null),
-        optional(getMyTaskRole(taskId), "viewer" as ProjectRole),
+      const [nextTask, nextProject, nextItems, nextTaskRole, nextParticipants, nextAssignees, nextLastEditors, nextActiveItems] = await Promise.all([
+        taskReadStep('stage', () => getTask(taskId, id)),
+        taskReadStep('project-context', () => getTaskProjectContext(taskId)),
+        taskReadStep('checklist', () => listTaskItems(taskId, showArchivedItems ? 'archived' : 'active')),
+        taskReadStep('effective-role', () => getMyTaskRole(taskId)),
+        optional('participants', () => listTaskParticipants(taskId), previous?.participants ?? []),
+        optional('assignees', () => listTaskAssignees(taskId), previous?.assignees ?? []),
+        optional('last-editors', () => listTaskItemLastEditors(taskId), previous?.editors ?? []),
+        showArchivedItems ? taskReadStep('active-summary', () => listTaskItems(taskId, 'active')) : Promise.resolve(null),
       ]);
-      const pending = user ? await listPendingOperations(user.id, taskId) : [];
-      const nextOverrides = nextProject.role === "owner" || nextProject.role === "admin"
-        ? await optional(listTaskMemberOverrides(taskId), [] as TaskMemberOverride[])
-        : [];
+      if (nextProject.id !== id) throw new Error('Этап относится к другому проекту.');
+      const pending = await listPendingOperations(user.id, taskId);
       if (request !== requestRef.current) return;
       if (await activeCacheUserId() !== user.id) return;
       loadedScopeRef.current = `${user.id}:${id}:${taskId}:${showArchivedItems}`;
@@ -196,15 +184,17 @@ export default function TaskScreen() {
       setPendingItemIds(new Set(pending.map((operation) => operation.task_item_id)));
       setFailedItemIds(new Set(pending.filter((operation) => operation.status === 'failed').map((operation) => operation.task_item_id)));
       setLoadedView(showArchivedItems ? "archived" : "active");
-      setProjectMembers(nextProjectMembers);
+      snapshotRef.current = { scope, participants: nextParticipants, assignees: nextAssignees, editors: nextLastEditors };
+      setParticipants(nextParticipants);
+      setSupplementaryError(supplementaryFailed ? "Часть дополнительных данных этапа не обновилась. Повторите обновление данных." : "");
       setEffectiveTaskRole(nextTaskRole);
-      setTaskMemberOverrides(nextOverrides);
       setAssignees(nextAssignees);
       setLastEditors(new Map(nextLastEditors.map((entry) => [entry.task_item_id, entry])));
-      setOffline(supplementaryOffline || [nextTask, nextProject, nextItems, nextProjectMembers, nextAssignees, nextLastEditors, nextActiveItems, nextOverrides].some(isCachedResult));
+      setOffline(supplementaryOffline || [nextTask, nextProject, nextItems, nextParticipants, nextAssignees, nextLastEditors, nextActiveItems].some(isCachedResult));
       setOfflineForEdits([nextTask, nextProject, nextItems, nextTaskRole].some(isCachedResult));
       setLoadError("");
     } catch (e) {
+      if (e instanceof SupersededReadError) return;
       if (request === requestRef.current) {
         setLoadError(userMessage(e, "Не удалось обновить этап."));
         if (isExplicitAccessError(e)) {
@@ -215,9 +205,9 @@ export default function TaskScreen() {
           setItems([]);
           setSummaryItems([]);
           setPendingItemIds(new Set());
-          setProjectMembers([]);
+          snapshotRef.current = null;
+          setParticipants([]);
           setEffectiveTaskRole(null);
-          setTaskMemberOverrides([]);
           setAssignees([]);
           setLastEditors(new Map());
           setOffline(false);
@@ -235,22 +225,24 @@ export default function TaskScreen() {
     // snapshot would briefly replace live data and claim the online view is offline.
     if (loadedScopeRef.current === scope) return;
     const generation = requestRef.current;
-    if (await getCached<boolean>(user.id, `blocked:${id}`)
+    if (await isTaskProjectBlocked(user.id, taskId, id)
       || await getCached<boolean>(user.id, `blocked-task:${taskId}`)) return;
     const [cachedTask, cachedProject, cachedRole, cachedItems, cachedActive] = await Promise.all([
       getCached<Task>(user.id, `task:${taskId}`),
-      getCached<ProjectWithRole>(user.id, `project:${id}`),
+      getCached<TaskProjectContext>(user.id, `task-context:${taskId}`),
       getCached<ProjectRole>(user.id, `task-role:${taskId}`),
       ChecklistLocalRepository.getEffectiveTaskItems(user.id, taskId, showArchivedItems ? 'archived' : 'active'),
       showArchivedItems ? ChecklistLocalRepository.getEffectiveTaskItems(user.id, taskId, 'active') : Promise.resolve(null),
     ]);
     if (!cachedTask || !cachedProject || !cachedItems || cachedTask.project_id !== id
       || cachedProject.id !== id || requestRef.current !== generation || await activeCacheUserId() !== user.id) return;
-    const pending = await listPendingOperations(user.id, taskId);
+    const [pending, cachedParticipants, cachedAssignees] = await Promise.all([listPendingOperations(user.id, taskId), getCached<TaskParticipant[]>(user.id, `task-participants:${taskId}`).then((rows) => rows ?? []), getCached<string[]>(user.id, `assignees:${taskId}`).then((rows) => rows ?? [])]);
     if (requestRef.current !== generation || await activeCacheUserId() !== user.id) return;
     loadedScopeRef.current = scope;
     setTask(cachedTask);
     setProject(cachedProject);
+    setParticipants(cachedParticipants);
+    setAssignees(cachedAssignees);
     setItems(cachedItems);
     setSummaryItems(cachedActive ?? cachedItems);
     setEffectiveTaskRole(cachedRole ?? 'viewer');
@@ -295,7 +287,7 @@ export default function TaskScreen() {
       return subscribeMany([
         {
           table: "projects",
-          options: { projectId: id, onEvent, onStatus },
+          options: { taskId, onEvent, onStatus },
         },
         {
           table: "tasks",
@@ -441,12 +433,12 @@ export default function TaskScreen() {
   const completedItems = activeItems.filter((item) => item.percentage === 100).length;
   const currentView = showArchivedItems ? "archived" : "active";
   const assigneeNames = assignees.map((assigneeId) => {
-    const member = projectMembers.find((entry) => entry.user_id === assigneeId);
-    return member?.profile?.display_name || assigneeId.slice(0, 8);
+    return participants.find((entry) => entry.user_id === assigneeId)?.display_name || assigneeId.slice(0, 8);
   });
-  const overrideByUserId = new Map(taskMemberOverrides.map((entry) => [entry.user_id, entry.role_override]));
 
-  if (!user || loadedUserId !== user.id) {
+  const editingThisTask = taskEditing && taskEditBase?.id === taskId;
+  const taskEditConflict = editingThisTask && taskEditBase && (taskEditBase.title !== task?.title || taskEditBase.description !== task?.description);
+  if (!user || loadedUserId !== user.id || task?.id !== taskId || project?.id !== id) {
     return <Screen padded={false} centerContent={false}>{loadError ? <ErrorState message={loadError} onRetry={refreshFromServer} /> : <LoadingState label="Загружаем этап..." />}</Screen>;
   }
 
@@ -459,17 +451,14 @@ export default function TaskScreen() {
         showsVerticalScrollIndicator={false}
       >
         <PageHeader
-            title={task ? (taskEditing ? "Редактирование этапа" : task.title) : "Этап"}
-            subtitle={taskEditing ? "" : task?.description || "Рабочий этап"}
-            onBack={() => router.dismissTo(`/projects/${id}` as never)}
-            backLabel="К проекту"
-            breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект", href: `/projects/${id}` }, { label: task?.title || "Этап" }]}
+            title={task ? (editingThisTask ? "Редактирование этапа" : task.title) : "Этап"}
+            subtitle={editingThisTask ? "" : task?.description || "Рабочий этап"}
+            onBack={() => router.dismissTo((project?.role ? `/projects/${id}` : "/projects") as never)}
+            backLabel={project?.role ? "К проекту" : "К проектам"}
+            breadcrumbs={[{ label: "Проекты", href: "/projects" }, { label: project?.name || "Проект", ...(project?.role ? { href: `/projects/${id}` } : {}) }, { label: task?.title || "Этап" }]}
             actions={
               task ? <>
                 <RealtimeIndicator status={status} />
-                {effectiveTaskRole ? <Badge tone="primary">{projectRoleLabels[effectiveTaskRole]}</Badge> : null}
-                <TaskStatus status={progressStatus(progress, task.status === 'archived')} />
-                <DeadlineBadge state={task.status === 'archived' ? 'normal' : deadlineSummary(activeItems, now).state} />
               </> : null
             }
           />
@@ -482,17 +471,20 @@ export default function TaskScreen() {
             {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
             {loadError ? <Card><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить данные</Button></Card> : null}
             {actionError?.target === "task" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
-            {taskEditing ? <Card>
+            {supplementaryError ? <Card><ErrorMessage message={supplementaryError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить дополнительные данные</Button></Card> : null}
+            {editingThisTask ? <Card>
+              {actionError?.target === 'task' ? <Button size="sm" variant="outline" disabled={busy} onPress={() => void refreshFromServer()}>Обновить данные этапа</Button> : null}
+              {taskEditConflict ? <Card muted><ThemedText type="small">На сервере этап изменился. Ваш черновик сохранён в полях ниже.</ThemedText><ThemedText type="h3">{task.title}</ThemedText><ThemedText type="small">{task.description || 'Без описания'}</ThemedText><Button size="sm" variant="outline" disabled={busy} onPress={() => setTaskEditBase({ id: task.id, title: task.title, description: task.description })}>Продолжить с моим черновиком</Button></Card> : null}
               <Input label="Название" value={editTaskTitle} onChangeText={setEditTaskTitle} maxLength={500} placeholder="Название этапа" disabled={busy} />
               <Textarea label="Описание" value={editTaskDescription} onChangeText={setEditTaskDescription} maxLength={10000} placeholder="Описание этапа" disabled={busy} />
               <View style={styles.actions}>
-                <Button loading={busyAction === "task"} disabled={busy || !editTaskTitle.trim()} onPress={() => { const validation = validateTaskEdit(); if (validation) { setActionError({ message: validation, target: "task" }); return; } void run(async () => { await updateTask(task.id, editTaskTitle.trim(), editTaskDescription); setTaskEditing(false); }); }}>Сохранить</Button>
+                <Button loading={busyAction === "task"} disabled={busy || !editTaskTitle.trim() || !!taskEditConflict || !taskEditBase || taskEditBase.id !== taskId} onPress={() => { const validation = validateTaskEdit(); if (validation) { setActionError({ message: validation, target: "task" }); return; } void run(async () => { await updateTask(task.id, editTaskTitle.trim(), editTaskDescription, taskEditBase!); setTaskEditing(false); }); }}>Сохранить</Button>
                 <Button variant="ghost" disabled={busy} onPress={() => setTaskEditing(false)}>Отмена</Button>
               </View>
             </Card> : null}
             <View style={[styles.stageActions, compact && styles.stageActionsCompact]}>
-              {((canEditTask && !taskEditing) || canManageTask) ? <View style={[styles.stageActionsGroup, compact && styles.stageActionsGroupCompact]}>
-                {canEditTask && !taskEditing ? <Button size="sm" variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
+              {((canEditTask && !editingThisTask) || canManageTask) ? <View style={[styles.stageActionsGroup, compact && styles.stageActionsGroupCompact]}>
+                {canEditTask && !editingThisTask ? <Button size="sm" variant="outline" disabled={busy} onPress={() => { setTaskEditing(true); setTaskEditBase({ id: task.id, title: task.title, description: task.description }); setEditTaskTitle(task.title); setEditTaskDescription(task.description || ""); setActionError(null); }}>Редактировать</Button> : null}
                 {canManageTask ? <Button size="sm" variant="outline" disabled={busy} onPress={() => setManageOpen(true)}>Участники и исполнители</Button> : null}
               </View> : null}
               <View style={[styles.stageActionsGroup, styles.stageActionsRight, compact && styles.stageActionsGroupCompact]}>
@@ -504,14 +496,19 @@ export default function TaskScreen() {
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
             {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : effectiveTaskRole === "viewer" ? "Для чек-листа этого этапа у вас доступ только для просмотра." : hasTaskAccess ? "Прогресс чек-листа сейчас недоступен." : "Нет доступа к этапу."}</ThemedText></View> : null}
             <Card muted>
+              <View style={styles.sectionTitle}><ThemedText type="h2">Обзор этапа</ThemedText><View style={styles.badges}>
+                {effectiveTaskRole ? <Badge tone="primary">Роль: {projectRoleLabels[effectiveTaskRole]}</Badge> : null}
+                <TaskStatus status={progressStatus(progress, task.status === 'archived')} />
+                <DeadlineBadge state={task.status === 'archived' ? 'normal' : deadlineSummary(activeItems, now).state} />
+              </View></View>
               <Progress
                 value={progress}
                 label={activeItems.length ? `${completedItems} из ${activeItems.length} пунктов выполнено` : "Добавьте пункты, чтобы отслеживать выполнение"}
               />
               <ThemedText type="small">{assigneeNames.length ? `${russianCount(assigneeNames.length, ["исполнитель", "исполнителя", "исполнителей"])}: ${assigneeNames.join(", ")}` : "Исполнители пока не назначены"}</ThemedText>
             </Card>
-            <View style={styles.sectionHead}>
-              <View style={styles.sectionTitle}><ThemedText type="h2">Чек-лист</ThemedText><ThemedText type="small">{showArchivedItems ? "Архивные пункты доступны для просмотра." : "Отмечайте готовые пункты или уточняйте прогресс в деталях."}</ThemedText></View>
+            <View style={[styles.sectionHead, compact && styles.checklistHeadCompact]}>
+              <View style={[styles.sectionTitle, compact && styles.checklistTitleCompact]}><ThemedText type="h2">Чек-лист</ThemedText><ThemedText type="small">{showArchivedItems ? "Архивные пункты доступны для просмотра." : "Отмечайте готовые пункты или уточняйте прогресс в деталях."}</ThemedText></View>
               {canEditChecklist ? <SegmentedControl value={currentView} accessibilityLabel="Пункты чек-листа" options={[{ value: "active", label: "Активные" }, { value: "archived", label: "Архив" }]} onChange={(value) => { if (busy) return; setShowArchivedItems(value === "archived"); setExpandedItem(null); setEditing(null); setCommentEditing(null); setActionError(null); }} /> : null}
             </View>
             {loadedView !== currentView ? (loadError ? <View style={styles.feedback}><ThemedText type="small">Выбранный список пунктов не загрузился.</ThemedText><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Повторить</Button></View> : <LoadingState label={showArchivedItems ? "Загружаем архив…" : "Загружаем чек-лист…"} />) : !visibleItems.length ? (
@@ -531,6 +528,7 @@ export default function TaskScreen() {
                     linkedPositions.current.set(item.id, event.nativeEvent.layout.y);
                     if (linkedItem === item.id) requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, listTop.current + (linkedPositions.current.get(item.id) ?? 0) - 16), animated: false }));
                   }}>
+                    <ChecklistDeadline item={task.status === 'archived' ? { ...item, is_archived: true } : item} now={now} />
                     <View style={styles.itemRow}>
                       <Checkbox
                         checked={item.is_completed}
@@ -569,7 +567,6 @@ export default function TaskScreen() {
                           </Pressable>
                         )}
                         {formattedComment ? <ThemedText type="small" style={styles.itemComment}>{formattedComment}</ThemedText> : null}
-                        <ChecklistDeadline item={task.status === 'archived' ? { ...item, is_archived: true } : item} now={now} />
                         <View style={styles.itemMeta}>
                            <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
                            {pendingItemIds.has(item.id) ? <ThemedText type="caption" accessibilityLiveRegion="polite" style={failedItemIds.has(item.id) ? { color: theme.warning } : undefined}>{failedItemIds.has(item.id) ? 'Не удалось синхронизировать' : 'Ожидает синхронизации'}</ThemedText> : null}
@@ -591,11 +588,6 @@ export default function TaskScreen() {
                     </View>
                     {expandedItem === item.id ? <View style={[styles.itemDetails, { borderTopColor: theme.border }]}>
                     <Progress value={item.percentage} label="Выполнение пункта" />
-                    {canUpdateChecklistProgress && !item.is_archived ? <View style={styles.actions}>
-                      <Button size="sm" variant="outline" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => { setActionError(null); setDeadlineEditing(item); }}>{item.deadline_at ? 'Изменить дедлайн' : 'Установить дедлайн'}</Button>
-                      {item.deadline_at ? <Button size="sm" variant="ghost" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => setConfirm({ title: 'Удалить дедлайн?', description: 'Активные предупреждения исчезнут. История уведомлений сохранится.', confirmLabel: 'Удалить дедлайн', target: item.id, action: () => setTaskItemDeadline(item.id, null, item.sync_version) })}>Удалить дедлайн</Button> : null}
-                      {offlineForEdits || pendingItemIds.has(item.id) ? <ThemedText type="caption">Изменение дедлайна доступно после подключения и синхронизации чек-листа.</ThemedText> : null}
-                    </View> : null}
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
                       <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={10000} placeholder="Необязательно" disabled={busy} />
                        <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 10000} onPress={() => void runItemEdit(item, { type: 'set_task_item_comment', payload: { comment: editComment } }, () => setTaskItemComment(item.id, editComment), () => setCommentEditing(null))}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
@@ -604,6 +596,12 @@ export default function TaskScreen() {
                       <View style={styles.percentageField}><Input label="Прогресс, от 1 до 100%" value={percentageRaw} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value }))} keyboardType="numeric" maxLength={7} onSubmitEditing={() => savePercentage(item)} disabled={busy} /></View>
                       <Button size="sm" variant={percentageSaveValid ? "primary" : "secondary"} loading={busyAction === item.id} disabled={busy || !percentageSaveValid} onPress={() => savePercentage(item)}>Сохранить прогресс</Button>
                     </View> : null}
+                    {canUpdateChecklistProgress && !item.is_archived ? <View style={styles.actions}>
+                      <Button size="sm" variant="outline" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => { setActionError(null); setDeadlineEditing(item); }}>{item.deadline_at ? 'Изменить дедлайн' : 'Установить дедлайн'}</Button>
+                      {item.deadline_at ? <Button size="sm" variant="ghost" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => setConfirm({ title: 'Удалить дедлайн?', description: 'Активные предупреждения исчезнут. История уведомлений сохранится.', confirmLabel: 'Удалить дедлайн', target: item.id, action: () => setTaskItemDeadline(item.id, null, item.sync_version) })}>Удалить дедлайн</Button> : null}
+                      {offlineForEdits || pendingItemIds.has(item.id) ? <ThemedText type="caption">Изменение дедлайна доступно после подключения и синхронизации чек-листа.</ThemedText> : null}
+                    </View> : null}
+
                     {editing === item.id && canEditChecklist ? (
                       <View style={styles.actions}>
                         <Button
@@ -698,119 +696,15 @@ export default function TaskScreen() {
                 {actionError?.target === "new-item" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
               </Card>
             ) : null}
-            {canManageTask ? <View style={[styles.taskFooter, { borderTopColor: theme.border }]}><ThemedText type="small" style={styles.footerCopy}>Этап больше не нужен в текущей работе?</ThemedText><Button size="sm" variant="outline" disabled={busy} onPress={() => setConfirm({ title: "Архивировать этап?", description: "Этап переместится в архив проекта. Его можно будет восстановить вместе с чек-листом.", action: () => archiveTask(taskId), confirmLabel: "Архивировать", destructive: false })}>Архивировать этап</Button></View> : null}
-            {task && canManageTask ? (
-              <ModalLayer visible={manageOpen} busy={busy} onClose={() => setManageOpen(false)} label="Участники и исполнители">
-                <View style={[styles.modalSheet, !compact && styles.modalSheetDesktop, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]} accessibilityViewIsModal pointerEvents={confirm ? "none" : "auto"} accessibilityElementsHidden={Boolean(confirm)} importantForAccessibility={confirm ? "no-hide-descendants" : "auto"}>
+            {canManageTask ? <View style={[styles.taskFooter, { borderTopColor: theme.border }]}><ThemedText type="small" style={styles.footerCopy}>Этап больше не нужен в текущей работе?</ThemedText><Button size="sm" variant="destructive" disabled={busy} onPress={() => setConfirm({ title: "Архивировать этап?", description: "Этап переместится в архив проекта. Его можно будет восстановить вместе с чек-листом.", action: () => archiveTask(taskId), confirmLabel: "Архивировать", destructive: false })}>Архивировать этап</Button></View> : null}
+            {task && canManageTask && manageOpen ? (
+              <ModalLayer visible busy={busy} onClose={() => setManageOpen(false)} label="Участники и исполнители">
+                <View style={[styles.modalSheet, !compact && styles.modalSheetDesktop, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
                   <View style={styles.sectionHead}><View style={styles.flex}><ThemedText type="h2">Участники и исполнители</ThemedText><ThemedText type="small" numberOfLines={2}>{task.title}</ThemedText></View><Button size="sm" variant="ghost" disabled={busy} onPress={() => setManageOpen(false)}>Закрыть</Button></View>
                   <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
-                  {manageOpen ? <ProjectMembersPanel projectId={id} embedded onChanged={load} /> : null}
-                  {!canManageTask ? <ThemedText type="small">Управлять доступом и назначениями могут владелец и администратор активного проекта.</ThemedText> : null}
-                  {actionError?.target === "members" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
-                  {busyAction === "members" ? <ThemedText type="small" accessibilityLiveRegion="polite">Сохраняем изменения…</ThemedText> : null}
-                  <Card>
-                  <ThemedText type="h2">Участники этапа</ThemedText>
-                  <ThemedText type="small">
-                    По умолчанию роль наследуется из проекта. Изменение ниже действует только на чек-лист этого этапа.
-                  </ThemedText>
-                  {!projectMembers.length ? (
-                    <EmptyState
-                      title="Участников нет"
-                      description="В проекте пока нет доступных участников."
-                    />
-                  ) : (
-                    projectMembers.map((member) => {
-                      const override = overrideByUserId.get(member.user_id);
-                      const canManageMemberOverride = member.user_id !== user.id && (project?.role === "owner" || (member.role !== "owner" && member.role !== "admin"));
-                      const overrideOptions = [
-                        { value: "inherit", label: `Наследовать: ${projectRoleLabels[member.role]}` },
-                        ...(["admin", "member", "viewer"] as TaskChecklistRole[])
-                          .filter((role) => role !== member.role)
-                          .map((role) => ({ value: role, label: `Чек-лист: ${projectRoleLabels[role]}` })),
-                      ];
-                      return (
-                        <View key={member.user_id} style={styles.memberRow}>
-                          <ThemedText style={styles.memberName}>
-                            {member.profile?.display_name || member.user_id.slice(0, 8)}
-                          </ThemedText>
-                          <View style={styles.overrideControl}>
-                            <Select
-                              value={override ?? "inherit"}
-                              options={overrideOptions}
-                              onChange={(value) => void run(
-                                () => value === "inherit"
-                                  ? clearTaskMemberOverride(taskId, member.user_id)
-                                  : setTaskMemberOverride(taskId, member.user_id, value as TaskChecklistRole),
-                                "members",
-                              )}
-                              accessibilityLabel={`Роль чек-листа для ${member.profile?.display_name || member.user_id.slice(0, 8)}`}
-                              disabled={busy || !canManageMemberOverride}
-                            />
-                            <ThemedText type="caption">
-                              {member.user_id === user.id ? 'Вы · свою роль изменить нельзя. ' : ''}Проект: {projectRoleLabels[member.role]}{override ? ` · На этапе: ${projectRoleLabels[override]}` : " · Без переопределения"}
-                            </ThemedText>
-                          </View>
-                        </View>
-                      );
-                    })
-                  )}
-                </Card><Card>
-                  <ThemedText type="h2">Исполнители</ThemedText>
-                  <ThemedText type="small">
-                    Кто назначен выполнять этап
-                  </ThemedText>
-                  {projectMembers.length ? (
-                    projectMembers.map((member) => {
-                      const assigned = assignees.includes(member.user_id);
-                      return (
-                        <View key={member.user_id} style={styles.memberRow}>
-                          <ThemedText style={styles.memberName}>
-                            {member.profile?.display_name || member.user_id.slice(0, 8)}
-                          </ThemedText>
-                          {assigned ? (
-                            <Badge tone="primary">Назначен</Badge>
-                          ) : null}
-                          {canManageTask ? <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onPress={() =>
-                              setConfirm({
-                                title: assigned
-                                  ? "Снять назначение?"
-                                  : "Назначить исполнителя?",
-                                description: assigned
-                                  ? "Пользователь больше не будет отображаться исполнителем."
-                                  : "Пользователь появится в списке исполнителей.",
-                                confirmLabel: assigned ? "Снять назначение" : "Назначить",
-                                destructive: false,
-                                target: "members",
-                                action: () =>
-                                  assigned
-                                    ? removeTaskAssignee(taskId, member.user_id)
-                                    : addTaskAssignee(taskId, member.user_id),
-                              })
-                            }
-                          >
-                            {assigned ? "Снять" : "Назначить"}
-                          </Button> : null}
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <ThemedText type="small">В проекте пока нет участников.</ThemedText>
-                  )}
-                 </Card></ScrollView></View><ConfirmDialog
-                   visible={Boolean(confirm)}
-                   nested
-                   title={confirm?.title || ""}
-                   description={confirm?.description || ""}
-                   confirmLabel={confirm?.confirmLabel || "Подтвердить"}
-                   destructive={confirm?.destructive ?? true}
-                   busy={busy}
-                   onCancel={() => setConfirm(null)}
-                   onConfirm={() => void confirmAction()}
-                 />
+                    <TaskMembersPanel taskId={taskId} userId={user.id} projectRole={project?.role ?? null} participants={participants} assignees={assignees} busy={busy} error={actionError?.target === 'members' ? actionError.message : undefined} run={run} />
+                  </ScrollView>
+                </View>
               </ModalLayer>
             ) : null}
           </>
@@ -824,10 +718,11 @@ export default function TaskScreen() {
           if (saved) setDeadlineEditing(null);
         }} /> : null}
       <ConfirmDialog
-        visible={Boolean(confirm) && !manageOpen}
+        visible={Boolean(confirm)}
         title={confirm?.title || ""}
         description={confirm?.description || ""}
         confirmLabel={confirm?.confirmLabel || "Подтвердить"}
+        error={actionError?.target === (confirm?.target ?? 'task') ? actionError.message : undefined}
         destructive={confirm?.destructive ?? true}
         busy={busy}
         onCancel={() => setConfirm(null)}
@@ -849,7 +744,10 @@ const styles = StyleSheet.create({
   },
   compactContent: { padding: spacing.lg, gap: spacing.lg },
   feedback: { gap: spacing.sm },
+  badges: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center" },
   sectionTitle: { flex: 1, minWidth: 0, gap: spacing.xs },
+  checklistHeadCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  checklistTitleCompact: { flex: 0 },
   notice: { padding: spacing.md, borderRadius: 8 },
   sectionHead: {
     flexDirection: "row",
@@ -864,15 +762,6 @@ const styles = StyleSheet.create({
   itemDetailsButton: { alignSelf: "flex-start", marginTop: spacing.xs },
   itemComment: { marginTop: spacing.xs },
   itemDetails: { gap: spacing.md, borderTopWidth: 1, paddingTop: spacing.lg },
-  memberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    flexWrap: "wrap",
-    paddingVertical: spacing.sm,
-  },
-  overrideControl: { width: 280, maxWidth: "100%", gap: spacing.xs },
-  memberName: { flexGrow: 1, flexShrink: 1, flexBasis: 160, minWidth: 0 },
   flex: { flex: 1, minWidth: 0 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   stageActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: spacing.md },

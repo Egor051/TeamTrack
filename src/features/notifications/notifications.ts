@@ -13,7 +13,7 @@ import { durableReadInvalidation, invalidateReadModels, readAccountEpoch, readIn
 import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { createReadRefreshScheduler } from '@/lib/local-cache/refresh-scheduler';
 import { formatDeadline } from '@/features/projects/deadlines';
-import { matchesNotification, type NotificationFilters } from './notification-state';
+import { hasNotificationFilters, matchesNotification, notificationActions, notificationFilterValues, type NotificationFilters } from './notification-state';
 
 export type Notification = Database['public']['Tables']['notifications']['Row'];
 export type NotificationFilterOptions = { projects: { id: string; name: string }[]; tasks: { id: string; project_id: string; title: string }[] };
@@ -108,7 +108,7 @@ async function notificationRead<T>(online: () => Promise<T>, cached: (window: No
   }
 }
 export async function fetchNotificationPage(limit = 100, offset = 0, filters: NotificationFilters = {}): Promise<NotificationPage> {
-  const filtered = Object.entries(filters).some(([key, value]) => !!value && !(key === 'read' && value === 'all'));
+  const filtered = hasNotificationFilters(filters);
   if (!filtered && offset === 0 && limit <= 100) {
     const window = await readNotificationWindow();
     const offline = isCachedResult(window);
@@ -116,12 +116,18 @@ export async function fetchNotificationPage(limit = 100, offset = 0, filters: No
   }
   return notificationRead<NotificationPage>(async () => {
     let query = supabase.from('notifications').select('*');
-    if (filters.projectId) query = query.eq('project_id', filters.projectId);
-    if (filters.taskId) query = query.eq('task_id', filters.taskId);
+    const { projectIds, taskIds, actions, reads } = notificationFilterValues(filters);
+    if (projectIds.length) query = query.in('project_id', projectIds);
+    if (taskIds.length) query = query.in('task_id', taskIds);
     if (filters.from) query = query.gte('created_at', filters.from);
     if (filters.to) query = query.lte('created_at', filters.to);
-    if (filters.read && filters.read !== 'all') query = query.eq('is_read', filters.read === 'read');
-    if (filters.action) query = filters.action.startsWith('deadline:') ? query.eq('data->>deadline_event', filters.action.slice(9)) : query.eq('type', filters.action as Notification['type']);
+    if (reads.length === 1) query = query.eq('is_read', reads[0] === 'read');
+    if (actions.length) {
+      if (actions.some((action) => !notificationActions.some((known) => known.value === action))) throw new Error('Неизвестный тип уведомления.');
+      const types = actions.filter((action) => !action.startsWith('deadline:'));
+      const deadlines = actions.filter((action) => action.startsWith('deadline:')).map((action) => action.slice(9));
+      query = query.or([types.length ? `type.in.(${types.join(',')})` : '', deadlines.length ? `data->>deadline_event.in.(${deadlines.join(',')})` : ''].filter(Boolean).join(','));
+    }
     const { data, error } = await uiRead(query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + limit - 1));
     if (error) throw error;
     return { rows: data ?? [], offline: false, hasMore: (data?.length ?? 0) === limit, limited: false };

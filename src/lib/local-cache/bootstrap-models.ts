@@ -1,5 +1,5 @@
 import type { Profile, TaskItem } from '@/lib/supabase/client';
-import type { ProjectWithRole, ProjectMember, Task, TaskTemplate, TaskTemplateItem, AuditEntry, TaskItemLastEditor } from '@/features/projects/projects';
+import type { ProjectWithRole, ProjectMember, Task, TaskTemplate, TaskTemplateItem, AuditEntry, TaskItemLastEditor, TaskProjectContext, TaskParticipant } from '@/features/projects/projects';
 import type { Notification } from '@/features/notifications/notifications';
 import type { AccountManifest, Dataset } from './bootstrap-types';
 import type { CacheEntry } from './types';
@@ -22,7 +22,10 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
   const projects = (rows.projects ?? []) as ProjectWithRole[];
   const tasks = (rows.tasks ?? []) as Task[];
   const profiles = new Map(((rows.profiles ?? []) as Profile[]).map((p) => [p.id, p]));
-  const roleMap = new Map(((rows.roles ?? []) as { task_id: string; role: string }[]).map((r) => [r.task_id, r.role]));
+  const roleRows = (rows.roles ?? []) as { task_id: string; role: string; project_context?: TaskProjectContext; participants?: TaskParticipant[] }[];
+  const roleMap = new Map(roleRows.map((r) => [r.task_id, r.role]));
+  const contextMap = new Map(roleRows.filter((r) => r.project_context).map((r) => [r.task_id, r.project_context!]));
+  const participantMap = new Map(roleRows.filter((r) => r.participants).map((r) => [r.task_id, r.participants!]));
   const members = (rows.members ?? []) as (Omit<ProjectMember, 'profile'> & { project_id: string })[];
   const assignees = (rows.assignees ?? []) as { task_id: string; user_id: string }[];
   // A concurrent item pull/reconciliation may have advanced confirmed versions
@@ -77,11 +80,22 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     put(`items:${task.id}:active`, all.filter((i) => !i.is_archived));
     put(`items:${task.id}:archived`, all.filter((i) => i.is_archived));
     const project = projectMap.get(task.project_id);
+    const context = contextMap.get(task.id) ?? (project ? { id: project.id, name: project.name, status: project.status, role: project.role } : null);
+    if (context) put(`task-context:${task.id}`, context);
+    if (!project && context) put(`daily-audit:${task.project_id}:${manifest.day_start}`, dailyByProject.get(task.project_id) ?? []);
+    const participantRows = participantMap.get(task.id) ?? (membersByProject.get(task.project_id) ?? []).map((member) => ({
+      user_id: member.user_id, display_name: profiles.get(member.user_id)?.display_name ?? member.user_id.slice(0, 8), project_role: member.role,
+      direct_role: ((overridesByTask.get(task.id) ?? []) as { user_id?: string; role_override?: string }[]).find((row) => row.user_id === member.user_id)?.role_override ?? null,
+      effective_role: member.role, is_direct: false, set_at: null,
+    }));
+    put(`task-participants:${task.id}`, participantRows);
     if (project?.role === 'owner' || project?.role === 'admin') put(`task-overrides:${task.id}`, (overridesByTask.get(task.id) ?? []).map(({ task_id: _taskId, ...row }) => row));
     if (rows.last_editors) put(`last-editors:${task.id}`, (editorsByTask.get(task.id) ?? []).map(({ task_id: _taskId, ...row }) => row));
     if (rows.history) {
       const ids = taskAuditEntityIds(task.id, all.map((i) => i.id), (rows.history as AuditEntry[]).filter((a) => a.project_id === task.project_id));
-      const history = ids.flatMap((id) => historyByEntity.get(id) ?? []).filter((a) => a.project_id === task.project_id && Date.parse(a.created_at) >= Date.now() - 90 * 86400000);
+      const taskMembership = (rows.history as AuditEntry[]).filter((entry) => ['task_member', 'task_assignee'].includes(entry.entity_type)
+        && [entry.old_data, entry.new_data].some((data) => data && typeof data === 'object' && !Array.isArray(data) && data.task_id === task.id));
+      const history = [...ids.flatMap((id) => historyByEntity.get(id) ?? []), ...taskMembership].filter((a) => a.project_id === task.project_id && Date.parse(a.created_at) >= Date.now() - 90 * 86400000);
       put(`audit:${task.id}:90days`, history.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id));
     }
   }
@@ -92,6 +106,7 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     if (entry.key.startsWith('task:') && !taskIds.has(entry.key.slice(5))) put(`blocked-task:${entry.key.slice(5)}`, true);
   }
   const activeProjects = new Map(projects.filter((p) => p.status === 'active').map((p) => [p.id, p.name]));
+  for (const context of contextMap.values()) if (context.status === 'active') activeProjects.set(context.id, context.name);
   const activeTasks = new Map(tasks.filter((t) => t.status !== 'archived' && activeProjects.has(t.project_id)).map((t) => [t.id, t]));
   put('checklist-overview', items.filter((i) => !i.is_archived && activeTasks.has(i.task_id)).map((i) => ({
     id: i.id, task_id: i.task_id, project_id: activeTasks.get(i.task_id)!.project_id,
@@ -99,6 +114,7 @@ export function accountReadModels(userId: string, rows: AccountRows, manifest: A
     deadline_at: i.deadline_at ?? null, sync_version: i.sync_version,
   })));
   const mine = new Set(assignees.filter((a) => a.user_id === userId).map((a) => a.task_id));
+  for (const [taskId, people] of participantMap) if (people.some((person) => person.user_id === userId && person.is_direct)) mine.add(taskId);
   put(`my-tasks:${userId}`, tasks.filter((t) => mine.has(t.id) && t.status !== 'archived' && activeProjects.has(t.project_id))
     .map((t) => ({ ...t, project_name: activeProjects.get(t.project_id) })));
   put('templates', rows.templates as TaskTemplate[]);

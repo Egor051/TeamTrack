@@ -14,7 +14,7 @@ import { ThemedText } from '@/components/ui/text';
 import { useUser } from '@/features/auth/AuthProvider';
 import { fetchNotificationPage, fetchNotificationFilterOptions, markAllAsRead, markAsRead, notificationBody, notificationRoute, stageNotificationText, subscribeToNotifications, type Notification, type NotificationFilterOptions } from '@/features/notifications/notifications';
 import { NotificationFilters } from '@/features/notifications/notification-filters';
-import { matchesNotification, notificationTone, NotificationReadState, type NotificationFilters as Filters } from '@/features/notifications/notification-state';
+import { hasNotificationFilters, matchesNotification, notificationTone, NotificationReadState, type NotificationFilters as Filters } from '@/features/notifications/notification-state';
 import { isExplicitAccessError } from '@/lib/local-cache/cache';
 import { userMessage } from '@/lib/errors/user-message';
 import { layout, spacing } from '@/components/ui/theme';
@@ -184,13 +184,13 @@ export default function NotificationsScreen() {
   return <Screen padded={false} centerContent={false}>
     <ScrollView keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFromServer()} tintColor={theme.primary} />} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <PageHeader title="Уведомления" breadcrumbs={[{ label: 'Проекты', href: '/projects' }, { label: 'Уведомления' }]} actions={!offline && items.some((i) => !i.is_read) ? <Button size="sm" variant="outline" loading={markingAll} disabled={markingAll || markingIds.size > 0} onPress={() => void allRead()}>Прочитать все</Button> : null} />
-      <NotificationFilters value={filters} onChange={setFilters} options={filterOptions} />
+      <NotificationFilters value={filters} onApply={(next) => { requestRef.current += 1; pageOffset.current = 0; setFilters(next); }} options={filterOptions} />
       {filterError ? <ErrorMessage message={filterError} type="generic" /> : null}
       {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
       {offline ? <Card><ThemedText type="small">Показаны сохранённые уведомления: все непрочитанные и последние 100 прочитанных. Более старые уведомления и отметка прочтения требуют подключения.</ThemedText></Card> : null}
       {loadError && !items.length ? <ErrorState message={loadError} onRetry={() => void load()} /> : loading && !items.length ? <LoadingState label="Загружаем уведомления..." /> : <View style={styles.list}>
         {loadError ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить уведомления</Button></View> : null}
-        {!items.some((item) => matchesNotification(item, filters)) ? <EmptyState title={Object.values(filters).some(Boolean) ? 'Нет уведомлений по выбранным условиям' : 'Уведомлений пока нет'} description="Измените или сбросьте фильтры." /> : null}
+        {!items.some((item) => matchesNotification(item, filters)) ? <EmptyState title={hasNotificationFilters(filters) ? 'Нет уведомлений по выбранным условиям' : 'Уведомлений пока нет'} description="Измените или сбросьте фильтры." /> : null}
         {items.filter((item) => matchesNotification(item, filters)).map((item) => <Card key={item.id} tone={notificationTone(item) === 'danger' ? 'destructive' : notificationTone(item) === 'warning' ? 'warning' : undefined} style={!item.is_read ? styles.readCard : undefined}>
           <Pressable onPress={() => void read(item)} disabled={markingAll} accessibilityRole="button" accessibilityLabel={`${item.is_read ? 'Прочитано' : 'Новое'} уведомление: ${notificationText(item, item.title)}`} accessibilityState={{ disabled: markingAll }} style={styles.pressableContent}>
             <View style={styles.header}><ThemedText type="h3" style={styles.flex}>{notificationText(item, item.title)}</ThemedText>{!item.is_read ? <Badge tone="primary">Новое</Badge> : <Badge tone="neutral">Прочитано</Badge>}</View>
@@ -199,7 +199,7 @@ export default function NotificationsScreen() {
           </Pressable>
           {!offline && !item.is_read ? <Button size="sm" variant="ghost" loading={markingIds.has(item.id)} disabled={markingAll || markingIds.has(item.id)} onPress={() => void markReadOnly(item)}>{markingIds.has(item.id) ? 'Отмечаем…' : 'Отметить прочитанным'}</Button> : null}
         </Card>)}
-        {hasMore ? <Button size="sm" variant="outline" loading={loadingMore} onPress={() => void load(false)}>Загрузить ещё</Button> : null}
+        {hasMore ? <Button size="sm" variant="outline" loading={loadingMore} disabled={loading || loadingMore} onPress={() => void load(false)}>Загрузить ещё</Button> : null}
       </View>}
     </ScrollView>
   </Screen>;

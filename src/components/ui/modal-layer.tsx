@@ -9,7 +9,12 @@ export function ModalLayer({ visible, onClose, busy = false, children, contentSt
   contentStyle?: StyleProp<ViewStyle>; label?: string;
 }) {
   const { colors } = useTheme();
-  return <Modal visible={visible} transparent animationType="fade" onRequestClose={() => { if (!busy) onClose(); }}>
+  // Mount portals in opening order and remove a closing layer atomically.
+  // RN Web retains fading portals for 250 ms, with pointer events disabled,
+  // while its active-modal/focus stack still points at that closing layer.
+  // A second click could then reach a parent or an older portal underneath.
+  if (!visible) return null;
+  return <Modal visible transparent animationType="none" onRequestClose={() => { if (!busy) onClose(); }}>
     <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
       <Pressable style={styles.dismiss} accessibilityRole="button" accessibilityLabel="Закрыть окно" disabled={busy} onPress={onClose} />
       <View accessibilityViewIsModal accessibilityLabel={label} style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }, contentStyle]}>{children}</View>

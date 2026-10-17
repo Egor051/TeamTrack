@@ -9,6 +9,7 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
   const data = async (query) => { const r = await query; if (r.error) throw new Error(JSON.stringify(r.error)); return r.data; };
   await db.query("update private.offline_runtime_config set write_enabled=true,sync_enabled=true,updated_at=now()");
   await db.query("update public.profiles set display_name='Тест дедлайнов' where id=$1", [ids[0]]);
+  await data(owner.rpc('update_task_item', { p_task_item_id: item, p_title: 'Очень длинное название пункта чек-листа для проверки мобильного экрана: ' + 'Согласование подробных требований и результатов работ. '.repeat(5) }));
   const nextTask = await data(owner.rpc('create_task', { p_project_id: project, p_title: 'Горящий этап' }));
   const nextItem = await data(owner.rpc('create_task_item', { p_task_id: nextTask, p_title: 'Горящий чек-лист' }));
   const archivedTask = await data(owner.rpc('create_task', { p_project_id: project, p_title: 'Архивный этап для статистики' }));
@@ -55,7 +56,7 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
       assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y) && point.visible, `Menu entry is covered: ${label}`);
       command('mouse', 'move', String(Math.round(point.x)), String(Math.round(point.y))); command('mouse', 'down'); command('mouse', 'up'); return;
     }
-    const dialogTarget = JSON.parse(command('eval', `(()=>{const root=[...document.querySelectorAll('[role="dialog"]')].at(-1);if(!root)return false;const elements=[...root.querySelectorAll('[role="button"],[role="radio"],[role="link"]')].filter(e=>e.getAttribute('aria-disabled')!=='true');const name=e=>e.getAttribute('aria-label')||e.textContent.trim();const e=elements.find(e=>name(e)===${JSON.stringify(label)})||elements.find(e=>name(e).includes(${JSON.stringify(label)}));if(!e)return false;e.setAttribute('data-fixture-click','current');e.scrollIntoView({block:'center'});return true})()`));
+    const dialogTarget = JSON.parse(command('eval', `(()=>{const root=[...document.querySelectorAll('[role="dialog"]')].at(-1);if(!root)return false;const elements=[...root.querySelectorAll('[role="button"],[role="radio"],[role="link"],[role="checkbox"]')].filter(e=>e.getAttribute('aria-disabled')!=='true');const name=e=>e.getAttribute('aria-label')||e.textContent.trim();const e=elements.find(e=>name(e)===${JSON.stringify(label)})||elements.find(e=>name(e).includes(${JSON.stringify(label)}));if(!e)return false;e.setAttribute('data-fixture-click','current');e.scrollIntoView({block:'center'});return true})()`));
     if (dialogTarget) {
       const point = JSON.parse(command('eval', `(()=>{const e=document.querySelector('[data-fixture-click="current"]');e.removeAttribute('data-fixture-click');const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,visible:e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}})()`));
       assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y) && point.visible, `Active dialog control is covered: ${label}`);
@@ -69,8 +70,32 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
     if (line.includes('menuitem')) command('scrollintoview', target);
     command('click', target);
   };
-  const evaluate = (script) => JSON.parse(command('eval', script));
+  const evaluate = (script) => JSON.parse(command('eval', script.replace(/\r?\n/g, ' ')));
   const noOverflow = () => assert.ok(evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Horizontal overflow');
+  const testStageLayout = async () => {
+    mkdirSync('.expo/deadline-evidence', { recursive: true });
+    for (const width of [320, 390, 768, 1200]) {
+      command('set', 'viewport', String(width), '900'); command('open', `${base}/projects/${project}/tasks/${task}?item=${item}`); await has('Обзор этапа'); await has('Изменить дедлайн'); noOverflow();
+      const layout = evaluate(`(()=>{
+        const leaves=Array.from(document.querySelectorAll('*')).filter(e=>e.childElementCount===0);
+        const heading=leaves.find(e=>e.textContent==='Обзор этапа'); const overview=heading.parentElement.parentElement;
+        const status=document.querySelector('[aria-label^="Статус:"]');
+        const date=leaves.find(e=>e.textContent.startsWith('Дедлайн: '));
+        const badge=Array.from(date.parentElement.querySelectorAll('*')).find(e=>e.childElementCount===0&&e.textContent==='Просрочен дедлайн');
+        const buttons=Array.from(document.querySelectorAll('[role="button"]'));
+        const deadline=buttons.find(e=>e.textContent==='Изменить дедлайн'); const save=buttons.find(e=>e.textContent==='Сохранить прогресс');
+        const input=document.querySelector('input[aria-label="Прогресс, от 1 до 100%"]');
+        return {overview:overview.contains(status)&&overview.textContent.includes('Роль:'),dateRight:date.getBoundingClientRect().right,
+          badgeAbove:!!badge&&badge.getBoundingClientRect().bottom<=date.getBoundingClientRect().top,
+          controlsBelow:deadline.getBoundingClientRect().top>=Math.max(input.getBoundingClientRect().bottom,save.getBoundingClientRect().bottom)};
+      })()`);
+      assert.ok(layout.overview, 'Role/status escaped the stage overview'); assert.ok(layout.badgeAbove, 'Deadline status is not above its date');
+      assert.ok(layout.controlsBelow, 'Deadline controls are not below the progress editor'); assert.ok(layout.dateRight <= width, 'Deadline overflows the screen');
+      evaluate(`Array.from(document.querySelectorAll('[role="heading"]')).find(e=>e.textContent==='Обзор этапа').scrollIntoView({block:'start'})`);
+      command('screenshot', resolve(`.expo/deadline-evidence/stage-${width}.png`));
+    }
+    console.log('PASS stage layout: 320/390/768/1200px, long checklist title, role/status inside overview, status above deadline date, controls below progress');
+  };
   const touchDial = async (points) => {
     const endpoint = command('get', 'cdp-url');
     const ws = new WebSocket(endpoint.replace(/^"|"$/g, ''));
@@ -90,8 +115,10 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
   };
   const testNotifications = async () => {
     command('open', base + '/notifications'); await has('Все проекты');
-    click('Фильтр по проекту'); click('API deadline project');
-    click('Фильтр по этапу'); click('API stage');
+    const beforeDraft = evaluate(`Array.from(document.querySelectorAll('[aria-label*="уведомление:"]'),e=>e.textContent)`);
+    click('Фильтр по проекту'); click('API deadline project'); click('Готово');
+    click('Фильтр по этапу'); click('API stage'); click('Готово');
+    assert.deepEqual(evaluate(`Array.from(document.querySelectorAll('[aria-label*="уведомление:"]'),e=>e.textContent)`), beforeDraft, 'Draft selection changed the list before Apply');
     click('С: начала'); await has('Дата и время не выбраны');
     click(new Date().toLocaleDateString('ru-RU', { dateStyle: 'full' })); await has('Выберите часы');
     for (const label of ['Выберите часы', 'Выберите минуты']) {
@@ -102,13 +129,14 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
     click('Подтвердить'); await has('Все действия');
     click('Фильтр по действию');
     command('screenshot', resolve('.expo/deadline-evidence/action-filter.png'));
-    click('Просрочен дедлайн'); await has('Просрочен дедлайн');
+    click('Просрочен дедлайн'); click('Дедлайн установлен'); click('Готово'); click('Применить'); await has('Просрочен дедлайн');
     click('Отметить прочитанным'); await has('Прочитано');
     await new Promise((resolve) => setTimeout(resolve, 700));
     assert.equal(evaluate(`document.querySelector('[aria-label$="уведомление: Просрочен дедлайн"]')?.getAttribute('aria-label')`), 'Прочитано уведомление: Просрочен дедлайн', 'Acknowledged row flickered back to unread');
-    click('Фильтр по прочтению'); click('Непрочитанные');
+    click('Фильтр по прочтению'); click('Непрочитанные'); click('Готово'); click('Применить');
+    await eventually(() => evaluate(`document.querySelectorAll('[aria-label^="Прочитано уведомление:"]').length`) === 0, 'Applied unread filter');
     assert.equal(evaluate(`document.querySelectorAll('[aria-label^="Прочитано уведомление:"]').length`), 0, 'Read filter admitted a read notice');
-    click('Сбросить фильтры'); await has('Все действия');
+    click('Сбросить фильтры'); await has('Все действия'); click('Применить');
     command('screenshot', resolve('.expo/deadline-evidence/notifications.png')); noOverflow();
   };
   const metadata = () => evaluate(`(async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('tasktrace-local-cache');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});try{return await new Promise((ok,no)=>{const r=db.transaction('entries').objectStore('entries').get('${ids[0]}:bootstrap:metadata');r.onsuccess=()=>ok(r.result?JSON.parse(r.result.data):null);r.onerror=()=>no(r.error)})}finally{db.close()}})()`);
@@ -132,31 +160,45 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
   const testMembers = async () => {
     const memberName = (await db.query('select display_name from public.profiles where id=$1', [ids[1]])).rows[0].display_name || ids[1].slice(0, 8);
     const memberSelector = `[aria-label=${JSON.stringify(`Роль чек-листа для ${memberName}`)}]`;
-    click('Участники и исполнители'); await has('Участники этапа');
+    click('Участники и исполнители'); await has('Доступ к этапу');
+    assert.ok(!body().includes('Добавить участника проекта') && !body().includes('Участники этапа'), 'Stage dialog duplicates project membership');
     assert.equal(evaluate(`document.querySelector('[aria-label="Роль чек-листа для Тест дедлайнов"]')?.getAttribute('aria-disabled')`), 'true', 'Own role selector is enabled');
     command('click', memberSelector); await has('Наследовать:');
-    command('press', 'Escape'); await has('Участники этапа');
+    command('press', 'Escape'); await has('Доступ к этапу');
     assert.equal(evaluate(`document.querySelectorAll('[role="menuitem"]').length`), 0, 'Escape did not dismiss only the child');
     command('click', memberSelector); await has('Наследовать:');
     command('mouse', 'move', '14', '14'); command('mouse', 'down'); command('mouse', 'up');
-    await has('Участники этапа'); assert.equal(evaluate(`document.querySelectorAll('[role="menuitem"]').length`), 0, 'Outside click did not dismiss the child');
+    await has('Доступ к этапу'); assert.equal(evaluate(`document.querySelectorAll('[role="menuitem"]').length`), 0, 'Outside click did not dismiss the child');
+    const rapid = evaluate(`(async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));for(let n=0;n<10;n++){
+      document.querySelector(${JSON.stringify(memberSelector)}).click();await frame();
+      document.dispatchEvent(new KeyboardEvent('keyup',{key:'Escape',bubbles:true}));await frame();
+      if(document.querySelectorAll('[aria-modal="true"]').length!==1)return false;
+    }return true})()`);
+    assert.equal(rapid, true, 'Rapid child dismissal retained a ghost portal or closed its parent');
     evaluate('window.__membersDocument=12345');
     command('click', memberSelector); await has('Наследовать:');
-    click('Чек-лист: Только просмотр'); await has('На этапе: Только просмотр');
+    click('Только просмотр');
+    await eventually(async () => (await db.query('select role_override from public.task_members where task_id=$1 and user_id=$2',[task,ids[1]])).rows[0].role_override === 'viewer', 'stage-only role change');
     assert.equal(evaluate('window.__membersDocument'), 12345, 'Role update reloaded the document');
-    await has('Участники этапа');
+    await has('Доступ к этапу');
     const beforeAssignees = await data(owner.from('task_assignees').select('user_id').eq('task_id', task));
     click('Назначить'); await has('Назначить исполнителя?');
     command('mouse', 'move', '14', '14'); command('mouse', 'down'); command('mouse', 'up');
-    await has('Участники этапа');
+    await has('Доступ к этапу');
     assert.equal((await data(owner.from('task_assignees').select('user_id').eq('task_id', task))).length, beforeAssignees.length, 'Dismissing child confirmed assignment');
     click('Назначить'); await has('Назначить исполнителя?'); click('Назначить');
     await eventually(async () => (await data(owner.from('task_assignees').select('user_id').eq('task_id', task))).length === beforeAssignees.length + 1, 'assignee confirmation');
+    command('fill', 'input[aria-label="Email или ник"]', `${ids[3]}@deadline.test`); click('Добавить в этап');
+    await eventually(async () => (await db.query('select is_direct from public.task_members where task_id=$1 and user_id=$2',[task,ids[3]])).rows[0]?.is_direct === true, 'UI stage-only invite');
+    assert.equal((await db.query('select count(*)::int n from public.project_members where project_id=$1 and user_id=$2',[project,ids[3]])).rows[0].n, 0, 'Stage invite changed project membership');
+    await has('Удалить из этапа'); click('Удалить из этапа'); await has('Удалить прямое участие?'); click('Удалить из этапа');
+    await eventually(async () => !(await db.query('select 1 from public.task_members where task_id=$1 and user_id=$2',[task,ids[3]])).rowCount, 'UI stage-only removal');
     command('screenshot', resolve('.expo/deadline-evidence/members.png'));
     click('Закрыть'); await has('Изменить дедлайн');
   };
   try {
     await eventually(async () => { try { return (await fetch(base)).ok; } catch { return false; } }, 'fixture static server');
+    if (process.argv.includes('--stage-layout-only')) { await testStageLayout(); return; }
     if (process.argv.includes('--archived-only')) {
       command('set', 'viewport', '390', '844'); command('open', `${base}/projects/${project}/tasks/${archivedTask}`); await has('Архивный этап для статистики'); await has('Дедлайн:');
       assert.ok(!body().includes('Приближается дедлайн') && !body().includes('Просрочен дедлайн'), 'Archived stage emitted an active deadline badge');

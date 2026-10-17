@@ -148,8 +148,8 @@ describe('UI architecture regressions', () => {
     expect(history).toContain('useState(false)');
     expect(history).toContain('actionLogExpanded');
     expect(confirm).toContain('ModalLayer');
-    expect(task).toContain('nested');
-    expect(task).toContain('showArchivedItems ? "archived" : "active"');
+    expect(task).toContain('TaskMembersPanel');
+    expect(task).toContain("showArchivedItems ? 'archived' : 'active'");
     expect(dataLayer).toContain("mode === 'archived'");
     expect(dataLayer).toContain("query.eq('is_archived', true)");
   });
@@ -173,7 +173,7 @@ describe('UI architecture regressions', () => {
     const migration = readFileSync(resolve(root, 'supabase/migrations/20260923000000_restrict_member_stage_text_edit.sql'), 'utf8');
     expect(task).toContain('const canEditTask = canManageTask;');
     expect(task).toContain('(effectiveTaskRole === "owner" || effectiveTaskRole === "admin")');
-    expect(task).toContain('setTaskMemberOverride');
+    expect(readFileSync(resolve(root, 'src/features/projects/task-members-panel.tsx'), 'utf8')).toContain('setTaskMemberOverride');
     expect(task).toContain('formatChecklistComment(item.comment)');
     expect(migration).toContain('private.is_project_admin(project_id)');
     expect(migration).toContain("only owner/admin can edit stage details");

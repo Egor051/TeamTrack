@@ -99,6 +99,40 @@ async function legacyReady() {
 }
 
 describe('account bootstrap', () => {
+  it('an older offline snapshot can derive minimal stage context without inventing a new ACL acknowledgement', async () => {
+    await run();
+    const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    await driver.remove(f.user, `task-context:${taskId}`);
+    const freshness = await import('@/lib/local-cache/read-freshness');
+    const cache = await import('@/lib/local-cache/cache');
+    await freshness.invalidateReadModels(f.user, undefined, 'access');
+    await cache.readCachedModel(`task:${taskId}`, async () => f.rows.tasks[0]);
+    await cache.readCachedModel(`project:${projectId}`, async () => f.rows.projects[0]);
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    const projects = await import('@/features/projects/projects');
+    expect(await projects.getTaskProjectContext(taskId)).toMatchObject({ id: projectId, name: 'Active project', role: 'owner' });
+    expect(await driver.get(f.user, `task-context:${taskId}`)).toBeNull();
+    await freshness.invalidateReadModels(f.user, undefined, 'access');
+    await expect(projects.getTaskProjectContext(taskId)).rejects.toThrow();
+  });
+  it('prepares a stage-only account without a project row, exposes its direct stage offline and removes it after revocation', async () => {
+    f.rows.projects = []; f.rows.members = []; f.rows.tasks = f.rows.tasks.filter((row) => (row as { id: string }).id === taskId);
+    f.rows.items = f.rows.items.filter((row) => (row as { task_id: string }).task_id === taskId); f.rows.assignees = [];
+    f.rows.roles = [{ task_id: taskId, role: 'member', project_context: { id: projectId, name: 'Stage parent', status: 'active', role: null },
+      participants: [{ user_id: f.user, display_name: 'Offline user', project_role: null, direct_role: 'member', effective_role: 'member', is_direct: true, set_at: stamp }] }];
+    const b = await run(); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    const projects = await import('@/features/projects/projects');
+    expect(await projects.getTaskProjectContext(taskId)).toMatchObject({ name: 'Stage parent', role: null });
+    expect(await projects.listMyTasks(f.user)).toMatchObject([{ id: taskId, project_name: 'Stage parent' }]);
+    expect(await projects.listTaskParticipants(taskId)).toMatchObject([{ user_id: f.user, is_direct: true }]);
+    expect(await stored(`project:${projectId}`)).toBeNull();
+    expect(await projects.listTaskItems(taskId)).toHaveLength(1);
+    vi.stubGlobal('navigator', { ...navigator, onLine: true }); f.rows.tasks = []; f.rows.roles = []; f.rows.items = [];
+    await again(b); vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    expect(await projects.listMyTasks(f.user)).toEqual([]);
+    await expect(projects.getTask(taskId, projectId)).rejects.toThrow();
+  });
   it('lazy offline upgrade of ready Basic atomically migrates certified pages and sufficient all projections; a repeat writes nothing', async () => {
     const { b, driver } = await legacyReady(); vi.stubGlobal('navigator', { onLine: false, serviceWorker: { ready: Promise.resolve({ active: {} }) } });
     const other = 'other-account'; await driver.put({ user_id: other, key: 'bootstrap:batch:items:keep:0', data: '[]', last_synced_at: stamp, schema_version: 1 });

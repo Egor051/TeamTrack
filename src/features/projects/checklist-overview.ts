@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase/client';
 import { uiRead } from '@/lib/supabase/ui-read';
-import { activeCacheUserId, filterBlockedProjects, filterBlockedTasks, inheritCachedResult, readCachedModel } from '@/lib/local-cache/cache';
+import { activeCacheUserId, filterBlockedTasks, inheritCachedResult, isTaskProjectBlocked, readCachedModel } from '@/lib/local-cache/cache';
 import { applyPendingOperations, listPendingOperations } from '@/lib/local-cache/outbox';
 import type { ChecklistOverviewItem } from './deadlines';
 import { readAccountEpoch } from '@/lib/local-cache/read-freshness';
@@ -9,8 +9,10 @@ import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 export const CHECKLIST_OVERVIEW_KEY = 'checklist-overview';
 export async function filterChecklistOverview(userId: string, rows: ChecklistOverviewItem[]) {
   const tasks = new Set((await filterBlockedTasks(userId, [...new Set(rows.map((i) => i.task_id))].map((id) => ({ id })))).map((i) => i.id));
-  const projects = new Set((await filterBlockedProjects(userId, [...new Set(rows.map((i) => i.project_id))].map((id) => ({ id })))).map((i) => i.id));
-  return rows.filter((i) => tasks.has(i.task_id) && projects.has(i.project_id));
+  const subjects = new Map(rows.map((row) => [row.task_id, row.project_id]));
+  const allowed = new Set((await Promise.all([...subjects].map(async ([taskId, projectId]) =>
+    await isTaskProjectBlocked(userId, taskId, projectId) ? null : taskId))).filter((id): id is string => !!id));
+  return rows.filter((i) => tasks.has(i.task_id) && allowed.has(i.task_id));
 }
 
 export async function overlayChecklistOverview(userId: string, rows: ChecklistOverviewItem[]) {

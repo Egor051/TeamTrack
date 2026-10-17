@@ -4,8 +4,37 @@ import { ModalLayer } from './modal-layer';
 import { radii, spacing } from '@/components/ui/theme';
 import { ThemedText } from '@/components/ui/text';
 import { useTheme } from './theme-provider';
+import { Button } from './button';
 
 export type SelectOption = { value: string; label: string };
+
+export function MultiSelect({ label, value, options, onChange, placeholder, accessibilityLabel }: {
+  label: string; value: string[]; options: SelectOption[]; onChange: (values: string[]) => void;
+  placeholder: string; accessibilityLabel: string;
+}) {
+  const { colors: theme } = useTheme();
+  const [open, setOpen] = useState(false);
+  const summary = value.length ? `Выбрано: ${value.length}` : placeholder;
+  return <View style={styles.container}>
+    <ThemedText type="small">{label}</ThemedText>
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityValue={{ text: summary }}
+      accessibilityState={{ expanded: open }} onPress={() => setOpen(true)}
+      style={[styles.trigger, { borderColor: theme.borderStrong, backgroundColor: theme.surface }]}>
+      <ThemedText style={styles.triggerText} numberOfLines={1}>{summary}</ThemedText><ThemedText type="caption">▾</ThemedText>
+    </Pressable>
+    <ModalLayer visible={open} onClose={() => setOpen(false)} label={label} contentStyle={styles.menu}>
+      <View style={styles.menuHeader}><ThemedText type="h3" style={styles.optionText}>{label}</ThemedText>
+        <Button size="sm" variant="ghost" onPress={() => onChange([])}>Снять все</Button></View>
+      <FlatList data={options} keyExtractor={(option) => option.value} style={styles.list}
+        keyboardShouldPersistTaps="handled" renderItem={({ item: option }) => <Pressable accessibilityRole="checkbox"
+          accessibilityLabel={option.label} accessibilityState={{ checked: value.includes(option.value) }} style={styles.option}
+          onPress={() => onChange(value.includes(option.value) ? value.filter((entry) => entry !== option.value) : [...value, option.value])}>
+          <ThemedText style={styles.optionText}>{option.label}</ThemedText><ThemedText style={{ color: theme.primary }}>{value.includes(option.value) ? '☑' : '☐'}</ThemedText>
+        </Pressable>} />
+      <Button size="sm" onPress={() => setOpen(false)}>Готово</Button>
+    </ModalLayer>
+  </View>;
+}
 
 export function Select({
   label,
