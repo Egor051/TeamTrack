@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EXPO_NO_DOTENV: '1'
+
 concurrency:
   group: tasktrace-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,28 +25,58 @@ jobs:
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-public-anon-key
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+        id: dependencies
       - run: npm run check:db
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm audit --omit=optional
+      - run: npm run test:unit
       - run: npm run build:web
+      # Maps are isolated CI evidence, not part of the deployable dist artifact.
+      - run: npx expo export --platform web --platform android --platform ios --source-maps --output-dir .expo/security-export
       - run: npx expo-doctor
+      - name: Full audit and approved security policy gate
+        if: always() && steps.dependencies.outcome == 'success'
+        run: node scripts/security-policy-gate.mjs --bundles .expo/security-export
+      - name: Preserve raw audit and policy decision
+        if: always() && steps.dependencies.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-policy-${{ github.run_attempt }}
+          path: .expo/security-policy/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
 
   database:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npx --yes supabase@2.116.0 start
-      - run: npm run test:sql
+      - run: npm run test:sql -- --fresh
+      - run: npm run test:sql -- --cron --advisors
+      - run: npm run test:backend:isolated
+      - run: node scripts/run-audit-remediation-tests.mjs
+      - run: npm run test:security
+      - run: node scripts/verify-audit-regressions.mjs
+      - run: npx playwright install --with-deps chromium webkit
+      - run: node scripts/run-security-integrations.mjs scripts/audit-remediation-browser.mjs scripts/template-realtime-browser.mjs
+      - run: node scripts/pwa-mobile-browser-smoke.mjs
       - run: npx --yes supabase@2.116.0 db lint --local
       - run: npx --yes supabase@2.116.0 db advisors --local
+      - name: Stop disposable CI Supabase stack
+        if: always()
+        run: npx --yes supabase@2.116.0 stop --no-backup

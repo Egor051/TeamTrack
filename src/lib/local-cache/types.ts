@@ -1,5 +1,12 @@
 export const LOCAL_CACHE_SCHEMA_VERSION = 1;
 
+// Version 1 template lists may have been silently capped by the old table RPC.
+// Both paged UI reads and the verified account bootstrap produce version 2.
+// Keep the same keys, transactions and ACL fences; unrelated offline data stays usable.
+export function cacheSchemaVersion(key: string): number {
+  return key === 'templates' || key.startsWith('template-items:') ? 2 : LOCAL_CACHE_SCHEMA_VERSION;
+}
+
 export type CacheEntry = {
   user_id: string;
   key: string;
@@ -92,7 +99,8 @@ export interface LocalCacheDriver {
   rebaseConflict(userId: string, conflictId: string, version: number): Promise<void>;
   resolveServerConflict(userId: string, conflictId: string): Promise<void>;
   finishMineConflict(userId: string, conflictId: string): Promise<void>;
-  discardFailedChain(userId: string, taskId: string, itemId: string, projectId: string, serverState: ReconciledItem | null): Promise<void>;
+  discardFailedChain(userId: string, taskId: string, itemId: string, projectId: string, serverState: ReconciledItem | null,
+    expected?: Pick<OfflineOperation, 'operation_id' | 'status'>[]): Promise<void>;
   initializePullCursor(userId: string, cursor: number): Promise<boolean>;
   applyPullPage(userId: string, afterCursor: number, nextCursor: number, changes: PullChange[]): Promise<boolean>;
   reconcileOperation(userId: string, operationId: string, item: ReconciledItem | null, snapshot: ReconciledItem[] | null,

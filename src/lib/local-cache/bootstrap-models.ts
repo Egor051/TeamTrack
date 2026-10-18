@@ -3,13 +3,13 @@ import type { ProjectWithRole, ProjectMember, Task, TaskTemplate, TaskTemplateIt
 import type { Notification } from '@/features/notifications/notifications';
 import type { AccountManifest, Dataset } from './bootstrap-types';
 import type { CacheEntry } from './types';
-import { LOCAL_CACHE_SCHEMA_VERSION } from './types';
+import { cacheSchemaVersion } from './types';
 import { taskAuditEntityIds } from '@/features/projects/task-audit';
 import { progressStatus } from '@/features/projects/deadlines';
 
 export type AccountRows = Partial<Record<Dataset, unknown[]>>;
 export function cacheEntry(userId: string, key: string, data: unknown): CacheEntry {
-  return { user_id: userId, key, data: JSON.stringify(data), last_synced_at: new Date().toISOString(), schema_version: LOCAL_CACHE_SCHEMA_VERSION };
+  return { user_id: userId, key, data: JSON.stringify(data), last_synced_at: new Date().toISOString(), schema_version: cacheSchemaVersion(key) };
 }
 function groupBy<T>(values: T[], key: (value: T) => string | null): Map<string, T[]> {
   const groups = new Map<string, T[]>();

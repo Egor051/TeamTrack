@@ -3,7 +3,7 @@ import { cacheEntry } from './bootstrap-models';
 import { BOOTSTRAP_KEY, requiredDatasets, type BootstrapMetadata } from './bootstrap-types';
 import { BOOTSTRAP_PAGE_SIZE, checksum, contentPageEntry, retainedBootstrapPages, storedPage } from './bootstrap-pages';
 import { freshnessKey, GLOBAL_ACL_KEY, readInvalidation, storedReadInvalidation } from './read-freshness';
-import type { CacheEntry } from './types';
+import { cacheSchemaVersion, type CacheEntry } from './types';
 import type { TaskItem } from '@/lib/supabase/client';
 
 function coveredProjection(all: CacheEntry, stored: Map<string, CacheEntry>): boolean {
@@ -37,7 +37,7 @@ function coveredProjection(all: CacheEntry, stored: Map<string, CacheEntry>): bo
 export async function migrateVerifiedCache(userId: string, signal?: AbortSignal): Promise<'unchanged' | 'committed' | 'superseded'> {
   const driver = signal && localCacheDriver.withOperation ? localCacheDriver.withOperation(signal) : localCacheDriver;
   const entries = await driver.listEntries(userId);
-  const stored = new Map(entries.filter((e) => e.user_id === userId && e.schema_version === 1).map((e) => [e.key, e]));
+  const stored = new Map(entries.filter((e) => e.user_id === userId && e.schema_version === cacheSchemaVersion(e.key)).map((e) => [e.key, e]));
   const metadata = stored.get(BOOTSTRAP_KEY);
   if (!metadata) return 'unchanged';
   const meta = JSON.parse(metadata.data) as BootstrapMetadata;

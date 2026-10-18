@@ -17,8 +17,8 @@ function grants(acl,object){
  return result.join('\n');
 }
 /** Reconstruct the audited application-schema lineage without production data. */
-export async function restoreHostedSecurityFixture(env){
- const hosted=JSON.parse(readFileSync(root+'/supabase/tests/fixtures/hosted_security_baseline_20261016.json','utf8')).snapshot;
+export async function restoreHostedSecurityFixture(env,capturedPath=null){
+ const hosted=JSON.parse(readFileSync(capturedPath||root+'/supabase/tests/fixtures/hosted_security_baseline_20261016.json','utf8')).snapshot;
  const current=(await env.db.query('set search_path=public,extensions;'+readFileSync(root+'/supabase/tests/security_snapshot.sql','utf8'))).at(-1).rows[0].snapshot;
  const statements=['set role postgres; set search_path=public,extensions;'];
  // All captured CREATEs are application public/private functions; no data SQL.
@@ -52,7 +52,18 @@ export async function restoreHostedSecurityFixture(env){
   // Public USAGE is provider-owned; do not remove inherited defaults.
   if(schema.name==='public')statements.push('grant usage on schema public to postgres,anon,authenticated,service_role;');
  }
- statements.push('alter default privileges for role postgres in schema public grant all on tables to anon,authenticated,service_role;',
+ if(capturedPath){
+  // Reconstruct captured effective defaults; do not restore the older fixture's
+  // intentionally broad historical defaults when testing today's deployment.
+  for(const schema of ['public','private'])for(const object of ['tables','sequences','functions']){
+   statements.push('alter default privileges for role postgres in schema '+ident(schema)+' revoke all on '+object+' from public,anon,authenticated,service_role;');
+   const kind={tables:'r',sequences:'S',functions:'f'}[object];
+   const row=hosted.defaults.find(r=>r.owner==='postgres'&&r.schema===schema&&r.kind===kind);
+   if(row?.acl)for(const grant of grants(row.acl,object).split('\n').filter(Boolean))
+    statements.push('alter default privileges for role postgres in schema '+ident(schema)+' '+grant);
+  }
+  statements.push('revoke create on schema public from postgres;');
+ }else statements.push('alter default privileges for role postgres in schema public grant all on tables to anon,authenticated,service_role;',
   'alter default privileges for role postgres in schema public grant all on sequences to anon,authenticated,service_role;',
   'alter default privileges for role postgres in schema public grant execute on functions to anon,authenticated,service_role;');
  env.sql(statements.join('\n'));

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { ThemedText } from '@/components/ui/text';
@@ -45,6 +45,7 @@ export function RealtimeIndicator({ status, compact = false }: { status: Realtim
   const [actionError, setActionError] = useState<{ userId: string; text: string } | null>(null);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [busyUser, setBusyUser] = useState<string | null>(null);
+  const actionRef = useRef<string | null>(null);
   const error = actionError?.userId === userId ? actionError.text : null;
   const busy = Boolean(userId && busyUser === userId);
 
@@ -52,19 +53,22 @@ export function RealtimeIndicator({ status, compact = false }: { status: Realtim
   const canExpand = Boolean(failed || hasReadError || error);
   const expanded = canExpand && expandedUser === userId;
   const retry = async () => {
-    if (!failed || !userId || busy) return;
+    if (!failed || !userId || busy || actionRef.current === userId) return;
+    actionRef.current = userId;
     setBusyUser(userId); setActionError(null);
     try { await retryFailedOperation(userId, failed.operation_id); }
     catch { setActionError({ userId, text: 'Повторить не удалось. Проверьте подключение и доступ к пункту.' }); }
-    finally { setBusyUser((previous) => previous === userId ? null : previous); }
+    finally { if (actionRef.current === userId) actionRef.current = null; setBusyUser((previous) => previous === userId ? null : previous); }
   };
   const discard = () => {
     if (!failed || !userId || busy) return;
     const act = async () => {
+      if (actionRef.current === userId) return;
+      actionRef.current = userId;
       setBusyUser(userId); setActionError(null);
       try { await discardFailedOperation(userId, failed.operation_id); }
-      catch { setActionError({ userId, text: 'Отменить изменение не удалось. Проверьте подключение и доступ к пункту.' }); }
-      finally { setBusyUser((previous) => previous === userId ? null : previous); }
+      catch { setActionError({ userId, text: 'Отменить изменение не удалось. Обновите состояние синхронизации и повторите.' }); }
+      finally { if (actionRef.current === userId) actionRef.current = null; setBusyUser((previous) => previous === userId ? null : previous); }
     };
     if (Platform.OS === 'web') {
       if (window.confirm('Отменить локальное изменение? Несинхронизированное изменение будет удалено с устройства.')) void act();

@@ -79,6 +79,23 @@ async function again(b: typeof import('@/lib/local-cache/bootstrap')) {
   await b.runAccountBootstrap(f.user, true);
 }
 async function run() { const b = await import('@/lib/local-cache/bootstrap'); await again(b); return b; }
+it('B03 upgrade: readiness rejects legacy template models, and verified bootstrap publishes the new format without losing queued edits', async () => {
+  const b = await run();
+  const { localCacheDriver: driver } = await import('@/lib/local-cache/driver');
+  const catalog = (await driver.get(f.user, 'templates'))!;
+  const items = (await driver.get(f.user, `template-items:${templateId}`))!;
+  expect(catalog.schema_version).toBe(2); expect(items.schema_version).toBe(2);
+  expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+  await driver.enqueue({ operation_id:'upgrade-retained',user_id:f.user,project_id:projectId,task_id:taskId,task_item_id:itemId,
+    type:'set_task_item_comment',payload:{comment:'Not lost'},created_at:stamp,status:'pending',expected_version:4 });
+  await driver.put({ ...catalog, schema_version:1 }); await driver.put({ ...items, schema_version:1 });
+  expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(false);
+  await expect((await import('@/lib/local-cache/cache')).getCached(f.user,`items:${taskId}:active`)).resolves.toHaveLength(1);
+  await again(b);
+  expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+  expect((await driver.get(f.user,'templates'))?.schema_version).toBe(2);
+  expect((await driver.listPending(f.user)).map((row) => row.operation_id)).toEqual(['upgrade-retained']);
+});
 async function stored(key: string) { const d = (await import('@/lib/local-cache/driver.web')).localCacheDriver; const e = await d.get(f.user, key); return e ? JSON.parse(e.data) : null; }
 function pages(name?: string) { return f.rpc.mock.calls.filter(([rpc, args]) => rpc === 'get_offline_account_page' && (!name || args.p_dataset === name)); }
 async function legacyReady() {
@@ -434,7 +451,7 @@ describe('account bootstrap', () => {
     expect(await cache.filterBlockedProjects(f.user, [{ id: projectId }])).toEqual([]);
   });
   it('reload during preparation restores durable data without a fictional running operation', async () => {
-    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
     const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!;
     await driver.put({ ...entry, data: JSON.stringify({ ...JSON.parse(entry.data), status: 'running', progress: 94,
       lease: { owner: 'closed-runtime', expires_at: Date.now() + 45_000 } }) });
@@ -471,7 +488,7 @@ describe('account bootstrap', () => {
     expect(await b.getBootstrapMetadata(f.user)).toMatchObject({ basic_ready: false, offline_ready: false });
   });
   it('normalizes a legacy running operation before an expired daily snapshot returns', async () => {
-    const b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
     const entry = (await driver.get(f.user, BOOTSTRAP_KEY))!;
     await driver.put({ ...entry, data: JSON.stringify({ ...JSON.parse(entry.data), status: 'running', progress: 94 }) });
     vi.setSystemTime(Date.now() + 86400000); vi.resetModules();

@@ -40,7 +40,7 @@ async function runNode(script) {
     child.on('exit',(code) => {
       results.push({script,exit_code:code,pass_markers:(stdout.match(/PASS|tests passed|smoke passed/g)||[]).length,elapsed_ms:Date.now()-started,log:logPath});
       writeFileSync(resolve(evidence,'integration-results-'+suffix+'.json'),JSON.stringify(results,null,2));
-      code === 0 ? resolveRun() : reject(new Error(script + ' exited ' + code));
+      if (code === 0) resolveRun(); else reject(new Error(script + ' exited ' + code));
     });
   }); } finally { await new Promise(r=>log.end(r)); }
 }
@@ -139,7 +139,8 @@ try {
   const requested=process.argv.slice(2);
   const scripts=requested.length?requested:[
     'scripts/run-backend-integration-tests.mjs','scripts/run-pkce-integration-tests.mjs',
-    'scripts/run-concurrency-tests.mjs','scripts/run-bootstrap-integration-tests.mjs','scripts/password-auth-integration.mjs','scripts/security-realtime-lifecycle.mjs'
+    'scripts/run-concurrency-tests.mjs','scripts/run-bootstrap-integration-tests.mjs','scripts/password-auth-integration.mjs','scripts/security-realtime-lifecycle.mjs',
+    'scripts/template-realtime-integration.mjs'
   ];
   for(const script of scripts) {
     if(!/^scripts\/[a-z0-9-]+\.mjs$/.test(script))throw Error('An explicit repository test script is required');

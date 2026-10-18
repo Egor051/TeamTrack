@@ -688,6 +688,15 @@ export type Database = {
       get_task_item_sync_cursor: { Args: never; Returns: number }
       get_task_project_context: { Args: { p_task_id: string }; Returns: Json }
       get_task_template: { Args: { p_template_id: string }; Returns: Json }
+      get_task_template_page: {
+        Args: {
+          p_limit?: number
+          p_offset?: number
+          p_revision?: string
+          p_template_id?: string
+        }
+        Returns: Json
+      }
       hard_delete_project: {
         Args: { p_project_id: string }
         Returns: undefined
@@ -860,10 +869,25 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      update_project: {
-        Args: { p_description: string; p_name: string; p_project_id: string }
-        Returns: undefined
-      }
+      update_project:
+        | {
+            Args: {
+              p_description: string
+              p_name: string
+              p_project_id: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_description: string
+              p_expected_description: string
+              p_expected_name: string
+              p_name: string
+              p_project_id: string
+            }
+            Returns: undefined
+          }
       update_task:
         | {
             Args: {
@@ -892,19 +916,46 @@ export type Database = {
         }
         Returns: undefined
       }
-      update_task_template: {
-        Args: { p_description?: string; p_name?: string; p_template_id: string }
-        Returns: undefined
-      }
-      update_task_template_item: {
-        Args: {
-          p_description?: string
-          p_item_id: string
-          p_position?: number
-          p_title?: string
-        }
-        Returns: undefined
-      }
+      update_task_template:
+        | {
+            Args: {
+              p_description?: string
+              p_name?: string
+              p_template_id: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_description: string
+              p_expected_description: string
+              p_expected_name: string
+              p_name: string
+              p_template_id: string
+            }
+            Returns: undefined
+          }
+      update_task_template_item:
+        | {
+            Args: {
+              p_description?: string
+              p_item_id: string
+              p_position?: number
+              p_title?: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_description: string
+              p_expected_description: string
+              p_expected_title: string
+              p_item_id: string
+              p_position?: number
+              p_title: string
+            }
+            Returns: undefined
+          }
     }
     Enums: {
       audit_action:

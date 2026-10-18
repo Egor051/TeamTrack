@@ -1,0 +1,47 @@
+{
+  "policyVersion": 1,
+  "decision": "owner-approved-temporary-risk",
+  "approvalReference": "Explicit project-owner decision, option B, task attachment e19b1a75-e347-4eb5-8e56-b4839d7fb609, 2026-10-18",
+  "expiresAt": "2026-10-25T20:59:00.000Z",
+  "lockSha256": "9759a5d892966c200aef86ee232570df36320259f90a63d4403cfbfa09968129",
+  "packageManifestSha256": "f3e69479867009c65d67700ca9b725db0b6a29d47f632afb140b8ca8dc6f2bc5",
+  "auditGraphSha256": "f63bae014c20184286168ba194c63e8db5f18fe81f5bcd7378ba565e6f9a8f90",
+  "advisories": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "version": "3.0.3",
+      "advisoryUpdatedAt": "2026-10-02T22:36:34Z",
+      "npmSource": 1240992,
+      "range": "<=3.0.3"
+    },
+    {
+      "id": "GHSA-86w9-cpqp-85rv",
+      "package": "node-forge",
+      "version": "1.4.0",
+      "advisoryUpdatedAt": "2026-10-01T21:09:10Z",
+      "npmSource": 1240912,
+      "range": "<=1.4.0"
+    }
+  ],
+  "reviewedFindingPackages": [
+    "@expo/cli",
+    "@expo/code-signing-certificates",
+    "@expo/metro",
+    "@expo/metro-config",
+    "@react-native/community-cli-plugin",
+    "@react-native/metro-config",
+    "@react-native/virtualized-lists",
+    "braces",
+    "expo",
+    "metro",
+    "metro-config",
+    "metro-file-map",
+    "metro-transform-worker",
+    "micromatch",
+    "node-forge",
+    "react-native",
+    "react-native-reanimated",
+    "react-native-worklets"
+  ]
+}

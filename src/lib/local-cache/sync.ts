@@ -17,6 +17,8 @@ import { requestOfflineWork, type SyncResult } from './work-requests';
 import { reconciledKeys } from './reconcile';
 import { denyCacheAccess } from './access-state';
 import { announceReadModelCommit } from './read-model-events';
+import { nextPushOperation } from './failed-chain';
+import { readAccountEpoch } from './read-freshness';
 
 type V2Result = { status: 'applied' | 'conflict'; version: number; item: ReconciledItem };
 type PullPage = { changes: PullChange[]; next_cursor: number; has_more: boolean } | { reset_required: true; retained_after_cursor: number };
@@ -63,6 +65,12 @@ function syncContext(ticket: OperationTicket): SyncContext {
 function syncRead<T>(query: PromiseLike<T> & { abortSignal?: (signal: AbortSignal) => PromiseLike<T> }, ctx?: SyncContext) {
   return boundedOperation((signal) => query.abortSignal?.(signal) ?? query, SYNC_REQUEST_TIMEOUT_MS, ctx?.ticket.signal)
     .then((value) => { ctx?.ticket.assertCurrent(); return value; });
+}
+async function quarantineTask(userId: string, taskId: string, ctx: SyncContext): Promise<void> {
+  if (!await ctx.wait(() => sameUser(userId))) throw new Error('Сеанс изменился.');
+  denyCacheAccess(userId, `blocked-task:${taskId}`);
+  await ctx.storage.put({ user_id: userId, key: `blocked-task:${taskId}`, data: 'true',
+    last_synced_at: new Date().toISOString(), schema_version: 1 });
 }
 export function cancelPendingSync(userId: string): void {
   cancelRuntimeOperation(userId, 'sync'); clearRetry(userId); rerunRequested.delete(userId);
@@ -160,8 +168,7 @@ async function reconcile(client: SupabaseClient<Database>, operation: OfflineOpe
   const access = await syncRead(client.from('tasks').select('id').eq('id', operation.task_id).maybeSingle(), ctx);
   if (access.error) throw access.error;
   if (!access.data) {
-    denyCacheAccess(operation.user_id, `blocked-task:${operation.task_id}`);
-    await ctx.storage.put({ user_id: operation.user_id, key: `blocked-task:${operation.task_id}`, data: 'true', last_synced_at: new Date().toISOString(), schema_version: 1 });
+    await quarantineTask(operation.user_id, operation.task_id, ctx);
     await ctx.storage.reconcileOperation(operation.user_id, operation.operation_id, null, null, guards);
     announceSyncChange(operation.user_id);
     return;
@@ -257,22 +264,22 @@ async function pull(client: SupabaseClient<Database>, userId: string, ctx: SyncC
 async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncContext, allowedConflict?: SyncConflict): Promise<boolean> {
   let completed = 0;
   let total: number | null = null;
-  while (await ctx.wait(() => sameUser(userId))) {
+  pushLoop: while (await ctx.wait(() => sameUser(userId))) {
     if (!allowedConflict && (await ctx.wait(() => unresolvedConflicts(userId))).length) return false;
     const operations = await ctx.wait(() => listPendingOperations(userId));
     total ??= operations.length;
     updateSyncState(userId, { progress: { done: completed, total } }, ctx.ticket);
     const oldest = allowedConflict
       ? operations.find((row) => allowedConflict.operation_ids.includes(row.operation_id))
-      : operations[0];
-    if (!oldest) return true;
+      : nextPushOperation(operations);
+    if (!oldest) return operations.length === 0;
     if (oldest.status === 'failed' || oldest.status === 'conflict') return false;
     updateSyncState(userId, { isSyncing: true }, ctx.ticket);
     if ((oldest.protocol_version && oldest.protocol_version > 2)
       || !['set_task_item_state', 'set_task_item_percentage', 'set_task_item_comment'].includes(oldest.type)) {
       await ctx.storage.markOperation(userId, oldest.operation_id, 'failed', undefined, 'Требуется новая версия приложения.');
       announceSyncChange(userId);
-      return false;
+      continue;
     }
     if (oldest.status === 'synced_unreconciled') {
       try { await reconcile(client, oldest, ctx); completed += 1; } catch { return false; }
@@ -285,7 +292,11 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
       ctx.confirmedAt = Date.now();
     }
     if (!validSyncVersion(oldest.expected_version)) {
-      if (oldest.depends_on_operation_id) return false;
+      if (oldest.depends_on_operation_id) {
+        await ctx.storage.markOperation(userId, oldest.operation_id, 'failed', undefined, 'Не найдена подтверждённая предыдущая операция.');
+        announceSyncChange(userId);
+        continue;
+      }
       const serverState = await fetchServerItem(client, oldest.task_item_id, ctx);
       const chain = operations.filter((row) => row.task_item_id === oldest.task_item_id);
       await ctx.wait(() => recordConflict({ userId, operations: chain, serverState,
@@ -302,14 +313,10 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
             (error as { message?: string }).message ?? 'Server rejected operation');
           if ((error as { code?: string }).code === '42501') {
             const access = await syncRead(client.from('tasks').select('id').eq('id', oldest.task_id).maybeSingle(), ctx);
-            if (!access.error && !access.data && await ctx.wait(() => sameUser(userId))) {
-              denyCacheAccess(userId, `blocked-task:${oldest.task_id}`);
-              await ctx.storage.put({ user_id: userId, key: `blocked-task:${oldest.task_id}`,
-                data: 'true', last_synced_at: new Date().toISOString(), schema_version: 1 });
-            }
+            if ((!access.error && !access.data) || access.error?.code === '42501') await quarantineTask(userId, oldest.task_id, ctx);
           }
           announceSyncChange(userId);
-          return false;
+          continue pushLoop;
         }
         if (!isTransportFailure(error) || attempt === 2) throw error;
         await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
@@ -411,8 +418,7 @@ export function syncPendingOperations(userId: string, manual = false): Promise<S
           || conflicts.length ? 'blocked' : error === 'disabled' ? 'disabled' : 'partial';
         result.error = error === 'config-unavailable' ? 'Не удалось проверить доступность синхронизации.'
           : error === 'auth' ? 'Требуется авторизация.' : null;
-        if (operations.some((row) => row.status === 'pending' || row.status === 'synced_unreconciled')
-          && !operations.some((row) => row.status === 'failed' || row.status === 'conflict')
+        if (nextPushOperation(operations)
           && !(await ctx.wait(() => unresolvedConflicts(userId))).length)
           scheduleRetry(userId, Math.max(Date.now() + 3_000, backoff.get(userId)?.until ?? 0));
       }
@@ -473,67 +479,108 @@ export async function chooseMine(userId: string, conflictId: string): Promise<vo
   void syncPendingOperations(userId).catch(() => undefined);
 }
 
+// Recovery actions share the existing sync serialization and cross-tab lock.
+// Register before the first await so two button presses cannot both start work.
+function queueAction(userId: string, action: (ctx: SyncContext) => Promise<void>): Promise<void> {
+  const previous = inFlight.get(userId);
+  const epoch = getOfflineRuntime(userId).epoch, accountEpoch = readAccountEpoch();
+  const work = Promise.resolve().then(async () => {
+    if (previous) await previous.catch(() => undefined);
+    if (epoch !== getOfflineRuntime(userId).epoch || accountEpoch !== readAccountEpoch() || !await sameUser(userId))
+      throw new Error('Сеанс изменился.');
+    const ticket = startRuntimeOperation(userId, 'sync', 'synchronization', 5 * 60_000);
+    syncTickets.set(userId, ticket);
+    const ctx = syncContext(ticket);
+    const guarded = async () => {
+      ticket.assertCurrent();
+      if (accountEpoch !== readAccountEpoch() || !await ctx.wait(() => sameUser(userId))) throw new Error('Сеанс изменился.');
+      await action(ctx);
+    };
+    try {
+      await boundedOperation(() => typeof navigator !== 'undefined' && navigator.locks?.request
+        ? navigator.locks.request(`tasktrace-sync:${userId}`, { signal: ticket.signal }, guarded) : guarded(), 5 * 60_000, ticket.signal);
+      ticket.finish('partial');
+    } catch (error) { ticket.finish('error', (error as Error)?.message); throw error; }
+    finally { if (syncTickets.get(userId) === ticket) syncTickets.delete(userId); }
+  });
+  const task = work.then((): SyncResult => ({ outcome: 'partial', error: null })).finally(() => {
+    if (inFlight.get(userId) === task) inFlight.delete(userId);
+  });
+  inFlight.set(userId, task);
+  return task.then(() => undefined);
+}
+
 export async function retryFailedOperation(userId: string, operationId: string): Promise<void> {
-  if (!(await runtimeCapabilities(userId, true, { requireServer: true })).sync || !await sameUser(userId))
-    throw new Error('Синхронизация временно отключена.');
-  const existing = inFlight.get(userId);
-  if (existing) await existing;
-  const operations = await listPendingOperations(userId);
-  const failed = operations.find((row) => row.operation_id === operationId && row.status === 'failed');
-  if (!failed) throw new Error('Неудавшееся изменение не найдено.');
-  const client = await clientFor(userId);
-  if (!client) throw new Error('Требуется авторизация.');
-  const access = await client.from('tasks').select('id').eq('id', failed.task_id).maybeSingle();
-  if (access.error) throw access.error;
-  if (!access.data) throw new Error('Доступ к этапу отозван.');
-  const serverState = await fetchServerItem(client, failed.task_item_id);
-  if (!serverState || !validSyncVersion(serverState.sync_version)
-    || serverState.sync_version !== failed.expected_version || serverState.is_archived) {
-    await recordConflict({ userId, operations: operations.filter((row) => row.task_item_id === failed.task_item_id),
-      serverState, serverVersion: serverState?.sync_version ?? null });
+  await queueAction(userId, async (ctx) => {
+    if (!(await ctx.wait(() => runtimeCapabilities(userId, true, { requireServer: true }))).sync || !await ctx.wait(() => sameUser(userId)))
+      throw new Error('Синхронизация временно отключена.');
+    const operations = await ctx.wait(() => listPendingOperations(userId));
+    const failed = operations.find((row) => row.operation_id === operationId && row.status === 'failed');
+    if (!failed) throw new Error('Неудавшееся изменение не найдено.');
+    const client = await clientFor(userId, ctx);
+    if (!client) throw new Error('Требуется авторизация.');
+    const access = await syncRead(client.from('tasks').select('id').eq('id', failed.task_id).maybeSingle(), ctx);
+    if (access.error) throw access.error;
+    if (!access.data) throw new Error('Доступ к этапу отозван.');
+    const serverState = await fetchServerItem(client, failed.task_item_id, ctx);
+    if (!serverState || !validSyncVersion(serverState.sync_version)
+      || serverState.sync_version !== failed.expected_version || serverState.is_archived) {
+      await ctx.wait(() => recordConflict({ userId, operations: operations.filter((row) => row.task_item_id === failed.task_item_id),
+        serverState, serverVersion: serverState?.sync_version ?? null }, ctx.storage));
+      announceSyncChange(userId);
+      return;
+    }
+    if (!await ctx.wait(() => sameUser(userId))) throw new Error('Сеанс изменился.');
+    await ctx.storage.remove(userId, `blocked-task:${failed.task_id}`);
+    await ctx.storage.markOperation(userId, operationId, 'pending');
     announceSyncChange(userId);
-    return;
-  }
-  if (!await sameUser(userId)) throw new Error('Сеанс изменился.');
-  await localCacheDriver.remove(userId, `blocked-task:${failed.task_id}`);
-  await localCacheDriver.markOperation(userId, operationId, 'pending');
-  announceSyncChange(userId);
+  });
+  // A queued cancel may reject because this retry already made the row pending.
+  // Its UI error belongs to that action, not to the authorized replay.
+  while (inFlight.has(userId)) await inFlight.get(userId)!.catch(() => undefined);
   await syncPendingOperations(userId, true);
 }
 
 export async function discardFailedOperation(userId: string, operationId: string): Promise<void> {
-  if (!await sameUser(userId)) throw new Error('Требуется авторизация.');
-  const existing = inFlight.get(userId);
-  if (existing) await existing;
-  const failed = (await listPendingOperations(userId)).find((row) => row.operation_id === operationId && row.status === 'failed');
-  if (!failed) throw new Error('Неудавшееся изменение не найдено.');
-  const locallyBlocked = await getCached<boolean>(userId, `blocked-task:${failed.task_id}`)
-    || await isTaskProjectBlocked(userId, failed.task_id, failed.project_id);
-  const client = await clientFor(userId);
-  let serverState: ReconciledItem | null = null;
-  let useCachedSnapshot = !client;
-  if (client) {
-    try {
-      const access = await client.from('tasks').select('id').eq('id', failed.task_id).maybeSingle();
-      if (access.error) throw access.error;
-      if (!access.data) throw new Error('Доступ к этапу отозван.');
-      serverState = await fetchServerItem(client, failed.task_item_id);
-      if (await sameUser(userId)) {
-        await localCacheDriver.remove(userId, `blocked-task:${failed.task_id}`);
+  await queueAction(userId, async (ctx) => {
+    const operations = await ctx.wait(() => listPendingOperations(userId));
+    const operation = operations.find((row) => row.operation_id === operationId);
+    if (!operation) return; // Repeat cancellation, including after a restart.
+    if (operation.status !== 'failed') throw new Error('Изменение уже отправляется. Обновите состояние синхронизации.');
+    const failed = operation;
+    const chain = operations.filter((row) => row.task_id === failed.task_id && row.task_item_id === failed.task_item_id);
+    const locallyBlocked = await ctx.wait(() => getCached<boolean>(userId, `blocked-task:${failed.task_id}`))
+      || await ctx.wait(() => isTaskProjectBlocked(userId, failed.task_id, failed.project_id));
+    const client = locallyBlocked ? null : await clientFor(userId, ctx);
+    let serverState: ReconciledItem | null = null;
+    let useCachedSnapshot = !client && !locallyBlocked;
+    if (client) {
+      try {
+        const access = await syncRead(client.from('tasks').select('id').eq('id', failed.task_id).maybeSingle(), ctx);
+        if (access.error) throw access.error;
+        if (!access.data) {
+          await quarantineTask(userId, failed.task_id, ctx);
+        } else {
+          serverState = await fetchServerItem(client, failed.task_item_id, ctx);
+        }
+      } catch (error) {
+        if ((error as { code?: string })?.code === '42501') {
+          await quarantineTask(userId, failed.task_id, ctx);
+          serverState = null;
+        } else {
+          if (!isTransportFailure(error)) throw error;
+          useCachedSnapshot = true;
+        }
       }
-    } catch (error) {
-      if (!isTransportFailure(error)) throw error;
-      useCachedSnapshot = true;
     }
-  }
-  if (useCachedSnapshot) {
-    if (locallyBlocked) throw new Error('Доступ к этапу отозван. Локальные данные сохранены для восстановления.');
-    const entry = await localCacheDriver.get(userId, `items:${failed.task_id}:active`);
-    if (!entry) throw new Error('Серверный снимок недоступен. Подключитесь к сети.');
-    serverState = (JSON.parse(entry.data) as ReconciledItem[]).find((row) => row.id === failed.task_item_id) ?? null;
-  }
-  if (!await sameUser(userId)) throw new Error('Сеанс изменился.');
-  await localCacheDriver.discardFailedChain(userId, failed.task_id, failed.task_item_id, failed.project_id, serverState);
-  updateSyncState(userId, { lastErrorKind: 'needs-verification' });
-  announceSyncChange(userId);
+    if (useCachedSnapshot) {
+      const entry = await ctx.storage.get(userId, `items:${failed.task_id}:active`);
+      serverState = entry ? (JSON.parse(entry.data) as ReconciledItem[]).find((row) => row.id === failed.task_item_id) ?? null : null;
+    }
+    if (!await ctx.wait(() => sameUser(userId))) throw new Error('Сеанс изменился.');
+    await ctx.storage.discardFailedChain(userId, failed.task_id, failed.task_item_id, failed.project_id, serverState, chain);
+    updateSyncState(userId, { lastErrorKind: 'needs-verification' });
+    announceSyncChange(userId);
+  });
+  void syncPendingOperations(userId).catch(() => undefined);
 }

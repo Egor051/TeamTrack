@@ -29,6 +29,8 @@ import {
 import { getCurrentUser } from '@/features/auth/auth';
 import { layout, spacing } from '@/components/ui/theme';
 import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
+import { draftChanged, draftConflicts, useTextDraft } from '@/features/projects/use-text-draft';
+import { subscribeMany } from '@/lib/supabase/realtime';
 
 export default function TemplatesScreen() {
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
@@ -37,13 +39,14 @@ export default function TemplatesScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [createName, setCreateName] = useState('');
   const [createDescription, setCreateDescription] = useState('');
-  const [editName, setEditName] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editSnapshot, setEditSnapshot] = useState<{ name: string; description: string } | null>(null);
+  const { draft, begin, accept, change, cancel, rebase } = useTextDraft();
+  const editName = draft?.name ?? '';
+  const editDescription = draft?.description ?? '';
   const [newItem, setNewItem] = useState('');
   const [editingItem, setEditingItem] = useState<string | null>(null);
-  const [editingItemTitle, setEditingItemTitle] = useState('');
-  const [editingItemDescription, setEditingItemDescription] = useState('');
+  const { draft: itemDraft, begin: beginItem, accept: acceptItem, change: changeItem, rebase: rebaseItem } = useTextDraft();
+  const editingItemTitle = itemDraft?.name ?? '';
+  const editingItemDescription = itemDraft?.description ?? '';
   const [templateToDelete, setTemplateToDelete] = useState<TaskTemplate | null>(null);
   const [itemToDelete, setItemToDelete] = useState<TaskTemplateItem | null>(null);
   const [error, setError] = useState('');
@@ -51,13 +54,16 @@ export default function TemplatesScreen() {
   const [loadingItems, setLoadingItems] = useState(false);
   const [busy, setBusy] = useState(false);
   const itemRequestRef = useRef(0);
+  const loadRequestRef = useRef(0);
   const actionRef = useRef(false);
 
   const load = useCallback(async () => {
+    const request = ++loadRequestRef.current;
     setLoading(true);
     setError('');
     try {
       const [{ data }, rows] = await Promise.all([getCurrentUser(), listTaskTemplates()]);
+      if (request !== loadRequestRef.current) return;
       setCurrentUserId(data.user?.id ?? null);
       setTemplates(rows);
       if (expandedId) {
@@ -65,30 +71,40 @@ export default function TemplatesScreen() {
         if (!fresh) {
           setExpandedId(null);
           setExpandedItems([]);
+          cancel();
           return;
         }
-         setEditName(fresh.name);
-         setEditDescription(fresh.description ?? '');
-         setEditSnapshot({ name: fresh.name.trim(), description: (fresh.description ?? '').trim() });
+        accept(fresh);
         const itemRequest = ++itemRequestRef.current;
         setLoadingItems(true);
         try {
           const rows = await listTaskTemplateItems(fresh.id);
-          if (itemRequest === itemRequestRef.current && expandedId === fresh.id) setExpandedItems(rows);
+          if (itemRequest === itemRequestRef.current && expandedId === fresh.id) {
+            setExpandedItems(rows);
+            const edited = rows.find((row) => row.id === editingItem);
+            if (edited) acceptItem({ ...edited, name: edited.title });
+          }
         } finally {
           if (itemRequest === itemRequestRef.current) setLoadingItems(false);
         }
       }
     } catch (e) {
-      setError(userMessage(e, 'Не удалось загрузить шаблоны.'));
+      if (request === loadRequestRef.current) setError(userMessage(e, 'Не удалось загрузить шаблоны.'));
     } finally {
-      setLoading(false);
+      if (request === loadRequestRef.current) setLoading(false);
     }
-  }, [expandedId]);
+  }, [expandedId, editingItem, accept, cancel, acceptItem]);
 
-  const { refreshFromServer } = useReadModelUpdates(load, { view: 'templates' });
+  const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { view: 'templates' });
+  useFocusEffect(useCallback(() => {
+    if (!currentUserId) return;
+    return subscribeMany(['task_templates', 'task_template_items'].map((table) => ({
+      table, options: { templates: true, onEvent: scheduleRefresh,
+        onStatus: (status) => { if (status === 'connected') scheduleRefresh(); } },
+    })));
+  }, [currentUserId, scheduleRefresh]));
   useOnlineRecovery(load);
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => { void load(); return () => { loadRequestRef.current += 1; itemRequestRef.current += 1; }; }, [load]));
 
   async function run(action: () => Promise<unknown>) {
     if (actionRef.current) return;
@@ -100,6 +116,7 @@ export default function TemplatesScreen() {
         await action();
       } catch (e) {
         setError(mutationUserMessage(e, 'Операция не выполнена.'));
+        if ((e as { code?: string })?.code === 'PT409') await refreshFromServer();
         return;
       }
       try {
@@ -115,24 +132,24 @@ export default function TemplatesScreen() {
 
   function toggleTemplate(template: TaskTemplate) {
     if (busy) return;
+    loadRequestRef.current += 1;
     if (expandedId === template.id) {
       itemRequestRef.current += 1;
       setExpandedId(null);
       setExpandedItems([]);
       setEditingItem(null);
+      cancel();
       return;
     }
     setExpandedId(template.id);
     setExpandedItems([]);
-      setEditName(template.name);
-      setEditDescription(template.description ?? '');
-      setEditSnapshot({ name: template.name.trim(), description: (template.description ?? '').trim() });
+    begin(template);
     setEditingItem(null);
     const itemRequest = ++itemRequestRef.current;
     setLoadingItems(true);
     void listTaskTemplateItems(template.id)
       .then((rows) => { if (itemRequest === itemRequestRef.current) setExpandedItems(rows); })
-      .catch((e) => setError(userMessage(e, 'Не удалось загрузить пункты шаблона.')))
+      .catch((e) => { if (itemRequest === itemRequestRef.current) setError(userMessage(e, 'Не удалось загрузить пункты шаблона.')); })
       .finally(() => { if (itemRequest === itemRequestRef.current) setLoadingItems(false); });
   }
 
@@ -165,16 +182,17 @@ export default function TemplatesScreen() {
                     <View style={styles.details}>
                       <View style={styles.row}><ThemedText type="caption" style={styles.flex}>{canEdit ? 'Можно редактировать' : 'Только просмотр'}</ThemedText>{canEdit ? <Button size="sm" variant="destructive" disabled={busy} onPress={() => setTemplateToDelete(template)}>Удалить</Button> : null}</View>
                       {canEdit ? <>
-                        <Input label="Название" value={editName} onChangeText={setEditName} maxLength={200} disabled={busy} />
-                        <Textarea label="Описание" value={editDescription} onChangeText={setEditDescription} maxLength={10000} disabled={busy} />
-                         <Button loading={busy} disabled={busy || !editName.trim() || !editSnapshot || (editName.trim() === editSnapshot.name && editDescription.trim() === editSnapshot.description)} onPress={() => void run(() => updateTaskTemplate(template.id, editName.trim(), editDescription.trim()))}>Сохранить шаблон</Button>
+                        <Input label="Название" value={editName} onChangeText={(name) => change({ name })} maxLength={200} disabled={busy} />
+                        <Textarea label="Описание" value={editDescription} onChangeText={(description) => change({ description })} maxLength={10000} disabled={busy} />
+                        {draftConflicts(draft, template) ? <View><ThemedText>Шаблон изменён. Ваш черновик сохранён. На сервере: «{template.name}», {template.description || 'без описания'}.</ThemedText><Button disabled={busy} onPress={() => rebase(template)}>Продолжить с моим черновиком</Button></View> : null}
+                         <Button loading={busy} disabled={busy || !editName.trim() || !draft || !draftChanged(draft) || draftConflicts(draft, template)} onPress={() => void run(async () => { if (!draft) return; await updateTaskTemplate(template.id, editName.trim(), editDescription.trim(), draft.baseline); begin({ ...template, name: editName.trim(), description: editDescription.trim() }); })}>Сохранить шаблон</Button>
                        </> : null}
-                       {loadingItems ? <LoadingState label="Загружаем пункты..." /> : <View style={styles.list}>{expandedItems.map((item, index) => <View key={item.id} style={styles.item}>
+                       {loadingItems && !expandedItems.length ? <LoadingState label="Загружаем пункты..." /> : <View style={styles.list}>{expandedItems.map((item, index) => <View key={item.id} style={styles.item}>
                          <View style={styles.itemContent}>
-                           {editingItem === item.id ? <View style={styles.editItem}><Input label="Название пункта" value={editingItemTitle} onChangeText={setEditingItemTitle} maxLength={500} disabled={busy} /><Textarea label="Описание пункта" value={editingItemDescription} onChangeText={setEditingItemDescription} maxLength={10000} disabled={busy} /></View> : <View style={styles.flex}><ThemedText>{index + 1}. {item.title}</ThemedText>{item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}</View>}
+                           {editingItem === item.id ? <View style={styles.editItem}><Input label="Название пункта" value={editingItemTitle} onChangeText={(name) => changeItem({ name })} maxLength={500} disabled={busy} /><Textarea label="Описание пункта" value={editingItemDescription} onChangeText={(description) => changeItem({ description })} maxLength={10000} disabled={busy} />{draftConflicts(itemDraft, { ...item, name: item.title }) ? <View><ThemedText>Пункт изменён. На сервере: «{item.title}», {item.description || 'без описания'}.</ThemedText><Button disabled={busy} onPress={() => rebaseItem({ ...item, name: item.title })}>Продолжить с моим черновиком</Button></View> : null}</View> : <View style={styles.flex}><ThemedText>{index + 1}. {item.title}</ThemedText>{item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}</View>}
                          </View>
                          {canEdit ? <View style={styles.itemActions}>
-                           {editingItem === item.id ? <Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim()} onPress={() => void run(async () => { await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription.trim()); setEditingItem(null); })}>Сохранить</Button> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); setEditingItemTitle(item.title); setEditingItemDescription(item.description ?? ''); }}>Изменить</Button>}
+                           {editingItem === item.id ? <><Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim() || !itemDraft || draftConflicts(itemDraft, { ...item, name: item.title })} onPress={() => void run(async () => { if (!itemDraft) return; await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription.trim(), undefined, itemDraft.baseline); setEditingItem(null); })}>Сохранить</Button><Button size="sm" variant="ghost" disabled={busy} onPress={() => setEditingItem(null)}>Отмена</Button></> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); beginItem({ ...item, name: item.title }); }}>Изменить</Button>}
                            <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void run(() => moveTaskTemplateItem(item.id, -1))}>Вверх</Button>
                            <Button size="sm" variant="ghost" disabled={busy || index === expandedItems.length - 1} onPress={() => void run(() => moveTaskTemplateItem(item.id, 1))}>Вниз</Button>
                            <Button size="sm" variant="ghost" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить</Button>

@@ -16,6 +16,7 @@ import { durableReadInvalidation, invalidateRealtimeModels, readAccountEpoch, re
 import { localCacheDriver } from '@/lib/local-cache/driver';
 import { confirmCacheAccess } from '@/lib/local-cache/access-state';
 import { isFutureDeadline, progressStatus } from './deadlines';
+import { readTemplatePages } from './template-pages';
 export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -625,23 +626,36 @@ export async function restoreProject(projectId: string) {
   assertUuid(projectId, 'project id'); return requireSuccess(await mutationRpc('restore_project', { p_project_id: projectId }));
 }
 
-export async function updateProject(projectId: string, name: string, description: string) {
+export async function updateProject(projectId: string, name: string, description: string, expected?: { name: string; description: string }) {
   assertUuid(projectId, 'project id');
-  return requireSuccess(await mutationRpc('update_project', { p_project_id: projectId, p_name: name, p_description: description }));
+  return requireSuccess(await mutationRpc('update_project', { p_project_id: projectId, p_name: name, p_description: description,
+    ...(expected ? { p_expected_name: expected.name, p_expected_description: expected.description } : {}) }));
 }
 
-export async function listTaskTemplates(): Promise<TaskTemplate[]> { return readThroughCache('templates', async () => requireData(await uiRead(supabase.rpc('list_task_templates')))); }
-export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> { assertUuid(templateId, 'template id'); return readThroughCache(`template-items:${templateId}`, async () => { const rows = await requireData(await uiRead(supabase.rpc('list_task_template_items', { p_template_id: templateId }))); return rows.map((row) => ({ ...row, position: row.template_position })); }); }
+export async function listTaskTemplates(): Promise<TaskTemplate[]> {
+  return readThroughCache('templates', () => readTemplatePages<TaskTemplate>((offset, limit, revision) =>
+    uiRead(supabase.rpc('get_task_template_page', { p_offset: offset, p_limit: limit, p_revision: revision ?? undefined }))));
+}
+export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> {
+  assertUuid(templateId, 'template id');
+  return readThroughCache(`template-items:${templateId}`, async () => {
+    const rows = await readTemplatePages<Omit<TaskTemplateItem, 'position'>>((offset, limit, revision) =>
+      uiRead(supabase.rpc('get_task_template_page', { p_template_id: templateId, p_offset: offset, p_limit: limit, p_revision: revision ?? undefined })));
+    return rows.map((row) => ({ ...row, position: row.template_position }));
+  });
+}
 export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return readThroughCache(`template:${templateId}`, async () => requireData(await uiRead(supabase.rpc('get_task_template', { p_template_id: templateId })))); }
 export async function createTaskTemplate(name: string, description?: string) { return requireData(await mutationRpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
-export async function updateTaskTemplate(templateId: string, name: string, description: string) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description })); }
+export async function updateTaskTemplate(templateId: string, name: string, description: string, expected?: { name: string; description: string }) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description,
+  ...(expected ? { p_expected_name: expected.name, p_expected_description: expected.description } : {}) })); }
 /**
  * User-facing deletion keeps the existing soft-delete backend contract: the
  * template is marked archived and immediately disappears from all listings.
  */
 export async function deleteTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('archive_task_template', { p_template_id: templateId })); }
 export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await mutationRpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
-export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number) { assertUuid(itemId, 'template item id'); return requireSuccess(await mutationRpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
+export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number, expected?: { name: string; description: string }) { assertUuid(itemId, 'template item id'); return requireSuccess(await mutationRpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}),
+  ...(expected ? { p_expected_title: expected.name, p_expected_description: expected.description } : {}) })); }
 export async function moveTaskTemplateItem(itemId: string, direction: -1 | 1) {
   assertUuid(itemId, 'template item id');
   return requireSuccess(await mutationRpc('move_task_template_item', { p_item_id: itemId, p_direction: direction }));

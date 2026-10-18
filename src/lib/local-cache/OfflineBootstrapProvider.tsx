@@ -61,7 +61,7 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
     let connected = false;
     const realtime = subscribeMany(['projects', 'project_members', 'profiles', 'tasks', 'task_members', 'task_assignees',
       'task_items', 'audit_log', 'task_templates', 'task_template_items', 'notifications'].map((table) => ({
-      table, options: { userId, onEvent: () => { void coordinator.request('invalidation'); }, onStatus: (status) => {
+      table, options: { ...(table === 'task_templates' || table === 'task_template_items' ? { templates: true as const } : { userId }), onEvent: () => { void coordinator.request('invalidation'); }, onStatus: (status) => {
         if (status === 'connected') { if (!connected) void coordinator.request('freshness'); connected = true; }
         else if (status !== 'connecting') connected = false;
       } },

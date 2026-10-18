@@ -7,7 +7,7 @@ import { newOperationId } from './uuid';
 import { accountReadModels, cacheEntry, type AccountRows } from './bootstrap-models';
 import { BASIC_DATASETS, BOOTSTRAP_KEY, OFFLINE_BOOTSTRAP_VERSION, pageKey, bootstrapProgress,
   initialBootstrap, requiredDatasets, type AccountManifest, type BootstrapMetadata, type Dataset, type OfflineScheme } from './bootstrap-types';
-import type { CacheEntry } from './types';
+import { cacheSchemaVersion, type CacheEntry } from './types';
 import { getUtcPlus3DayStart } from './day';
 import { getOfflineRuntime, startRuntimeOperation, cancelRuntimeOperation, publishBootstrapFacts, subscribeOfflineRuntime, type OperationTicket } from './runtime-state';
 import { requestOfflineWork } from './work-requests';
@@ -225,7 +225,7 @@ async function verifyLocalReadiness(meta: BootstrapMetadata): Promise<Pick<Boots
   const empty = { basic_ready: false, extended_ready: false, offline_ready: false, assets_ready: false };
   if (!meta.manifest && !meta.verified?.basic) return empty;
   const entries = await localCacheDriver.listEntries(meta.user_id);
-  const stored = new Map(entries.filter((e) => e.user_id === meta.user_id && e.schema_version === 1).map((e) => [e.key, e]));
+  const stored = new Map(entries.filter((e) => e.user_id === meta.user_id && e.schema_version === cacheSchemaVersion(e.key)).map((e) => [e.key, e]));
   const check = (scheme: OfflineScheme): boolean => {
     const certificate = meta.verified?.[scheme];
     const manifest = certificate?.manifest ?? (meta[scheme === 'basic' ? 'basic_ready' : 'extended_ready'] ? meta.manifest : null);

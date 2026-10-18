@@ -2,7 +2,7 @@ import { getReadSession } from '@/lib/supabase/session';
 import { usesLocalReads, reportConnectivityFailure, reportConnectivitySuccess, connectivityRequestEpoch } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError, isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 import { localCacheDriver } from './driver';
-import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
+import { cacheSchemaVersion, type CacheEntry } from './types';
 import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from './access-state';
 import { announceReadModelCommit, overviewReadModelChanged } from './read-model-events';
 import { confirmReadFreshness, durableReadInvalidation, freshnessKey, GLOBAL_ACL_KEY, invalidateReadModels, isReadModelKey, readAccountEpoch, READ_FRESHNESS_MS, readConfirmationEntries, readInvalidation, settleReadInvalidations, type DurableReadInvalidation } from './read-freshness';
@@ -102,7 +102,7 @@ export async function getCached<T>(userId: string, key: string): Promise<T | nul
       }
       if (!entry) return null;
     }
-    if (!entry || entry.user_id !== userId || entry.key !== key || entry.schema_version !== LOCAL_CACHE_SCHEMA_VERSION) return null;
+    if (!entry || entry.user_id !== userId || entry.key !== key || entry.schema_version !== cacheSchemaVersion(key)) return null;
     return markCached(JSON.parse(entry.data) as T);
   } catch (error) {
     logCacheError('read', error);
@@ -118,7 +118,7 @@ export async function putCached<T>(userId: string, key: string, value: T): Promi
       key,
       data: JSON.stringify(value),
       last_synced_at: new Date().toISOString(),
-      schema_version: LOCAL_CACHE_SCHEMA_VERSION,
+      schema_version: cacheSchemaVersion(key),
     };
     await localCacheDriver.put(entry);
   } catch (error) {
@@ -132,7 +132,7 @@ async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, ex
     const data = JSON.stringify(value);
     const entry = {
       user_id: userId, key, data,
-      last_synced_at: new Date().toISOString(), schema_version: LOCAL_CACHE_SCHEMA_VERSION,
+      last_synced_at: new Date().toISOString(), schema_version: cacheSchemaVersion(key),
     };
     const prefix = key.slice(0, -3);
     const partitions = partitionGuards ? ['active', 'archived'].map((mode) => ({ ...entry, key: `${prefix}${mode}`,
@@ -149,7 +149,7 @@ async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, ex
       if (projected) current = { ...entry, data: JSON.stringify(projected) };
     }
     if (committed === false || current?.data !== data)
-      return { committed: false, newer: current?.user_id === userId && current.schema_version === LOCAL_CACHE_SCHEMA_VERSION ? JSON.parse(current.data) as T : undefined };
+      return { committed: false, newer: current?.user_id === userId && current.schema_version === cacheSchemaVersion(key) ? JSON.parse(current.data) as T : undefined };
     if (current?.data === data && (/^(projects:|my-tasks:)/.test(key) ? overviewReadModelChanged(expectedData, data) : expectedData !== data))
       announceReadModelCommit(userId, partitionGuards ? [key, ...partitions.map((e) => e.key)] : [key], 'read');
     return { committed: true };

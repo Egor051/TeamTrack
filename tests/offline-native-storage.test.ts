@@ -2,6 +2,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CacheEntry, OfflineOperationInput, SyncConflict } from '@/lib/local-cache/types';
 import { reconciliationContract } from './reconciliation-contract';
+import { failedChainContract } from './failed-chain-contract';
+failedChainContract(async () => (await import('@/lib/local-cache/driver.native')).localCacheDriver);
 
 reconciliationContract(async () => (await import('@/lib/local-cache/driver.native')).localCacheDriver);
 

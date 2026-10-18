@@ -1,6 +1,7 @@
 import { createHmac,randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { PostgrestClient } from '@supabase/postgrest-js';
+import { Buffer } from 'node:buffer';
 import { docker } from './security-test-harness.mjs';
 export async function startSecurityApi(env){
  const secret=randomUUID()+randomUUID(),name='tasktrace-security-api-'+process.pid;
@@ -13,7 +14,7 @@ export async function startSecurityApi(env){
  };
  docker(['run','--rm','-d','--name',name,'--network',network,'-p','127.0.0.1::3000',
   '-e','PGRST_DB_URI=postgresql://supabase_admin:postgres@'+env.container+':5432/'+env.database,
-  '-e','PGRST_DB_SCHEMAS=public','-e','PGRST_DB_ANON_ROLE=anon','-e','PGRST_DB_TX_END=commit',
+  '-e','PGRST_DB_SCHEMAS=public','-e','PGRST_DB_ANON_ROLE=anon','-e','PGRST_DB_TX_END=commit','-e','PGRST_DB_MAX_ROWS=1000',
   '-e','PGRST_JWT_SECRET='+secret,image]);
  const port=Number(docker(['port',name,'3000/tcp']).match(/:(\d+)\s*$/m)?.[1]);
  const url='http://127.0.0.1:'+port;

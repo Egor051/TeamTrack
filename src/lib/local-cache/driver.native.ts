@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationInput, SyncConflict } from './types';
 import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
+import { assertDiscardableChain } from './failed-chain';
 
 const pullKey = 'sync:task-items:cursor';
 type Tx = SQLite.SQLiteDatabase;
@@ -281,13 +282,14 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
     const db = await database();
     await exclusive(db, async (tx) => { await tx.runAsync('DELETE FROM sync_conflicts WHERE conflict_id = ? AND user_id = ?', [conflictId, userId]); });
   },
-  async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
+  async discardFailedChain(userId, taskId, itemId, projectId, serverState, expected) {
     const db = await database();
     await exclusive(db, async (tx) => {
-      const chain = await tx.getAllAsync<{ status: string }>(
-        'SELECT status FROM pending_operations WHERE user_id = ? AND task_id = ? AND task_item_id = ?',
+      const chain = await tx.getAllAsync<OfflineOperation>(
+        'SELECT operation_id, status FROM pending_operations WHERE user_id = ? AND task_id = ? AND task_item_id = ?',
         [userId, taskId, itemId]);
-      if (!chain.some((row) => row.status === 'failed')) throw new Error('Failed operation unavailable');
+      assertDiscardableChain(chain, expected);
+      if (!chain.length) return;
       const before = await readEntries(tx, userId);
       const after = applyPullToEntries(before, [{ cursor: 0, task_id: taskId, task_item_id: itemId,
         change_type: serverState ? 'upsert' : 'delete', item: serverState }], projectId);

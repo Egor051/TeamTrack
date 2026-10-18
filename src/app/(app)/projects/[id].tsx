@@ -44,6 +44,7 @@ import { listChecklistOverview } from '@/features/projects/checklist-overview';
 import { deadlineSummary, groupChecklistOverview, progressStatus, type ChecklistOverviewItem } from '@/features/projects/deadlines';
 import { useDeadlineClock } from '@/features/projects/use-deadline-clock';
 import { russianCount } from '@/lib/russian';
+import { draftConflicts, useTextDraft } from '@/features/projects/use-text-draft';
 const roleLabels: Record<ProjectWithRole["role"], string> = { owner: "Владелец", admin: "Администратор", member: "Участник", viewer: "Наблюдатель" };
 
 export default function ProjectScreen() {
@@ -67,8 +68,10 @@ export default function ProjectScreen() {
   const [confirm, setConfirm] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editDescription, setEditDescription] = useState("");
+  const { draft, begin, accept, change, cancel, rebase } = useTextDraft();
+  const editName = draft?.name ?? '';
+  const editDescription = draft?.description ?? '';
+  const editConflict = draftConflicts(draft, project);
   const requestRef = useRef(0);
   const busyRef = useRef(false);
   const loadedProjectIdRef = useRef<string | null>(null);
@@ -82,7 +85,8 @@ export default function ProjectScreen() {
     setOverview([]);
     setMembersOpen(false);
     setEditing(false);
-  }, [id]);
+    cancel();
+  }, [id, cancel]);
   const load = useCallback(async () => {
     if (!id) return;
     if (isReadAccessPending(`project:${id}`)) { setProject(null); setTasks([]); }
@@ -95,8 +99,7 @@ export default function ProjectScreen() {
       if (request !== requestRef.current) return;
       loadedProjectIdRef.current = id;
       setProject(nextProject);
-      setEditName(nextProject.name);
-      setEditDescription(nextProject.description || "");
+      accept(nextProject);
       if (nextArchived !== archived) setArchived(nextArchived);
       const [nextTasks, nextOverview, nextActiveTasks] = await Promise.all([listTasksWithStats(id, nextArchived), listChecklistOverview(), nextArchived ? listTasksWithStats(id, false) : Promise.resolve(null)]);
       if (request !== requestRef.current) return;
@@ -122,7 +125,7 @@ export default function ProjectScreen() {
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
-  }, [id, archived]);
+  }, [id, archived, accept]);
   const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { projectId: id });
   useOnlineRecovery(load);
   useFocusEffect(
@@ -219,18 +222,20 @@ export default function ProjectScreen() {
   }
   async function hardDelete() { if (busyRef.current) return; setActionError(''); busyRef.current = true; setBusy(true); try { await hardDeleteProject(id!); setHardDeleteConfirm(false); router.replace('/projects' as never); } catch (e) { setActionError(mutationUserMessage(e, 'Не удалось удалить проект навсегда.')); } finally { busyRef.current = false; setBusy(false); } }
   async function save() {
-    if (busyRef.current) return;
+    if (busyRef.current || !draft || editConflict) return;
     const nextName = editName.trim();
     if (!nextName) { setActionError('Введите название проекта.'); return; }
     setActionError("");
     busyRef.current = true;
     setBusy(true);
     try {
-      await updateProject(id!, nextName, editDescription.trim());
-      setEditing(false);
+      await updateProject(id!, nextName, editDescription.trim(), draft.baseline);
+      if (loadedProjectIdRef.current !== id) return;
+      setEditing(false); cancel();
       await load();
     } catch (e) {
       setActionError(mutationUserMessage(e, "Не удалось сохранить проект."));
+      if ((e as { code?: string })?.code === 'PT409') await refreshFromServer();
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -296,24 +301,28 @@ export default function ProjectScreen() {
             <Input
               label="Название проекта"
               value={editName}
-              onChangeText={setEditName}
+              onChangeText={(name) => change({ name })}
               placeholder="Название проекта"
               disabled={busy}
             />
             <Textarea
               label="Описание проекта"
               value={editDescription}
-              onChangeText={setEditDescription}
+              onChangeText={(description) => change({ description })}
               placeholder="Описание проекта"
               disabled={busy}
             />
+            {editConflict ? <View style={styles.feedback}>
+              <ThemedText>Проект изменён другим участником. Ваш черновик сохранён. На сервере: «{project.name}», {project.description || 'без описания'}.</ThemedText>
+              <Button variant="outline" disabled={busy} onPress={() => rebase(project)}>Продолжить с моим черновиком</Button>
+            </View> : null}
             <View style={styles.actions}>
-              <Button onPress={() => void save()} loading={busy} disabled={busy}>
+              <Button onPress={() => void save()} loading={busy} disabled={busy || editConflict}>
                 Сохранить
               </Button>
               <Button
                 variant="ghost"
-                onPress={() => setEditing(false)}
+                onPress={() => { setEditing(false); cancel(); }}
                 disabled={busy}
               >
                 Отмена
@@ -326,7 +335,7 @@ export default function ProjectScreen() {
         project.status === "active" &&
         !editing ? (
           <View style={styles.actions}>
-            <Button variant="outline" disabled={busy} onPress={() => setEditing(true)}>
+            <Button variant="outline" disabled={busy} onPress={() => { begin(project); setEditing(true); }}>
               Редактировать
             </Button>
             <Button variant="destructive" disabled={busy} onPress={() => setConfirm(true)}>

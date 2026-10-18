@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createElement } from 'react';
-import { act, create } from 'react-test-renderer';
 import type { CacheEntry, OfflineOperation, PullChange, SyncConflict } from '@/lib/local-cache/types';
+import { cancelPendingSync, chooseMine, syncPendingOperations, retryFailedOperation, discardFailedOperation } from '@/lib/local-cache/sync';
+import { registerOfflineWork } from '@/lib/local-cache/work-requests';
+import { chooseServer, unresolvedConflicts } from '@/lib/local-cache/conflicts';
+import { invalidateOfflineRuntime } from '@/lib/local-cache/runtime-state';
 
 const state = vi.hoisted(() => ({
   userId: 'user-a', operations: [] as OfflineOperation[], conflicts: [] as SyncConflict[],
@@ -13,7 +15,9 @@ const state = vi.hoisted(() => ({
   bootstrapChange: false, pullRequests: [] as number[],
   configSync: true, configAvailable: true,
   switchAfterSend: false,
-  missingItem: false, noSession: false, removed: [] as string[],
+  missingItem: false, noSession: false, revoked: false, revokeDuringSend: false, removed: [] as string[],
+  taskGate: null as Promise<void> | null, taskReads: 0,
+  taskError: null as null | { code: string; message: string },
   updates: [] as { isSyncing?: boolean }[],
 }));
 
@@ -32,7 +36,10 @@ const builder = (table = 'task_items') => {
     select: () => query, eq: (key: string, value: unknown) => { if (key === 'is_archived') archivedOnly = value as boolean; return query; }, order: () => query,
     range: () => query,
     then: (onFulfilled: (value: Awaited<ReturnType<typeof fetchPage>>) => unknown) => fetchPage().then(onFulfilled),
-    maybeSingle: async () => ({ data: table === 'tasks' ? { id: 'task' } : state.missingItem ? null : { ...state.server }, error: null }),
+    maybeSingle: async () => {
+      if (table === 'tasks') { state.taskReads += 1; if (state.taskGate) await state.taskGate; }
+      return { data: table === 'tasks' ? state.revoked || state.taskError ? null : { id: 'task' } : state.missingItem ? null : { ...state.server }, error: table === 'tasks' ? state.taskError : null };
+    },
   };
   return query;
 };
@@ -55,6 +62,10 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: str
     }
     if (name === 'get_task_item_sync_cursor') return { data: 0, error: null };
     state.calls.push({ name, id: args.p_operation_id!, expected: args.p_expected_version! });
+    if (args.p_task_item_id === 'item' && (state.revoked || state.revokeDuringSend)) {
+      state.revoked = true; state.revokeDuringSend = false;
+      return { data: null, error: { code: '42501', message: 'Access denied' } };
+    }
     if (state.receipts.has(args.p_operation_id!)) return { data: state.receipts.get(args.p_operation_id!), error: null };
     if (args.p_expected_version !== state.server.sync_version)
       return { data: { status: 'conflict', version: state.server.sync_version, item: { ...state.server } }, error: null };
@@ -105,6 +116,7 @@ vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: {
     return true;
   },
   listEntries: async () => state.entries,
+  put: async (entry: CacheEntry) => { state.entries = state.entries.filter((row) => row.key !== entry.key); state.entries.push(entry); },
   putIfUnchanged: async (entry: CacheEntry, oldData: string) => {
     const current = state.entries.find((row) => row.key === entry.key);
     if (current?.data !== oldData) return false;
@@ -164,9 +176,6 @@ vi.mock('@/lib/local-cache/outbox', async (importOriginal) => ({
     .sort((a, b) => a.sequence - b.sequence),
 }));
 
-import { cancelPendingSync, chooseMine, syncPendingOperations, retryFailedOperation, discardFailedOperation } from '@/lib/local-cache/sync';
-import { registerOfflineWork } from '@/lib/local-cache/work-requests';
-import { chooseServer, unresolvedConflicts } from '@/lib/local-cache/conflicts';
 
 function operation(sequence: number, type: OfflineOperation['type'], payload: OfflineOperation['payload']): OfflineOperation {
   return { sequence, operation_id: `operation-${sequence}`, user_id: 'user-a', project_id: 'project', task_id: 'task',
@@ -184,6 +193,8 @@ it.each(['archived', 'deleted'])('AUD-08: an ACKed %s item releases the queue', 
 });
 
 beforeEach(() => {
+  state.revoked = false; state.revokeDuringSend = false;
+  state.taskGate = null; state.taskReads = 0; state.taskError = null;
   state.noSession = false; state.removed = [];
   state.userId = 'user-a'; state.operations = []; state.conflicts = []; state.updates = [];
   state.missingItem = false;
@@ -197,6 +208,51 @@ beforeEach(() => {
 });
 
 describe('Phase 5 offline replay', () => {
+  it('B02: a 42501 from the access read still permits local cancellation and retains quarantine', async () => {
+    state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'retained' }), status: 'failed' }];
+    state.taskError = { code: '42501', message: 'permission denied' };
+    await discardFailedOperation('user-a', 'operation-1');
+    await syncPendingOperations('user-a', true);
+    expect(state.operations).toEqual([]); expect(state.calls).toEqual([]);
+    expect(state.entries.find((entry) => entry.key === 'blocked-task:task')?.data).toBe('true');
+  });
+  it.each([retryFailedOperation, discardFailedOperation])('B02: an account reset fences an in-flight recovery action, including login back to the same user', async (recover) => {
+    state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'retained' }), status: 'failed' }];
+    let release!: () => void;
+    state.taskGate = new Promise((resolve) => { release = resolve; });
+    const pending = recover('user-a', 'operation-1').then(() => null, (error: Error) => error);
+    await vi.waitFor(() => expect(state.taskReads).toBe(1));
+    state.userId = 'user-b'; invalidateOfflineRuntime('user-a'); state.userId = 'user-a';
+    release();
+    expect(await pending).toMatchObject({ name: 'AbortError' });
+    expect(state.operations).toMatchObject([{ operation_id: 'operation-1', status: 'failed' }]);
+    expect(state.calls).toHaveLength(0);
+  });
+  it.each(['before', 'during'])('B02: a 42501 %s send does not block an independent project and can be cancelled without access', async (when) => {
+    state.operations = [operation(1, 'set_task_item_comment', { comment: 'revoked' }),
+      operation(2, 'set_task_item_comment', { comment: 'dependent' }),
+      { ...operation(3, 'set_task_item_comment', { comment: 'independent' }), project_id: 'project-b', task_id: 'task-b',
+        task_item_id: 'other-item', expected_version: 10, depends_on_operation_id: null }];
+    state.revoked = when === 'before'; state.revokeDuringSend = when === 'during';
+    await syncPendingOperations('user-a', true);
+    expect(state.calls.map((call) => call.id)).toEqual(['operation-1', 'operation-3']);
+    expect(state.operations.map((row) => row.operation_id)).toEqual(['operation-1', 'operation-2']);
+    await expect(retryFailedOperation('user-a', 'operation-1')).rejects.toThrow('Доступ');
+    expect(state.calls).toHaveLength(2);
+    await discardFailedOperation('user-a', 'operation-1');
+    await discardFailedOperation('user-a', 'operation-1');
+    await syncPendingOperations('user-a', true);
+    expect(state.operations).toEqual([]);
+    expect(state.entries.find((row) => row.key === 'blocked-task:task')?.data).toBe('true');
+  });
+  it('B02: regrant allows an authorized retry, while concurrent cancellation cannot delete the retried write', async () => {
+    state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'restored' }), status: 'failed' }];
+    const results = await Promise.allSettled([retryFailedOperation('user-a', 'operation-1'), discardFailedOperation('user-a', 'operation-1')]);
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1].status).toBe('rejected');
+    expect(state.sideEffects).toBe(1);
+    expect(state.operations).toEqual([]);
+  });
   it('retrying a stage operation never clears project access quarantine on the strength of a task read', async () => {
     state.operations = [{ ...operation(1, 'set_task_item_percentage', { percentage: 40 }), status: 'failed' }];
     await retryFailedOperation('user-a', 'operation-1');

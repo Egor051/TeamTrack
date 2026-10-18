@@ -14,6 +14,7 @@ type SubscriptionOptions = {
   projectId?: string;
   taskId?: string;
   userId?: string;
+  templates?: true;
   onEvent: (event: RealtimeEvent) => void;
   onStatus?: (status: RealtimeStatus, message?: string) => void;
 };
@@ -41,8 +42,10 @@ function scopeTopic(options: SubscriptionOptions): string | null {
     options.projectId ? `project:${options.projectId}` : null,
     options.taskId ? `task:${options.taskId}` : null,
     options.userId ? `user:${options.userId}` : null,
+    options.templates ? 'templates' : null,
   ].filter((value): value is string => Boolean(value));
   if (scopes.length !== 1) return null;
+  if (scopes[0] === 'templates') return 'templates';
   const id = scopes[0].slice(scopes[0].indexOf(':') + 1);
   return UUID_PATTERN.test(id) ? scopes[0] : null;
 }
@@ -95,7 +98,8 @@ function createSharedChannel(topic: string, userId: string | null): SharedChanne
           const [kind, id] = topic.split(':');
           // Broadcast can miss changes before SUBSCRIBED or while the socket
           // reconnects. Fence fresh cached models before status listeners read.
-          const prefixes = kind === 'user' ? ['projects:', 'my-tasks:', 'checklist-overview', 'notifications:']
+          const prefixes = kind === 'templates' ? ['templates', 'template:', 'template-items:']
+            : kind === 'user' ? ['projects:', 'my-tasks:', 'checklist-overview', 'notifications:']
             : kind === 'project' ? [`project:${id}`, `tasks:${id}`, `task-stats:${id}:`, 'checklist-overview']
             : [`task:${id}`, `task-context:${id}`, `task-participants:${id}`, `items:${id}:`, `assignees:${id}`, `task-role:${id}`, `last-editors:${id}`, `audit:${id}:`, 'checklist-overview'];
           void invalidateReadModels(entry.userId, prefixes, 'refresh').catch((error) => console.warn('[TaskTrace] reconnect invalidation failed', error));
@@ -187,7 +191,9 @@ export function subscribeToPermissionChanges(
 
 export function closeResourceRealtimeChannels() {
   for (const [topic, entry] of [...sharedChannels]) {
-    if (topic.startsWith('user:')) continue;
+    // Global templates have no project/stage membership. Only account cleanup
+    // closes this topic; a membership change must not strand its listeners.
+    if (topic.startsWith('user:') || topic === 'templates') continue;
     sharedChannels.delete(topic);
     entry.listeners.clear();
     void supabase.removeChannel(entry.channel);

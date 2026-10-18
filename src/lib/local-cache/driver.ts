@@ -3,6 +3,7 @@
 import type { LocalCacheDriver, OfflineOperation, SyncConflict } from './types';
 import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
+import { assertDiscardableChain } from './failed-chain';
 
 const pending: OfflineOperation[] = [];
 const entries = new Map<string, import('./types').CacheEntry>();
@@ -94,9 +95,10 @@ export const localCacheDriver: LocalCacheDriver = {
     conflicts.delete(conflictId);
   },
   async finishMineConflict(userId, conflictId) { if (conflicts.get(conflictId)?.user_id === userId) conflicts.delete(conflictId); },
-  async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
+  async discardFailedChain(userId, taskId, itemId, projectId, serverState, expected) {
     const chain = pending.filter((row) => row.user_id === userId && row.task_id === taskId && row.task_item_id === itemId);
-    if (!chain.some((row) => row.status === 'failed')) throw new Error('Failed operation unavailable');
+    assertDiscardableChain(chain, expected);
+    if (!chain.length) return;
     const before = [...entries.values()].filter((entry) => entry.user_id === userId);
     const after = applyPullToEntries(before, [{ cursor: 0, task_id: taskId, task_item_id: itemId,
       change_type: serverState ? 'upsert' : 'delete', item: serverState }], projectId);

@@ -21,7 +21,8 @@ export function securityDatabaseContainers(){
  if(container!==providerContainer&&!/^tasktrace-security-postgres-\d+$/.test(container))throw Error('Only a disposable security Postgres container can override the local database');
  return {container,providerContainer};
 }
-export async function createSecurityDatabase({baselineOnly=false}={}){
+export async function createSecurityDatabase({baselineOnly=false,beforeVersion=null}={}){
+ if(beforeVersion!==null&&!/^\d{14}$/.test(beforeVersion))throw Error('Invalid isolated migration cutoff');
  const {container,providerContainer}=securityDatabaseContainers(),database='teamtrack_audit_'+process.pid;
  const sql=(source,db=database)=>{
   if(db!=='postgres'&&!/^teamtrack_audit_\d+$/.test(db))throw Error('Unsafe database target');
@@ -35,7 +36,7 @@ export async function createSecurityDatabase({baselineOnly=false}={}){
   sql('create database '+database+' owner postgres;','postgres');created=true;
   sql(base);
   sql('grant usage,create on schema public to postgres; create schema extensions authorization postgres; create extension pgcrypto with schema extensions; create publication supabase_realtime; grant usage on schema auth,realtime to authenticated,anon,postgres; grant execute on all functions in schema auth,realtime to authenticated,anon,postgres; grant all on all tables in schema auth,realtime to postgres; grant all on all sequences in schema auth,realtime to postgres;');
-  const migrations=readdirSync(resolve(root,'supabase/migrations')).filter(n=>n.endsWith('.sql')&&(!baselineOnly||n<'20261016191158_')).sort();
+  const migrations=readdirSync(resolve(root,'supabase/migrations')).filter(n=>n.endsWith('.sql')&&(!baselineOnly||n<'20261016191158_')&&(!beforeVersion||n.slice(0,14)<beforeVersion)).sort();
   for(const file of migrations)sql('set role postgres; set search_path=public,extensions;\n'+readFileSync(resolve(root,'supabase/migrations',file),'utf8'));
   bridge=localDbBridge(container);
   const db=connect(bridge.port,database);await db.connect();

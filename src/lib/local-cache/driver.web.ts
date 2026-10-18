@@ -1,6 +1,7 @@
 import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationInput, SyncConflict } from './types';
 import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
+import { assertDiscardableChain } from './failed-chain';
 import { boundedOperation } from '@/lib/connectivity/deadline';
 
 const DB_NAME = 'tasktrace-local-cache';
@@ -328,7 +329,7 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
     const request = store.get(conflictId);
     request.onsuccess = () => { if ((request.result as SyncConflict | undefined)?.user_id === userId) store.delete(conflictId); resolve(); };
   }, CONFLICTS),
-  async discardFailedChain(userId, taskId, itemId, projectId, serverState) {
+  async discardFailedChain(userId, taskId, itemId, projectId, serverState, expected) {
     const db = await openDatabase(parent);
     try {
       await new Promise<void>((resolve, reject) => {
@@ -340,7 +341,8 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
         const chainRequest = outbox.index('by_user_task').getAll([userId, taskId]);
         chainRequest.onsuccess = () => {
           const chain = (chainRequest.result as OfflineOperation[]).filter((row) => row.task_item_id === itemId);
-          if (!chain.some((row) => row.status === 'failed')) { tx.abort(); return; }
+          try { assertDiscardableChain(chain, expected); } catch { tx.abort(); return; }
+          if (!chain.length) return;
           const entriesRequest = cache.getAll();
           entriesRequest.onsuccess = () => {
             try {
