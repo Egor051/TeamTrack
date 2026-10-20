@@ -496,8 +496,8 @@ export default function TaskScreen() {
             {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
             {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : effectiveTaskRole === "viewer" ? "Для чек-листа этого этапа у вас доступ только для просмотра." : hasTaskAccess ? "Прогресс чек-листа сейчас недоступен." : "Нет доступа к этапу."}</ThemedText></View> : null}
             <Card muted>
-              <View style={styles.sectionTitle}><ThemedText type="h2">Обзор этапа</ThemedText><View style={styles.badges}>
-                {effectiveTaskRole ? <Badge tone="primary">Роль: {projectRoleLabels[effectiveTaskRole]}</Badge> : null}
+              <View style={styles.sectionHead}><ThemedText type="h2">Обзор этапа</ThemedText><View style={styles.badges}>
+                {effectiveTaskRole ? <Badge tone="primary">{projectRoleLabels[effectiveTaskRole]}</Badge> : null}
                 <TaskStatus status={progressStatus(progress, task.status === 'archived')} />
                 <DeadlineBadge state={task.status === 'archived' ? 'normal' : deadlineSummary(activeItems, now).state} />
               </View></View>
@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
   },
   compactContent: { padding: spacing.lg, gap: spacing.lg },
   feedback: { gap: spacing.sm },
-  badges: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center" },
+  badges: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center", maxWidth: "100%", minWidth: 0 },
   sectionTitle: { flex: 1, minWidth: 0, gap: spacing.xs },
   checklistHeadCompact: { flexDirection: 'column', alignItems: 'stretch' },
   checklistTitleCompact: { flex: 0 },

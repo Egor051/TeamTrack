@@ -81,11 +81,11 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
         const heading=leaves.find(e=>e.textContent==='Обзор этапа'); const overview=heading.parentElement.parentElement;
         const status=document.querySelector('[aria-label^="Статус:"]');
         const date=leaves.find(e=>e.textContent.startsWith('Дедлайн: '));
-        const badge=Array.from(date.parentElement.querySelectorAll('*')).find(e=>e.childElementCount===0&&e.textContent==='Просрочен дедлайн');
+        const badge=Array.from(date.parentElement.parentElement.querySelectorAll('*')).find(e=>e.childElementCount===0&&e.textContent==='Просрочен дедлайн');
         const buttons=Array.from(document.querySelectorAll('[role="button"]'));
         const deadline=buttons.find(e=>e.textContent==='Изменить дедлайн'); const save=buttons.find(e=>e.textContent==='Сохранить прогресс');
         const input=document.querySelector('input[aria-label="Прогресс, от 1 до 100%"]');
-        return {overview:overview.contains(status)&&overview.textContent.includes('Роль:'),dateRight:date.getBoundingClientRect().right,
+        return {overview:overview.contains(status)&&overview.textContent.includes('Владелец')&&!overview.textContent.includes('Роль:'),dateRight:date.getBoundingClientRect().right,
           badgeAbove:!!badge&&badge.getBoundingClientRect().bottom<=date.getBoundingClientRect().top,
           controlsBelow:deadline.getBoundingClientRect().top>=Math.max(input.getBoundingClientRect().bottom,save.getBoundingClientRect().bottom)};
       })()`);
