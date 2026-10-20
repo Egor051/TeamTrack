@@ -6,6 +6,13 @@ export class ConnectivityUnavailableError extends Error {
   constructor() { super('Network unavailable: Failed to fetch. Данные не сохранены для работы офлайн.'); }
 }
 
+export class ServiceUnavailableError extends Error {
+  constructor(public readonly service: 'auth-service' | 'data-service', public readonly status?: number) {
+    super(service === 'auth-service' ? 'Сервис авторизации недоступен.' : 'Сервер данных недоступен.');
+    this.name = 'ServiceUnavailableError';
+  }
+}
+
 export function isExplicitAccessError(error: unknown): boolean {
   if (error instanceof ResourceAccessDeniedError) return true;
   const value = error as { status?: number; code?: string; message?: string } | null;
@@ -15,6 +22,7 @@ export function isExplicitAccessError(error: unknown): boolean {
 }
 
 export function isTransportFailure(error: unknown): boolean {
+  if (error instanceof ServiceUnavailableError) return true;
   if (isExplicitAccessError(error)) return false;
   const value = error as { status?: number; code?: string; message?: string; name?: string } | null;
   if ((!value?.status || value.status === 0) && value?.code && transportCodes.has(value.code)) return true;

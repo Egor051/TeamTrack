@@ -308,7 +308,8 @@ async function visibilityEntries(userId: string, name: Dataset, rows: unknown[])
 }
 
 async function bootstrap(userId: string, force: boolean, assets: () => Promise<boolean>, signal: AbortSignal, ticket: OperationTicket): Promise<void> {
-  const step = <T,>(work: () => Promise<T>) => boundedOperation(work, BOOTSTRAP_OPERATION_TIMEOUT_MS, signal).catch(localStorageError);
+  const step = <T,>(work: () => Promise<T>) => boundedOperation(work, BOOTSTRAP_OPERATION_TIMEOUT_MS, signal)
+    .then((value) => { ticket.assertCurrent(); ticket.touch(); return value; }).catch(localStorageError);
   if (await step(activeCacheUserId) !== userId) return;
   const entry = await step(() => localCacheDriver.get(userId, BOOTSTRAP_KEY));
   let meta = await step(() => getBootstrapMetadata(userId));
@@ -572,7 +573,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
     }
   } catch (error) {
     if (signal.aborted || await step(activeCacheUserId) !== userId || (cancellations.get(userId) ?? 0) !== cancellation) return;
-    const current = await readMetadata(userId);
+    const current = await boundedOperation(() => readMetadata(userId), BOOTSTRAP_OPERATION_TIMEOUT_MS);
     if (current.lease?.owner !== owner) return;
     if ((error as Error)?.name === 'InvalidSnapshotError') {
       meta.basic_ready = false; meta.extended_ready = false; meta.verified = { basic: null, extended: null };
@@ -597,7 +598,7 @@ async function bootstrap(userId: string, force: boolean, assets: () => Promise<b
     }
     await save([], remove);
   } finally {
-    const current = await readMetadata(userId);
+    const current = await boundedOperation(() => readMetadata(userId), BOOTSTRAP_OPERATION_TIMEOUT_MS);
     if (current.lease?.owner === owner) {
       current.lease = null;
       if (!current.retry && !(current.basic_ready && (current.scheme === 'basic' || current.extended_ready))) {
@@ -619,7 +620,7 @@ export function runAccountBootstrap(userId: string, force = false, assets = prep
   const ticket = startRuntimeOperation(userId, 'preparation', 'preparation', 10 * 60_000);
   ticket.signal.addEventListener('abort', () => controller.abort(), { once: true });
   const generation = cancellations.get(userId) ?? 0;
-  const task = boundedOperation(async (): Promise<RunResult> => {
+  const worker = Promise.resolve().then(async (): Promise<RunResult> => {
     // Share the existing sync lock; confirmed snapshots and pull pages cannot
     // overwrite each other. IndexedDB leases/CAS cover the fallback browsers.
     if (typeof navigator !== 'undefined' && navigator.locks?.request) {
@@ -635,13 +636,18 @@ export function runAccountBootstrap(userId: string, force = false, assets = prep
     }
     await bootstrap(userId, force, assets, controller.signal, ticket);
     return 'settled';
-  }, 10 * 60_000).catch((error): RunResult => {
+  });
+  const task = boundedOperation(() => worker, 10 * 60_000, ticket.signal).catch((error): RunResult => {
     if (ticket.current() && !controller.signal.aborted && (cancellations.get(userId) ?? 0) === generation) {
       ticket.finish('error', error instanceof Error ? error.message : 'Локальное хранилище недоступно.');
       announce(userId);
     }
     return 'settled';
   }).finally(async () => {
+    // Cancellation must await normal lease/lock cleanup, but an adapter that
+    // ignores abort must not keep the shared in-flight entry forever.
+    if (controller.signal.aborted)
+      await boundedOperation(() => worker, BOOTSTRAP_OPERATION_TIMEOUT_MS).catch(() => undefined);
     if (inFlight.get(userId)?.promise === task) inFlight.delete(userId);
     if (!ticket.current()) return;
     try {

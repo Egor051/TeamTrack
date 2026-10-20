@@ -468,7 +468,7 @@ export default function TaskScreen() {
           <LoadingState label="Загружаем этап..." />
         ) : (
           <>
-            {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
+            {offline ? <Card><ThemedText type="small">Показаны сохранённые данные.</ThemedText></Card> : null}
             {loadError ? <Card><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить данные</Button></Card> : null}
             {actionError?.target === "task" ? <ErrorMessage message={actionError.message} type="validation" /> : null}
             {supplementaryError ? <Card><ErrorMessage message={supplementaryError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить дополнительные данные</Button></Card> : null}

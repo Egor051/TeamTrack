@@ -348,7 +348,7 @@ export default function ProjectScreen() {
         project.status === "archived" ? (
           <View style={styles.actions}><Button onPress={() => void restore()} loading={busy} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
         ) : null}
-         {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
+         {offline ? <Card><ThemedText type="small">Показаны сохранённые данные.</ThemedText></Card> : null}
          {loadError && project ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить проект</Button></View> : null}
          {actionError ? <ErrorMessage message={actionError} type="validation" /> : null}
          {project ? (

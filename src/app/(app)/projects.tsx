@@ -165,13 +165,13 @@ export default function ProjectsScreen() {
           <OfflineReadyIndicator compact />
         </View>
         <View style={styles.actionButtons}>
-          <Button size="sm" variant="ghost" loading={loading || refreshing} onPress={() => void refresh()}>Обновить</Button>
+          <Button size="sm" variant="ghost" loading={refreshing} onPress={() => void refresh()}>Обновить</Button>
           <Button onPress={() => router.push('/projects/new' as never)}>Создать проект</Button>
         </View>
       </View>
     </View>
     <SegmentedControl value={view} onChange={setView} accessibilityLabel="Фильтр проектов" options={[{ value: 'active', label: 'Активные' }, { value: 'archived', label: 'Архив' }]} />
-    {offline ? <Card><ThemedText type="small">Нет подключения к сети. Показаны сохранённые данные.</ThemedText></Card> : null}
+    {offline ? <Card><ThemedText type="small">Показаны сохранённые данные.</ThemedText></Card> : null}
     {!archived ? <View style={styles.section}><ThemedText type="h2">Мои этапы</ThemedText>{myTasks.length ? <View style={[styles.grid, wide && styles.gridWide]}>{myTasks.map((task) => {
       const items = grouped.tasks.get(task.id) ?? [];
       return <DeadlineCard state={deadlineSummary(items, now).state} key={task.id} style={wide ? styles.gridCard : undefined} onPress={() => router.push(`/projects/${task.project_id}/tasks/${task.id}` as never)}>

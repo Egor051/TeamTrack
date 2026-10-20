@@ -11,10 +11,10 @@ vi.mock('@/features/auth/auth', async () => {
   } };
 });
 import { readThroughCache, putCached, isCachedResult, isTransportFailure } from '@/lib/local-cache/cache';
-import { getReadSession } from '@/lib/supabase/session';
+import { getReadSession, READ_SESSION_TIMEOUT_MS } from '@/lib/supabase/session';
 import { getConnectivityState, reportConnectivitySuccess, monitorConnectivity, revalidateConnectivity,
   reportConnectivityFailure, CONNECTIVITY_PROBE_INTERVAL_MS } from '@/lib/connectivity/state';
-import { connectivityFetch, AUTH_REVALIDATION_TIMEOUT_MS, AUTH_REQUEST_TIMEOUT_MS } from '@/lib/connectivity/fetch';
+import { connectivityFetch, AUTH_REQUEST_TIMEOUT_MS } from '@/lib/connectivity/fetch';
 import { uiRead } from '@/lib/supabase/ui-read';
 import { PostgrestClient } from '@supabase/postgrest-js';
 import { AbortController as NativeAbortController } from 'abort-controller';
@@ -89,7 +89,7 @@ describe('automatic cache read connectivity', () => {
     expect(next).not.toHaveBeenCalled();
   });
   it('shares one bounded recovery probe, does not probe per read, and restores network reads', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); const probe = vi.fn(async () => undefined); const cleanup = monitorConnectivity(probe);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] }); const probe = vi.fn(async () => undefined); const cleanup = monitorConnectivity(probe);
     try {
       reportConnectivityFailure(new TypeError('Failed to fetch'));
       await Promise.all([readThroughCache('projects:active', vi.fn()), readThroughCache('projects:active', vi.fn())]);
@@ -98,6 +98,7 @@ describe('automatic cache read connectivity', () => {
       expect(probe).toHaveBeenCalledOnce(); expect(getConnectivityState()).toBe('online');
       const online = vi.fn(async () => []); await readThroughCache('projects:active', online); expect(online).toHaveBeenCalledOnce();
       reportConnectivityFailure(new TypeError('Failed to fetch'));
+      await vi.advanceTimersByTimeAsync(1000);
       await Promise.all([revalidateConnectivity(), revalidateConnectivity()]); expect(probe).toHaveBeenCalledTimes(2);
     } finally { cleanup(); }
   });
@@ -117,6 +118,17 @@ describe('automatic cache read connectivity', () => {
     vi.stubGlobal('navigator', { onLine: false }); f.session.mockImplementation(() => new Promise(() => undefined));
     expect((await getReadSession()).data.session?.user.id).toBe('user-a');
     expect(f.session).not.toHaveBeenCalled();
+  });
+  it('a blocked SDK session has a terminal auth error without changing connectivity or saved identity', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    f.session.mockImplementation(() => new Promise(() => undefined));
+    const pending = getReadSession();
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AuthSessionUnavailableError' });
+    await vi.advanceTimersByTimeAsync(READ_SESSION_TIMEOUT_MS); await rejected;
+    expect(getConnectivityState()).toBe('online'); expect(f.user).toBe('user-a');
+    expect(vi.getTimerCount()).toBe(0);
+    f.session.mockResolvedValue({ data: { session: { user: { id: f.user } } }, error: null });
+    expect((await getReadSession()).data.session?.user.id).toBe('user-a');
   });
   it('offline progress derives cached tasks/items/audit without entering a bulk SDK query or refresh', async () => {
     const projectId = '11111111-1111-4111-8111-111111111111';
@@ -192,31 +204,31 @@ describe('automatic cache read connectivity', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
   it('uses a publishable key with a recovered user JWT and does not mistake healthy Auth for healthy Data API', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 200 })).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const fetch = vi.fn().mockResolvedValueOnce(new Response('{"version":"test"}', { status: 200 })).mockRejectedValueOnce(new TypeError('Failed to fetch'));
     vi.stubGlobal('fetch', fetch);
-    const auth = { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 'user-token' } }, error: null }) };
-    const cleanup = monitorConnectivity(() => probeSupabase('https://server.test', 'sb_publishable_test', auth));
+    const stored = vi.fn(async () => ({ access_token: 'user-token' }));
+    const cleanup = monitorConnectivity((signal) => probeSupabase('https://server.test', 'sb_publishable_test', stored, signal));
     try {
       reportConnectivityFailure(new TypeError('Failed to fetch')); await revalidateConnectivity();
       expect(getConnectivityState()).toBe('degraded');
       expect(fetch.mock.calls[1][1].headers.Authorization).toBe('Bearer user-token');
       const online = vi.fn(); await readThroughCache('projects:active', online); expect(online).not.toHaveBeenCalled();
-      fetch.mockResolvedValue(new Response('{}', { status: 200 })); await revalidateConnectivity(); expect(getConnectivityState()).toBe('online');
+      fetch.mockImplementation(async (input) => new Response(String(input).includes('/health') ? '{"version":"test"}' : '[]'));
+      await revalidateConnectivity(true); expect(getConnectivityState()).toBe('online');
     } finally { cleanup(); }
   });
-  it('ends a stalled Auth recovery and closes the exception without opening UI network reads', async () => {
+  it('checks healthy services even when saved session storage never resolves', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
-    const auth = { getSession: vi.fn(() => new Promise<never>(() => undefined)) };
-    const cleanup = monitorConnectivity(() => probeSupabase('https://server.test', 'sb_publishable_test', auth));
+    vi.stubGlobal('fetch', vi.fn(async (input) => new Response(String(input).includes('/health') ? '{"version":"test"}' : '[]')));
+    const stored = vi.fn(() => new Promise<never>(() => undefined));
+    const cleanup = monitorConnectivity((signal) => probeSupabase('https://server.test', 'sb_publishable_test', stored, signal));
     try {
       reportConnectivityFailure(new TypeError('Failed to fetch')); const recovering = revalidateConnectivity();
-      await vi.waitFor(() => expect(auth.getSession).toHaveBeenCalled()); await vi.advanceTimersByTimeAsync(AUTH_REVALIDATION_TIMEOUT_MS); await recovering;
-      expect(getConnectivityState()).toBe('degraded');
-      await expect(connectivityFetch('https://server.test/auth/v1/user')).rejects.toMatchObject({ name: 'AbortError' });
+      await vi.waitFor(() => expect(stored).toHaveBeenCalled()); await vi.advanceTimersByTimeAsync(1000); await recovering;
+      expect(getConnectivityState()).toBe('online');
     } finally { cleanup(); }
   });
-  it('a stalled first refresh through the real SDK releases persisted identity and IndexedDB reads without a network toggle', async () => {
+  it.each(['headers', 'body'] as const)('a stalled first refresh %s through the real SDK releases identity and IndexedDB reads', async (stalled) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     let available = false;
     const stored = new Map<string, string>([['stalled-session', JSON.stringify({ user: { id: 'user-a' },
@@ -224,7 +236,10 @@ describe('automatic cache read connectivity', () => {
     const fetch = vi.fn((input, init) => {
       if (available) return Promise.resolve(new Response(String(input).includes('/token?')
         ? JSON.stringify({ access_token: 'renewed-token', refresh_token: 'rotated-refresh-token', token_type: 'bearer',
-          expires_in: 3600, user: { id: 'user-a' } }) : '[]', { status: 200 }));
+          expires_in: 3600, user: { id: 'user-a' } }) : String(input).includes('/health') ? '{"version":"test"}' : '[]', { status: 200 }));
+      if (stalled === 'body') return Promise.resolve(new Response(new ReadableStream({ start(controller) {
+        init?.signal?.addEventListener('abort', () => controller.error(Object.assign(new Error('Aborted'), { name: 'AbortError' })));
+      } })));
       return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('Aborted'), { name: 'AbortError' })));
       });
@@ -246,7 +261,7 @@ describe('automatic cache read connectivity', () => {
     expect((await sdkRestore).error).not.toBeNull();
     expect(fetch).toHaveBeenCalledOnce();
     available = true;
-    const cleanup = monitorConnectivity(() => probeSupabase('https://server.test', 'publishable', auth));
+    const cleanup = monitorConnectivity((signal) => probeSupabase('https://server.test', 'publishable', async () => JSON.parse(stored.get('stalled-session')!), signal));
     try {
       await vi.advanceTimersByTimeAsync(65_000);
       expect(getConnectivityState()).toBe('online');
@@ -264,7 +279,7 @@ describe('automatic cache read connectivity', () => {
       if (!available) throw new TypeError('Failed to fetch');
       if (String(input).includes('/token?')) return new Response(JSON.stringify({ access_token: 'renewed-token',
         refresh_token: 'rotated-refresh-token', token_type: 'bearer', expires_in: 3600, user: { id: 'user-a' } }), { status: 200 });
-      return new Response('[]', { status: 200 });
+      return new Response(String(input).includes('/health') ? '{"version":"test"}' : '[]', { status: 200 });
     });
     vi.stubGlobal('fetch', fetch);
     const auth = new GoTrueClient({ url: 'https://server.test/auth/v1', storageKey: 'test-session',
@@ -275,10 +290,10 @@ describe('automatic cache read connectivity', () => {
     await vi.waitFor(() => expect(getConnectivityState()).toBe('degraded'));
     await vi.advanceTimersByTimeAsync(30_000); expect((await failedRefresh).error).not.toBeNull();
     available = true;
-    const cleanup = monitorConnectivity(() => probeSupabase('https://server.test', 'publishable', auth));
+    const cleanup = monitorConnectivity((signal) => probeSupabase('https://server.test', 'publishable', async () => JSON.parse(stored.get('test-session')!), signal));
     try {
-      await revalidateConnectivity(); expect(getConnectivityState()).toBe('degraded');
-      expect(await readThroughCache('projects:active', vi.fn())).toEqual([{ id: 'project-a' }]);
+      await revalidateConnectivity(); expect(getConnectivityState()).toBe('online');
+      expect(JSON.parse(stored.get('test-session')!).refresh_token).toBe('saved-refresh-token');
       await vi.advanceTimersByTimeAsync(65_000);
       expect(getConnectivityState()).toBe('online');
       expect((await auth.getSession()).data.session?.access_token).toBe('renewed-token');

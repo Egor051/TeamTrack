@@ -2,12 +2,13 @@ import { activeCacheUserId } from './cache';
 import { localCacheDriver } from './driver';
 import { unresolvedConflicts } from './conflicts';
 import { listPendingOperations } from './outbox';
-import { getNetworkFacts, getOfflineRuntime, publishQueueFacts, publishSyncError, subscribeOfflineRuntime, type OperationTicket } from './runtime-state';
+import { getNetworkFacts, getOfflineRuntime, publishQueueFacts, publishSyncError, subscribeOfflineRuntime, type OperationTicket, type NetworkFacts } from './runtime-state';
 import { boundedOperation } from '@/lib/connectivity/deadline';
 import type { LocalCacheDriver } from './types';
 
 export type SyncState = {
-  connectivity: 'unknown' | 'offline' | 'online';
+  connectivity: 'unknown' | 'offline' | 'degraded' | 'online';
+  networkIssue?: NetworkFacts['issue'];
   isSyncing: boolean;
   pendingCount: number;
   unsyncedCount: number;
@@ -77,8 +78,10 @@ export async function getSyncState(userId: string): Promise<SyncState> {
   const runtime = getOfflineRuntime(userId);
   const network = getNetworkFacts();
   const operation = runtime.operations.sync;
-  const local = { connectivity: network.physical === 'disconnected' || network.backend === 'unavailable' ? 'offline' as const
+  const local = { connectivity: network.physical === 'disconnected' ? 'offline' as const
+    : network.backend === 'unavailable' ? 'degraded' as const
     : network.backend === 'reachable' ? 'online' as const : 'unknown' as const,
+    networkIssue: network.issue,
     isSyncing: operation?.phase === 'running' && operation.visible,
     progress: operation?.phase === 'running' && operation.visible ? operation.progress : null,
     lastErrorKind: runtime.syncError };

@@ -143,7 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const monitoring = monitorConnectivity(() => probeSupabaseConnectivity());
+    const monitoring = monitorConnectivity((signal) => probeSupabaseConnectivity(signal));
     const connectivity = subscribeConnectivity((next) => {
       if (next !== 'online') return;
       void restoreSession().catch(() => undefined);

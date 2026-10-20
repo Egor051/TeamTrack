@@ -17,6 +17,10 @@ export function compactSyncStatus(status: RealtimeStatus, snapshot: SyncState | 
   if (snapshot?.conflictCount) { label = 'конфликт'; tone = 'destructive'; }
   else if (snapshot?.failedCount || readError) { label = 'ошибка'; tone = 'destructive'; }
   else if (snapshot?.connectivity === 'offline') { label = 'офлайн'; tone = 'warning'; }
+  else if (snapshot?.connectivity === 'degraded') {
+    label = snapshot.networkIssue === 'auth-service' ? 'сервис входа недоступен' : 'сервер недоступен'; tone = 'warning';
+  }
+  else if (snapshot?.lastErrorKind === 'auth' || snapshot?.networkIssue === 'authorization') { label = 'требуется авторизация'; tone = 'destructive'; }
   else if (snapshot?.isSyncing) { label = 'в процессе'; tone = 'warning'; }
   else if (count) { label = 'ожидает'; tone = 'warning'; }
   else if (snapshot?.lastErrorKind && snapshot.lastErrorKind !== 'disabled') { label = 'ошибка'; tone = 'destructive'; }
@@ -26,7 +30,7 @@ export function compactSyncStatus(status: RealtimeStatus, snapshot: SyncState | 
   else if (snapshot?.connectivity === 'online') { label = 'подключено'; tone = 'success'; }
   else if (!snapshot && status === 'connected') { label = 'подключение...'; tone = 'warning'; }
   else if (status === 'connecting') { label = 'подключение...'; tone = 'warning'; }
-  else { label = 'подключено'; tone = 'success'; }
+  else { label = 'подключение...'; tone = 'warning'; }
   return { text: `Синхронизация: ${label}${count ? ` · ${count} несинхр.` : ''}`, tone };
 }
 

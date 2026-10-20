@@ -39,6 +39,21 @@ describe('mobile Auth transport during a half-open connection', () => {
     await request;
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('bounds an Auth response body after its headers have already arrived', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream())));
+    const request = connectivityFetch('https://server.test/auth/v1/user');
+    const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS); await rejected;
+    expect(getConnectivityState()).toBe('degraded'); expect(vi.getTimerCount()).toBe(0);
+  });
+  it.each([401, 403])('retains authoritative HTTP %s when its response body stalls', async (status) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream(), { status })));
+    const request = connectivityFetch('https://server.test/auth/v1/user');
+    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS);
+    const response = await request; expect(response.status).toBe(status);
+    expect(await response.json()).toHaveProperty('message'); expect(getConnectivityState()).toBe('online');
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('caller cancellation neither degrades connectivity nor leaves a deadline', async () => {
     const parent = new AbortController();
     let signal: AbortSignal | null | undefined;

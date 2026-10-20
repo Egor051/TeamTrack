@@ -13,7 +13,7 @@ import { createAuthRedirectUrl } from './auth-links';
 import { isTransportFailure } from '@/lib/local-cache/cache';
 import { sendAuthEmail } from './email-cooldown';
 import { getReadSession } from '@/lib/supabase/session';
-import { usesLocalReads, reportConnectivityFailure } from '@/lib/connectivity/state';
+import { usesLocalReads, reportRequestFailure, connectivityRequestEpoch } from '@/lib/connectivity/state';
 
 export type SignUpInput = {
   email: string;
@@ -190,13 +190,14 @@ export async function getVerifiedCurrentUser() {
   }
   // Use the persisted authenticated identity only when transport is unavailable.
   // Server authorization remains RLS/RPC; JWT/access failures never fall back.
+  const epoch = connectivityRequestEpoch();
   try {
     const result = await supabase.auth.getUser();
     if (!result.error || !isTransportFailure(result.error)) return result;
     throw result.error;
   } catch (error) {
     if (!isTransportFailure(error)) throw error;
-    reportConnectivityFailure(error);
+    reportRequestFailure(error, epoch);
     const { data, error: sessionError } = await getReadSession();
     if (sessionError || !data.session?.user || (data.session.expires_at && data.session.expires_at * 1000 <= Date.now())) throw error;
     return { data: { user: data.session.user }, error: null };

@@ -112,7 +112,7 @@ try {
       const offlineApiRequests = apiRequests.length - before;
       assert.equal(offlineApiRequests, 0, 'Offline routes attempted API requests');
       await context.setOffline(false);
-      await until(async () => !(await body()).includes('Нет подключения к сети. Показаны сохранённые данные.'), 'Mounted route did not recover');
+      await until(async () => (await body()).includes('Синхронизация: подключено'), 'Mounted route did not recover');
       assert.equal(page.url(), `${base}/projects`);
       assert.deepEqual(errors, []);
       await page.screenshot({ path: resolve(evidence, `${name}-offline-recovery.png`), fullPage: true });

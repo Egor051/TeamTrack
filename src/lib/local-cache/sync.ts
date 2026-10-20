@@ -49,7 +49,7 @@ function syncContext(ticket: OperationTicket): SyncContext {
   const wait = async <T,>(work: () => PromiseLike<T>): Promise<T> => {
     ticket.assertCurrent();
     const value = await boundedOperation(work, SYNC_REQUEST_TIMEOUT_MS, ticket.signal);
-    ticket.assertCurrent(); return value;
+    ticket.assertCurrent(); ticket.touch(); return value;
   };
   const operationDriver = localCacheDriver.withOperation?.(ticket.signal) ?? localCacheDriver;
   const storage = new Proxy(operationDriver, { get(target, name: keyof LocalCacheDriver) {
@@ -64,7 +64,7 @@ function syncContext(ticket: OperationTicket): SyncContext {
 }
 function syncRead<T>(query: PromiseLike<T> & { abortSignal?: (signal: AbortSignal) => PromiseLike<T> }, ctx?: SyncContext) {
   return boundedOperation((signal) => query.abortSignal?.(signal) ?? query, SYNC_REQUEST_TIMEOUT_MS, ctx?.ticket.signal)
-    .then((value) => { ctx?.ticket.assertCurrent(); return value; });
+    .then((value) => { ctx?.ticket.assertCurrent(); ctx?.ticket.touch(); return value; });
 }
 async function quarantineTask(userId: string, taskId: string, ctx: SyncContext): Promise<void> {
   if (!await ctx.wait(() => sameUser(userId))) throw new Error('Сеанс изменился.');

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createOfflineCoordinator, type CoordinatorDependencies } from '@/lib/local-cache/coordinator';
+import { createOfflineCoordinator, MANUAL_REFRESH_JOIN_TIMEOUT_MS, type CoordinatorDependencies } from '@/lib/local-cache/coordinator';
 import { initialBootstrap, type BootstrapMetadata } from '@/lib/local-cache/bootstrap-types';
-import { getOfflineRuntime } from '@/lib/local-cache/runtime-state';
+import { getOfflineRuntime, startRuntimeOperation } from '@/lib/local-cache/runtime-state';
 import { registerOfflineWork, requestOfflineWork } from '@/lib/local-cache/work-requests';
 
 let meta: BootstrapMetadata;
@@ -26,9 +26,9 @@ beforeEach(() => {
 });
 afterEach(() => { unregister(); coordinator.dispose(); vi.useRealTimers(); });
 describe('manual-refresh command', () => {
-  it('returns completion of the registered command and skips healthy fresh sync/preload/probe', async () => {
+  it('checks connectivity even for a fresh cache without reloading sync/preload', async () => {
     expect(await requestOfflineWork('a', 'manual-refresh')).toMatchObject({ outcome: 'success', sync: null, preparation: 'skipped' });
-    expect(deps.sync).not.toHaveBeenCalled(); expect(deps.prepare).not.toHaveBeenCalled(); expect(deps.probe).not.toHaveBeenCalled();
+    expect(deps.sync).not.toHaveBeenCalled(); expect(deps.prepare).not.toHaveBeenCalled(); expect(deps.probe).toHaveBeenCalledWith(true);
     expect(deps.cancelSync).not.toHaveBeenCalled(); expect(deps.cancelPreparation).not.toHaveBeenCalled();
   });
   it('50 refreshes join a live preparation; successful completion needs no second download', async () => {
@@ -73,6 +73,43 @@ describe('manual-refresh command', () => {
     await coordinator.request('manual-refresh');
     expect(deps.probe).toHaveBeenCalledWith(true); expect(deps.sync).toHaveBeenCalledOnce();
     expect(deps.cancelSync).not.toHaveBeenCalled();
+  });
+  it('checks immediately, releases a stuck worker, and ignores its late completion', async () => {
+    let release!: () => void;
+    needed = true;
+    deps.sync = vi.fn().mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }))
+      .mockImplementation(async () => { needed = false; return { outcome: 'success', error: null }; });
+    const old = coordinator.request('reconnect');
+    await vi.advanceTimersByTimeAsync(0);
+    const refresh = coordinator.request('manual-refresh');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deps.probe).toHaveBeenLastCalledWith(true);
+    await vi.advanceTimersByTimeAsync(MANUAL_REFRESH_JOIN_TIMEOUT_MS);
+    expect((await refresh).outcome).toBe('success');
+    expect(deps.cancelSync).toHaveBeenCalled(); expect(deps.sync).toHaveBeenCalledTimes(2);
+    const current = getOfflineRuntime('a').operations.pipeline;
+    release(); await old;
+    expect(getOfflineRuntime('a').operations.pipeline).toEqual(current);
+  });
+  it('does not wait on an abandoned preflight after account disposal', async () => {
+    deps.probe = vi.fn(() => new Promise<void>(() => undefined));
+    const refresh = coordinator.request('manual-refresh');
+    await vi.advanceTimersByTimeAsync(0); coordinator.dispose();
+    expect((await refresh).outcome).toBe('cancelled'); expect(vi.getTimerCount()).toBe(0);
+  });
+  it('continues joining a healthy long preload while its completed steps make progress', async () => {
+    meta = initialBootstrap('a'); let release!: () => void;
+    const preparing = startRuntimeOperation('a', 'preparation', 'preparation', 180_000);
+    deps.prepare = vi.fn(async () => {
+      await new Promise<void>((resolve) => { release = resolve; }); ready(); preparing.finish('success'); return 'settled' as const;
+    });
+    const automatic = coordinator.request('reconnect'); await vi.advanceTimersByTimeAsync(0);
+    const refresh = coordinator.request('manual-refresh'); await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(MANUAL_REFRESH_JOIN_TIMEOUT_MS - 1); preparing.touch();
+    await vi.advanceTimersByTimeAsync(2);
+    expect(deps.cancelPreparation).not.toHaveBeenCalled();
+    release(); await automatic; expect((await refresh).outcome).toBe('success');
+    expect(deps.prepare).toHaveBeenCalledOnce();
   });
   it('settles offline without sending any changes', async () => {
     local = true; needed = true;

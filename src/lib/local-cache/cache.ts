@@ -1,5 +1,5 @@
 import { getReadSession } from '@/lib/supabase/session';
-import { usesLocalReads, reportConnectivityFailure, reportConnectivitySuccess, connectivityRequestEpoch } from '@/lib/connectivity/state';
+import { usesLocalReads, reportRequestFailure, reportConnectivitySuccess, connectivityRequestEpoch } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError, isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 import { localCacheDriver } from './driver';
 import { cacheSchemaVersion, type CacheEntry } from './types';
@@ -222,8 +222,9 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
       partitionGuards = await Promise.all(keys.map(async (key) => ({ key, data: (await localCacheDriver.get(userId, key))?.data ?? null })));
     }
   }
-  const refresh = async (): Promise<T> => { try {
+  const refresh = async (): Promise<T> => {
     const epoch = connectivityRequestEpoch();
+    try {
     const value = await online();
     reportConnectivitySuccess(epoch);
     if (userId && (await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline)) throw new SupersededReadError('Сеанс изменился во время загрузки.');
@@ -264,7 +265,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     if (error instanceof SupersededReadError) throw error;
     if (userId && (readAccountEpoch() !== accountBaseline || await sessionUserId() !== userId
       || readInvalidation(userId, key).version > invalidation.version)) throw new SupersededReadError('Сеанс или доступ изменился во время загрузки.');
-    reportConnectivityFailure(error);
+    reportRequestFailure(error, epoch);
     if (userId && isExplicitAccessError(error) && await sessionUserId() === userId) {
       // Mark denial before the first await touching fallible persistent storage.
       if ((!options.projectId && !options.taskId) || options.blockResourceOnAccessError === false) denyCacheAccess(userId, `cache:${key}`);

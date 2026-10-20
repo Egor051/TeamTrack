@@ -6,6 +6,7 @@ import { supabaseEnv } from '@/lib/env';
 import type { Database as DatabaseSchema } from '@/types/database.types';
 import { connectivityFetch } from '@/lib/connectivity/fetch';
 import { probeSupabase } from './connectivity-probe';
+import type { ConnectivityProbeResult } from '@/lib/connectivity/state';
 
 /**
  * TaskTrace — centralized Supabase client.
@@ -60,8 +61,8 @@ export async function readPersistedSession(): Promise<Session | null> {
   } catch { return null; }
 }
 
-export async function probeSupabaseConnectivity(): Promise<void> {
-  return probeSupabase(environment.url, environment.anonKey, supabase.auth);
+export async function probeSupabaseConnectivity(signal?: AbortSignal): Promise<ConnectivityProbeResult> {
+  return probeSupabase(environment.url, environment.anonKey, readPersistedSession, signal);
 }
 
 export const supabase: SupabaseClient<DatabaseSchema> = createClient<DatabaseSchema>(

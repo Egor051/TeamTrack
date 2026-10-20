@@ -4,6 +4,7 @@ import { cancelRuntimeOperation, getOfflineRuntime, invalidateOfflineRuntime, st
 import type { OfflineWorkReason, OfflineWorkResult, SyncResult } from './work-requests';
 
 export const OFFLINE_TICK_MS = 20_000;
+export const MANUAL_REFRESH_JOIN_TIMEOUT_MS = 30_000;
 const FOREGROUND_RECHECK_MS = 5 * 60_000;
 
 export type CoordinatorDependencies = {
@@ -26,6 +27,7 @@ export type CoordinatorDependencies = {
 // cross-tab locks/CAS, but never own browser reconnect/foreground listeners.
 export function createOfflineCoordinator(userId: string, deps: CoordinatorDependencies) {
   let disposed = false;
+  const lifetime = new AbortController();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let timerAt = Infinity;
   let running: { ticket: OperationTicket; promise: Promise<OfflineWorkResult> } | null = null;
@@ -59,7 +61,7 @@ export function createOfflineCoordinator(userId: string, deps: CoordinatorDepend
     deps.cancelPreparation(); deps.cancelSync(); running = null;
   };
   const resultFor = (outcome: OfflineWorkResult['outcome']): OfflineWorkResult => ({ outcome, sync: null, preparation: 'skipped', error: null });
-  const run = (reason: OfflineWorkReason): Promise<OfflineWorkResult> => {
+  const run = (reason: OfflineWorkReason, probed = false): Promise<OfflineWorkResult> => {
     if (disposed) return Promise.resolve(resultFor('cancelled'));
     if (running) {
       // Browser event bursts are redundant. Actual data/mutation changes queue
@@ -78,9 +80,10 @@ export function createOfflineCoordinator(userId: string, deps: CoordinatorDepend
     }, { once: true });
     const work = async () => {
       const wait = <T,>(fn: () => PromiseLike<T>, timeout = 45_000) => boundedOperation(fn, timeout, ticket.signal)
-        .then((value) => { ticket.assertCurrent(); return value; });
+        .then((value) => { ticket.assertCurrent(); ticket.touch(); return value; });
       const refresh = reason === 'manual-refresh';
-      if (recovery || (deps.local() && (reason === 'freshness' || refresh))) await wait(() => deps.probe(reason === 'retry' || refresh));
+      if (!probed && (recovery || refresh || (deps.local() && reason === 'freshness')))
+        await wait(() => deps.probe(reason === 'retry' || refresh), 15_000);
       if (deps.local()) {
         if (deps.preloadEnabled) {
           const meta = await wait(deps.metadata);
@@ -195,10 +198,28 @@ export function createOfflineCoordinator(userId: string, deps: CoordinatorDepend
       if (reason === 'manual-refresh') {
         if (manualRefresh) return manualRefresh;
         clearTimer();
-        // Join live work, then re-plan against its committed result. Never
-        // abort healthy sync/preparation just because a user pressed Refresh.
-        const active = running?.promise;
-        const task = (active ? active.then(() => { clearTimer(); queued = null; return run(reason); }) : run(reason)).finally(() => {
+        // Check connectivity before joining any worker: an old probe, SDK
+        // promise or queued lock must not prevent an explicit network check.
+        const task = (async () => {
+          await boundedOperation(() => deps.probe(true), 15_000, lifetime.signal);
+          if (disposed) return resultFor('cancelled');
+          const active = running;
+          while (active && running === active) {
+            try { await boundedOperation(() => active.promise, MANUAL_REFRESH_JOIN_TIMEOUT_MS, lifetime.signal); break; }
+            catch (error) {
+              if (disposed) return resultFor('cancelled');
+              if ((error as Error)?.name !== 'TimeoutError') throw error;
+              // A long Extended preload can be healthy. Cancel only when no
+              // phase/storage/request has completed within the join budget.
+              const activity = Object.values(getOfflineRuntime(userId).operations)
+                .filter((operation) => operation.phase === 'running').map((operation) => operation.lastActivityAt);
+              if (running === active && Date.now() - Math.max(...activity) >= MANUAL_REFRESH_JOIN_TIMEOUT_MS) cancel();
+            }
+          }
+          clearTimer(); queued = null;
+          return run(reason, true);
+        })().catch((error: unknown) => ({ ...resultFor(disposed ? 'cancelled' : 'error'),
+          error: disposed ? null : error instanceof Error ? error.message : 'Не удалось проверить подключение.' })).finally(() => {
           if (manualRefresh === task) manualRefresh = null;
         });
         manualRefresh = task; return task;
@@ -211,6 +232,6 @@ export function createOfflineCoordinator(userId: string, deps: CoordinatorDepend
       return Promise.resolve(resultFor('scheduled'));
     },
     networkLost() { clearTimer(); queued = null; cancel(); schedule('freshness'); },
-    dispose() { disposed = true; clearTimer(); queued = null; cancel(); invalidateOfflineRuntime(userId); },
+    dispose() { disposed = true; lifetime.abort(); clearTimer(); queued = null; cancel(); invalidateOfflineRuntime(userId); },
   };
 }

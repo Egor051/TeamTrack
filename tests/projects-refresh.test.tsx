@@ -47,6 +47,15 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => { renderer?.unmount(); }); unregister(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function mount() { await act(async () => { renderer = create(createElement(ProjectsScreen)); }); }
 describe('/projects Refresh', () => {
+  it('keeps Refresh usable during a stalled initial read and fences the old response', async () => {
+    let release!: (value: unknown) => void;
+    f.projects.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; })).mockResolvedValue(rows('Recovered'));
+    await mount(); expect(button().props.loading).toBe(false);
+    await act(async () => { await button().props.onPress(); });
+    expect(f.work).toHaveBeenCalledWith('manual-refresh'); expect(body()).toContain('Recovered');
+    await act(async () => { release(rows('Late initial')); });
+    expect(body()).not.toContain('Late initial'); expect(button().props.loading).toBe(false);
+  });
   it('uses manual-refresh, coalesces repeated presses and leaves the displayed data usable', async () => {
     await mount(); let release!: () => void;
     f.work.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));

@@ -182,6 +182,10 @@ describe('compact sync status and non-blocking failed actions', () => {
   it.each([
     [{ connectivity: 'offline', unsyncedCount: 3, pendingCount: 3 }, 'Синхронизация: офлайн · 3 несинхр.', 'warning'],
     [{ connectivity: 'offline' }, 'Синхронизация: офлайн', 'warning'],
+    [{ connectivity: 'degraded', networkIssue: 'data-service' }, 'Синхронизация: сервер недоступен', 'warning'],
+    [{ connectivity: 'degraded', networkIssue: 'auth-service' }, 'Синхронизация: сервис входа недоступен', 'warning'],
+    [{ lastErrorKind: 'auth' }, 'Синхронизация: требуется авторизация', 'destructive'],
+    [{ networkIssue: 'authorization' }, 'Синхронизация: требуется авторизация', 'destructive'],
     [{ isSyncing: true }, 'Синхронизация: в процессе', 'warning'],
     [{ isSyncing: true, unsyncedCount: 3 }, 'Синхронизация: в процессе · 3 несинхр.', 'warning'],
     [{ unsyncedCount: 3, pendingCount: 3 }, 'Синхронизация: ожидает · 3 несинхр.', 'warning'],
@@ -209,6 +213,7 @@ describe('compact sync status and non-blocking failed actions', () => {
     expect(compactSyncStatus('connected', { ...clean, unsyncedCount: 1 }).text).toBe('Синхронизация: ожидает · 1 несинхр.');
     expect(compactSyncStatus('connecting', clean).text).toBe('Синхронизация: подключено');
     expect(compactSyncStatus('connected', null)).toEqual({ text: 'Синхронизация: подключение...', tone: 'warning' });
+    expect(compactSyncStatus('disconnected', null).tone).toBe('warning');
   });
   it('exposes retry/discard only in an expandable inline section and calls the existing actions', async () => {
     mocks.snapshot.mockResolvedValue({ ...clean, failedCount: 1, unsyncedCount: 1 }); mocks.operations.mockResolvedValue([failed]);

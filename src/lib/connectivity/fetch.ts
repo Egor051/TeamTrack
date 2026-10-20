@@ -1,5 +1,5 @@
 import { ConnectivityUnavailableError, isTransportFailure } from './errors';
-import { browserIsOffline, reportConnectivityFailure, reportConnectivitySuccess, usesLocalReads, connectivityRequestEpoch } from './state';
+import { reportRequestFailure, reportConnectivitySuccess, usesLocalReads, connectivityRequestEpoch } from './state';
 import { boundedOperation } from './deadline';
 let authRevalidations = 0;
 export const AUTH_REQUEST_TIMEOUT_MS = 5000;
@@ -18,6 +18,25 @@ export async function revalidateAuthTransport<T>(restore: () => Promise<T>): Pro
 function aborted(message: string): Error {
   const error = new Error(message); error.name = 'AbortError'; return error;
 }
+async function fetchAuth(input: RequestInfo | URL, init: RequestInit | undefined, parent?: AbortSignal): Promise<Response> {
+  let received: Response | undefined;
+  try {
+    return await boundedOperation(async (signal) => {
+      const response = await fetch(input, { ...init, signal }); received = response;
+      // Auth parses JSON after fetch resolves. Keep its body in the deadline,
+      // otherwise refreshingDeferred can remain stuck after headers arrive.
+      await response.clone().arrayBuffer();
+      return response;
+    }, AUTH_REQUEST_TIMEOUT_MS, parent);
+  } catch (error) {
+    if (!parent?.aborted && received && [401, 403].includes(received.status)) {
+      // Preserve an actual server denial even if its body never completes.
+      return new Response(JSON.stringify({ message: received.status === 401 ? 'Unauthorized' : 'Forbidden' }),
+        { status: received.status, headers: { 'Content-Type': 'application/json' } });
+    }
+    throw error;
+  }
+}
 
 // Shared safety net for auxiliary/unsupported queries and SDK retries. Cache
 // reads bypass the SDK earlier, so they never reach this function offline.
@@ -34,25 +53,24 @@ export const connectivityFetch: typeof fetch = async (input, init) => {
     && new URL(url).searchParams.get('grant_type') === 'refresh_token';
   const boundedAuth = authRecovery || authRefresh || (authRequest && method === 'GET');
   const epoch = connectivityRequestEpoch();
-  if (usesLocalReads() && (!authRecovery || browserIsOffline())) throw aborted(new ConnectivityUnavailableError().message);
+  if (usesLocalReads() && !authRecovery) throw aborted(new ConnectivityUnavailableError().message);
   try {
     const response = boundedAuth
-      ? await boundedOperation((signal) => fetch(input, { ...init, signal }), AUTH_REQUEST_TIMEOUT_MS,
-        init?.signal ?? request?.signal)
+      ? await fetchAuth(input, init, init?.signal ?? request?.signal)
       : await fetch(input, init);
-    if (init?.signal?.aborted) throw aborted('Operation cancelled');
-    if (response.ok && !authRecovery) reportConnectivitySuccess(epoch);
+    if (init?.signal?.aborted || request?.signal.aborted) throw aborted('Operation cancelled');
+    if (response.ok && !authRecovery && /\/rest\/v1\//.test(url)) reportConnectivitySuccess(epoch);
     else if ([502, 503, 504].includes(response.status)) {
       let error: { status: number; code?: string; message?: string } = { status: response.status };
       try {
-        const body = await response.clone().json();
+        const body = await boundedOperation(() => response.clone().json(), 1000, init?.signal ?? request?.signal);
         error = { status: response.status, code: body?.code, message: body?.message };
       } catch { /* gateway HTML/empty response is still an availability failure */ }
-      reportConnectivityFailure(error);
+      if (!init?.signal?.aborted && !request?.signal.aborted) reportRequestFailure(error, epoch);
     }
     return response;
   } catch (error) {
-    reportConnectivityFailure(error);
+    if (!init?.signal?.aborted && !request?.signal.aborted) reportRequestFailure(error, epoch);
     // PostgREST retries TypeError GET failures (1s+2s+4s) by default. Once the
     // shared state is degraded, retrying that read cannot reach the server.
     if (isTransportFailure(error)) throw aborted((error as Error).message);

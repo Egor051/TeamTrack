@@ -5,6 +5,7 @@ import type { BootstrapMetadata } from './bootstrap-types';
 export type NetworkFacts = {
   physical: 'unknown' | 'connected' | 'disconnected';
   backend: 'unknown' | 'reachable' | 'unavailable';
+  issue: 'network' | 'auth-service' | 'data-service' | 'authorization' | null;
   checkedAt: number | null;
 };
 export type OperationSlot = 'preparation' | 'sync' | 'pipeline';
@@ -12,7 +13,7 @@ export type OperationKind = 'preparation' | 'synchronization' | 'recovery' | 're
 export type Outcome = 'success' | 'partial' | 'waiting-network' | 'error' | 'cancelled' | 'superseded';
 export type RuntimeOperation = {
   id: number; kind: OperationKind; phase: 'running' | 'settled';
-  startedAt: number; completedAt: number | null; outcome: Outcome | null;
+  startedAt: number; lastActivityAt: number; completedAt: number | null; outcome: Outcome | null;
   visible: boolean; progress: { done: number; total: number } | null; error: string | null;
 };
 export type OfflineRuntime = {
@@ -26,11 +27,12 @@ export type OfflineRuntime = {
 export type OperationTicket = {
   userId: string; slot: OperationSlot; id: number; epoch: number; signal: AbortSignal;
   current: () => boolean; assertCurrent: () => void;
+  touch: () => void;
   update: (patch: Partial<Pick<RuntimeOperation, 'visible' | 'progress'>>) => void;
   finish: (outcome: Outcome, error?: string | null) => void;
 };
 
-let network: NetworkFacts = { physical: 'unknown', backend: 'unknown', checkedAt: null };
+let network: NetworkFacts = { physical: 'unknown', backend: 'unknown', issue: null, checkedAt: null };
 let sequence = 0;
 const accounts = new Map<string, OfflineRuntime>();
 const owners = new Map<string, { ticket: OperationTicket; controller: AbortController; timer: ReturnType<typeof setTimeout> }>();
@@ -67,6 +69,12 @@ export function startRuntimeOperation(userId: string, slot: OperationSlot, kind:
     && getOfflineRuntime(userId).operations[slot]?.phase === 'running';
   const ticket: OperationTicket = { userId, slot, id, epoch, signal: controller.signal, current,
     assertCurrent: () => { if (!current()) throw cancelledOperation(); },
+    touch: () => {
+      if (!current()) return;
+      const value = getOfflineRuntime(userId);
+      accounts.set(userId, { ...value, operations: { ...value.operations,
+        [slot]: { ...value.operations[slot]!, lastActivityAt: Date.now() } } });
+    },
     update: (patch) => {
       if (!current()) return;
       const value = getOfflineRuntime(userId);
@@ -86,7 +94,7 @@ export function startRuntimeOperation(userId: string, slot: OperationSlot, kind:
     },
   };
   accounts.set(userId, { ...account, operations: { ...account.operations, [slot]: {
-    id, kind, phase: 'running', startedAt: Date.now(), completedAt: null, outcome: null, visible, progress: null, error: null,
+    id, kind, phase: 'running', startedAt: Date.now(), lastActivityAt: Date.now(), completedAt: null, outcome: null, visible, progress: null, error: null,
   } } });
   const timer = setTimeout(() => { ticket.finish('error', 'Operation timed out'); controller.abort(); }, timeoutMs);
   if (typeof timer === 'object' && 'unref' in timer) timer.unref();
@@ -123,5 +131,5 @@ export function publishQueueFacts(userId: string, queue: OfflineRuntime['queue']
 }
 export function resetOfflineRuntime(): void {
   for (const owner of owners.values()) { clearTimeout(owner.timer); owner.controller.abort(); }
-  owners.clear(); accounts.clear(); network = { physical: 'unknown', backend: 'unknown', checkedAt: null };
+  owners.clear(); accounts.clear(); network = { physical: 'unknown', backend: 'unknown', issue: null, checkedAt: null };
 }

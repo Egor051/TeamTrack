@@ -209,9 +209,9 @@ async function lifecycleRegressions(taskId) {
     [`/projects/${projectId}/tasks/${taskId}`, 'Основной пункт'],
   ]) {
     browser('set', 'offline', 'on'); await open(route, text, { readiness: route === '/projects' });
-    await has('Нет подключения к сети. Показаны сохранённые данные.');
+    await has('Показаны сохранённые данные.');
     browser('set', 'offline', 'off');
-    await eventually(() => !body().includes('Нет подключения к сети. Показаны сохранённые данные.'), `mounted route recovery ${route}`);
+    await eventually(() => !body().includes('Показаны сохранённые данные.'), `mounted route recovery ${route}`);
     check(browser('get', 'url') === base + route, 'Recovery navigated or reloaded the route');
   }
   console.log('PASS three Offline → Online cycles, cached projects/project/stage, mounted route recovery without reload');
