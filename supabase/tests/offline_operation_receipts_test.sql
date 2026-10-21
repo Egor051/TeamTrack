@@ -38,11 +38,16 @@ declare
   v_actions integer;
   v_notifications integer;
 begin
-  perform public.apply_task_item_state_operation('91000000-0000-4000-8000-000000000011',v_item,true);
+  -- Unversioned v1 never starts a new write after the controlled cutover.
+  begin
+    perform public.apply_task_item_state_operation('91000000-0000-4000-8000-000000000099',v_item,true);
+    raise exception 'legacy v1 write accepted';
+  exception when sqlstate 'PT426' then null; end;
+  perform public.apply_task_item_state_operation_v2('91000000-0000-4000-8000-000000000011',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),true);
   select count(*) into v_audit from public.audit_log where entity_id=v_item;
   select count(*) into v_actions from public.item_actions where task_item_id=v_item;
   select count(*) into v_notifications from public.notifications where data->>'entity_id'=v_item::text;
-  if not public.apply_task_item_state_operation('91000000-0000-4000-8000-000000000011',v_item,true) then
+  if (public.apply_task_item_state_operation_v2('91000000-0000-4000-8000-000000000011',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),true)->'item'->>'is_completed')::boolean is not true then
     raise exception 'state retry result differs';
   end if;
   if (select count(*) from public.audit_log where entity_id=v_item) <> v_audit
@@ -51,18 +56,18 @@ begin
     raise exception 'state duplicate side effects';
   end if;
 
-  if public.apply_task_item_percentage_operation('91000000-0000-4000-8000-000000000012',v_item,70) <> 70 then
+  if (public.apply_task_item_percentage_operation_v2('91000000-0000-4000-8000-000000000012',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),70)->'item'->>'percentage')::integer <> 70 then
     raise exception 'percentage result differs';
   end if;
   select count(*) into v_audit from public.audit_log where entity_id=v_item;
   select count(*) into v_notifications from public.notifications where data->>'entity_id'=v_item::text;
-  perform public.apply_task_item_percentage_operation('91000000-0000-4000-8000-000000000012',v_item,70);
+  perform public.apply_task_item_percentage_operation_v2('91000000-0000-4000-8000-000000000012',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),70);
   if (select count(*) from public.audit_log where entity_id=v_item) <> v_audit
      or (select count(*) from public.notifications where data->>'entity_id'=v_item::text) <> v_notifications then
     raise exception 'percentage duplicate side effects';
   end if;
   begin
-    perform public.apply_task_item_percentage_operation('91000000-0000-4000-8000-000000000012',v_item,20);
+    perform public.apply_task_item_percentage_operation_v2('91000000-0000-4000-8000-000000000012',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),20);
     raise exception 'mismatched duplicate accepted';
   exception when sqlstate '22023' then null;
   end;
@@ -70,21 +75,21 @@ begin
     raise exception 'mismatched duplicate changed state';
   end if;
   begin
-    perform public.apply_task_item_percentage_operation('91000000-0000-4000-8000-000000000011',v_item,70);
+    perform public.apply_task_item_percentage_operation_v2('91000000-0000-4000-8000-000000000011',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),70);
     raise exception 'operation type reuse accepted';
   exception when sqlstate '22023' then null;
   end;
   begin
-    perform public.apply_task_item_percentage_operation('91000000-0000-4000-8000-000000000012',
-      '91000000-0000-4000-8000-000000000099',70);
+    perform public.apply_task_item_percentage_operation_v2('91000000-0000-4000-8000-000000000012',
+      '91000000-0000-4000-8000-000000000099',1,70);
     raise exception 'task item reuse accepted';
   exception when sqlstate '22023' then null;
   end;
 
-  perform public.apply_task_item_comment_operation('91000000-0000-4000-8000-000000000013',v_item,' hello ');
+  perform public.apply_task_item_comment_operation_v2('91000000-0000-4000-8000-000000000013',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),' hello ');
   select count(*) into v_audit from public.audit_log where entity_id=v_item;
   select count(*) into v_notifications from public.notifications where data->>'entity_id'=v_item::text;
-  if public.apply_task_item_comment_operation('91000000-0000-4000-8000-000000000013',v_item,'hello') <> 'hello' then
+  if (public.apply_task_item_comment_operation_v2('91000000-0000-4000-8000-000000000013',v_item,coalesce((select sync_version from public.task_items where id=v_item),1),'hello')->'item'->>'comment') <> 'hello' then
     raise exception 'canonical comment retry differs';
   end if;
   if (select count(*) from public.audit_log where entity_id=v_item) <> v_audit
@@ -93,18 +98,18 @@ begin
   end if;
 
   begin
-    perform public.apply_task_item_percentage_operation('91000000-0000-4000-8000-000000000014',
-      '91000000-0000-4000-8000-000000000099',10);
+    perform public.apply_task_item_percentage_operation_v2('91000000-0000-4000-8000-000000000014',
+      '91000000-0000-4000-8000-000000000099',1,10);
     raise exception 'missing item mutation accepted';
-  exception when raise_exception then null;
+  exception when insufficient_privilege then null;
   end;
 end $$;
 
 select set_config('request.jwt.claim.sub','91000000-0000-4000-8000-000000000002',true);
 do $$
 begin
-  if public.apply_task_item_state_operation('91000000-0000-4000-8000-000000000011',
-      current_setting('tasktrace.test_item')::uuid,false) then
+  if (public.apply_task_item_state_operation_v2('91000000-0000-4000-8000-000000000011',
+      current_setting('tasktrace.test_item')::uuid,coalesce((select sync_version from public.task_items where id=current_setting('tasktrace.test_item')::uuid),1),false)->'item'->>'is_completed')::boolean then
     raise exception 'cross-user receipt leaked first user result';
   end if;
 end $$;
@@ -118,8 +123,8 @@ declare
   v_denied boolean := false;
 begin
   begin
-    perform public.apply_task_item_percentage_operation('91000000-0000-4000-8000-000000000015',
-      current_setting('tasktrace.test_item')::uuid,25);
+    perform public.apply_task_item_percentage_operation_v2('91000000-0000-4000-8000-000000000015',
+      current_setting('tasktrace.test_item')::uuid,1,25);
   exception when insufficient_privilege then v_denied := true;
   end;
   if not v_denied then raise exception 'revoked member replay was accepted'; end if;

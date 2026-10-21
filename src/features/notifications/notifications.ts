@@ -7,6 +7,7 @@ import { usesLocalReads } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
 import { boundedOperation } from '@/lib/connectivity/deadline';
 import { uiRead, UI_READ_TIMEOUT_MS } from '@/lib/supabase/ui-read';
+import { executeMutation } from '@/lib/supabase/mutation';
 import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince, denyCacheAccess } from '@/lib/local-cache/access-state';
 import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 import { durableReadInvalidation, invalidateReadModels, readAccountEpoch, readInvalidation } from '@/lib/local-cache/read-freshness';
@@ -178,14 +179,14 @@ export async function fetchUnreadCount() {
 }
 export async function markAsRead(id: string) {
   const userId = await activeCacheUserId();
-  const { error } = await supabase.rpc('mark_notification_read', { p_notification_id: id });
+  const { error } = await executeMutation('mark_notification_read', { p_notification_id: id });
   if (error) throw error;
   if (userId && await activeCacheUserId() === userId) await invalidateReadModels(userId, ['notifications:'])
     .catch((error) => console.warn('[TaskTrace] notification cache invalidation deferred', error));
 }
 export async function markAllAsRead() {
   const userId = await activeCacheUserId();
-  const { error } = await supabase.rpc('mark_all_notifications_read');
+  const { error } = await executeMutation('mark_all_notifications_read', {});
   if (error) throw error;
   if (userId && await activeCacheUserId() === userId) await invalidateReadModels(userId, ['notifications:'])
     .catch((error) => console.warn('[TaskTrace] notification cache invalidation deferred', error));

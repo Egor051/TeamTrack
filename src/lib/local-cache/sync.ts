@@ -19,6 +19,7 @@ import { denyCacheAccess } from './access-state';
 import { announceReadModelCommit } from './read-model-events';
 import { nextPushOperation } from './failed-chain';
 import { readAccountEpoch } from './read-freshness';
+import { readSnapshotPages } from './snapshot-pages';
 
 type V2Result = { status: 'applied' | 'conflict'; version: number; item: ReconciledItem };
 type PullPage = { changes: PullChange[]; next_cursor: number; has_more: boolean } | { reset_required: true; retained_after_cursor: number };
@@ -148,16 +149,11 @@ function deterministicRejection(error: unknown): boolean {
   return ['42501', '22023', '23514', 'P0001', '22P02'].includes(value?.code ?? '');
 }
 
-async function taskSnapshot(client: SupabaseClient<Database>, taskId: string, ctx: SyncContext): Promise<ReconciledItem[]> {
-  const rows: ReconciledItem[] = [];
-  for (let from = 0; ; from += 500) {
-    const { data, error } = await syncRead(client.from('task_items').select('*').eq('task_id', taskId)
-      .order('position').order('id').range(from, from + 499), ctx);
-    if (error) throw error;
-    rows.push(...(data ?? []));
-    if (!data || data.length < 500) break;
-  }
-  return rows;
+async function taskSnapshot(client: SupabaseClient<Database>, taskId: string, ctx: SyncContext,
+  mode: 'all' | 'active' | 'archived' = 'all'): Promise<ReconciledItem[]> {
+  return readSnapshotPages<ReconciledItem>((offset, revision) => syncRead(client.rpc('get_task_item_snapshot_page', {
+    p_task_id: taskId, p_mode: mode, p_offset: offset, p_limit: 500, p_revision: revision ?? undefined,
+  }), ctx));
 }
 
 async function reconcile(client: SupabaseClient<Database>, operation: OfflineOperation, ctx: SyncContext): Promise<void> {
@@ -206,15 +202,7 @@ async function bootstrapPull(client: SupabaseClient<Database>, userId: string, c
     const taskResult = await syncRead(client.from('tasks').select('id').eq('id', taskId).maybeSingle(), ctx);
     if (taskResult.error) throw taskResult.error;
     if (!taskResult.data) { await ctx.storage.remove(userId, entry.key); continue; }
-    const rows: ReconciledItem[] = [];
-    for (let from = 0; ; from += 500) {
-      let query = client.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, from + 499);
-      if (mode !== 'all') query = query.eq('is_archived', mode === 'archived');
-      const { data: page, error: pageError } = await syncRead(query, ctx);
-      if (pageError) throw pageError;
-      rows.push(...(page ?? []));
-      if (!page || page.length < 500) break;
-    }
+    const rows = await taskSnapshot(client, taskId, ctx, mode as 'all' | 'active' | 'archived');
     await ctx.storage.putIfUnchanged({ ...entry, data: JSON.stringify(rows),
       last_synced_at: new Date().toISOString() }, entry.data);
   }

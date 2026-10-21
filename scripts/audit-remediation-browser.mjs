@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 // Actual exported app -> disposable Auth/Realtime/PostgREST -> isolated DB.
 // Run through run-security-integrations.mjs; no hosted account or DB is used.
 import assert from 'node:assert/strict';
@@ -32,7 +33,7 @@ async function measure(page,label,action){
   measurements.push({label,ms:Math.round(performance.now()-started),api_requests_started_in_window:apiRequests,js_heap_bytes:memory});
  }
 }
-const rpc=async(name,args)=>{const r=await owner.rpc(name,args);if(r.error)throw r.error;return r.data;};
+const rpc=async(name,args)=>{const r=await fixtureCas(owner,name,args);if(r.error)throw r.error;return r.data;};
 async function eventually(probe,label,timeout=30000){const end=Date.now()+timeout;while(Date.now()<end){if(await probe())return;await new Promise(r=>setTimeout(r,100));}throw Error('Browser timeout: '+label);}
 async function login(page,email){await page.goto(base+'/login');await page.getByLabel('Email',{exact:true}).fill(email);await page.getByLabel('Пароль',{exact:true}).fill(password);await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('heading',{name:'Проекты',exact:true}).waitFor();}
 async function localState(page){return page.evaluate(async()=>{

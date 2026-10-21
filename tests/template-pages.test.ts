@@ -11,7 +11,7 @@ describe('B03 complete, consistent template pages', () => {
     const rows = data(count), request = source(rows);
     expect(await readTemplatePages(request)).toEqual(rows);
     expect(request).toHaveBeenCalledTimes(Math.max(1, Math.ceil(count / 500)));
-    if (count > 500) expect(request).toHaveBeenNthCalledWith(2, 500, 500, 'revision-1');
+    if (count > 500) expect(request).toHaveBeenNthCalledWith(2, 500, 500, 'revision-1', null);
   });
   it('restarts from page zero on concurrent insert/delete/edit; never mixes revisions', async () => {
     const old = data(1001), next = data(1002).reverse();

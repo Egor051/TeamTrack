@@ -64,6 +64,7 @@ beforeEach(async () => {
   remote.replay.mockImplementation(async (name: string, args: { p_percentage?: number }) => {
     if (name === 'pull_task_item_changes_v2')
       return { data: { changes: [], next_cursor: 0, has_more: false }, error: null };
+    if (name === 'get_task_item_snapshot_page') return { data: { revision: 0, total: 1, offset: 0, rows: [{ ...remote.server }] }, error: null };
     remote.server.percentage = args.p_percentage!; remote.server.sync_version += 1;
     return { data: { status: 'applied', version: remote.server.sync_version, item: { ...remote.server } }, error: null };
   });
@@ -149,7 +150,7 @@ describe('persistent user-scoped runtime capabilities', () => {
     vi.stubGlobal('navigator', { onLine: false }); await edit(); vi.stubGlobal('navigator', { onLine: true });
     remote.replay.mockClear(); await syncPendingOperations('user-a', true);
     expect(remote.rpc).toHaveBeenCalledOnce();
-    expect(remote.replay.mock.calls.map(([name]) => name)).toEqual(['pull_task_item_changes_v2', 'apply_task_item_percentage_operation_v2', 'pull_task_item_changes_v2']);
+    expect(remote.replay.mock.calls.map(([name]) => name)).toEqual(['pull_task_item_changes_v2', 'apply_task_item_percentage_operation_v2', 'get_task_item_snapshot_page', 'pull_task_item_changes_v2']);
   });
 
   it.each(['Failed to fetch', 'fetch failed', 'Network request failed', 'DNS network error', 'timeout'])(

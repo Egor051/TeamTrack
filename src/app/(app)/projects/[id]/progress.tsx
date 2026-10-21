@@ -1,6 +1,7 @@
 import { isReadAccessPending } from '@/lib/local-cache/read-freshness';
 import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
+import { useCurrentDay } from '@/lib/local-cache/use-current-day';
 import { useCallback, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
@@ -30,7 +31,10 @@ export default function ProjectDailyProgressScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const permissionVersion = usePermissionVersion();
   const [projectName, setProjectName] = useState("");
-  const [progress, setProgress] = useState<ProjectDailyProgress | null>(null);
+  const day = useCurrentDay();
+  const [loadedDay, setLoadedDay] = useState(day);
+  const [storedProgress, setProgress] = useState<ProjectDailyProgress | null>(null);
+  const progress = loadedDay === day ? storedProgress : null;
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -52,6 +56,7 @@ export default function ProjectDailyProgressScreen() {
       if (request !== requestRef.current) return;
       setProjectName(project.name);
       setProgress(dailyProgress);
+      setLoadedDay(day);
       setLoaded(true);
     } catch (e) {
       if (request !== requestRef.current) return;
@@ -64,7 +69,7 @@ export default function ProjectDailyProgressScreen() {
     } finally {
       if (request === requestRef.current) setLoading(false);
     }
-  }, [id]);
+  }, [id, day]);
 
   const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { projectId: id });
   useOnlineRecovery(load);

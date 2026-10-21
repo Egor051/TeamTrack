@@ -70,9 +70,12 @@ jobs:
       - run: npm run test:sql -- --cron --advisors
       - run: npm run test:backend:isolated
       - run: node scripts/run-audit-remediation-tests.mjs
+      - run: node scripts/audit-followup-integration.mjs
+      - run: node scripts/regression-write-protocol.mjs
       - run: npm run test:security
       - run: node scripts/verify-audit-regressions.mjs
       - run: npx playwright install --with-deps chromium webkit
+      - run: node scripts/regression-mutation-browser.mjs
       - run: node scripts/run-security-integrations.mjs scripts/audit-remediation-browser.mjs scripts/template-realtime-browser.mjs
       - run: node scripts/pwa-mobile-browser-smoke.mjs
       - run: npx --yes supabase@2.116.0 db lint --local

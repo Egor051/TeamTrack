@@ -4,6 +4,8 @@ export function userMessage(error: unknown, fallback: string): string {
   if (process.env.NODE_ENV !== 'production' && !(error instanceof ResourceAccessDeniedError)) console.error('[TaskTrace]', error);
   const value = error as { message?: string; code?: string; status?: number } | null;
   const message = value?.message?.toLowerCase() ?? '';
+  if (value?.code === 'PT426') return 'Обновите приложение перед сохранением. Сохраните черновик, закройте старые вкладки и откройте приложение заново. Не очищайте несинхронизированную очередь.';
+  if ((error as Error)?.name === 'MutationOutcomeUnknownError' || value?.code === 'TT_MUTATION_RECONCILED' || value?.code === 'TT_MUTATION_PENDING' || value?.code === 'TT_MUTATION_STORAGE') return value?.message || fallback;
   if (value?.code === 'TT_MEMBER_LOOKUP') return 'Не удалось добавить участника по указанному идентификатору.';
   if (value?.code === 'PT429') return 'Слишком много попыток добавления участников. Повторите через минуту.';
   if (value?.code === 'PT409') return 'Данные изменены другим участником. Обновите данные и проверьте свой черновик перед сохранением.';

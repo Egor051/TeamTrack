@@ -40,6 +40,10 @@ try {
       upgrade += readFileSync(resolve(root, 'supabase/tests/audit_upgrade_fixture.sql'), 'utf8') + '\n';
     }
     if (!fresh && name.endsWith('_audit_template_ordering.sql')) upgrade += readFileSync(resolve(root, 'supabase/tests/audit_template_upgrade_fixture.sql'), 'utf8') + '\n';
+    if (!fresh && name.endsWith('_audit_followup_integrity_and_scaling.sql')) upgrade += readFileSync(resolve(root, 'supabase/tests/audit_followup_upgrade_fixture.sql'), 'utf8') + '\n';
+    // Fixtures use RESET ROLE. Restore the migration owner after fixture work,
+    // just as the real migration runner does for every migration.
+    upgrade += 'set role postgres; set search_path=public,extensions;\n';
     upgrade += readFileSync(resolve(root, 'supabase/migrations', name), 'utf8') + '\n';
   }
   sql(upgrade);

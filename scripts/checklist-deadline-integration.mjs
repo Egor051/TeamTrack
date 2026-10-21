@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -45,7 +46,7 @@ export async function verifyChecklistDeadlineIntegration(port, database, contain
     await data(owner.rpc('add_project_member', { p_project_id: project, p_user_id: ids[2], p_role: 'viewer' }));
     for (const [name, args] of [['change_member_role', { p_project_id: project, p_user_id: ids[0], p_new_role: 'member' }],
       ['set_task_member_override', { p_task_id: task, p_user_id: ids[0], p_role: 'viewer' }], ['clear_task_member_override', { p_task_id: task, p_user_id: ids[0] }]]) {
-      assert.equal((await owner.rpc(name, args)).error?.code, '42501', `${name} allowed own-role edit`);
+      assert.equal((await fixtureCas(owner,name,args)).error?.code, '42501', `${name} allowed own-role edit`);
     }
     assert.deepEqual(await data(outsider.rpc('notification_filter_options')), { projects: [], tasks: [] });
     console.log('PASS roles/filter Data API: own-role RPC edits denied; notification facets cannot reveal another recipient');
@@ -90,9 +91,9 @@ export async function verifyChecklistDeadlineIntegration(port, database, contain
     await db.query('select private.process_checklist_deadlines()');
     const notices = await db.query("select count(*)::int n from public.notifications where data->>'item_id'=$1 and data->>'deadline_event'='overdue'", [item]);
     assert.equal(notices.rows[0].n, 3);
-    await data(member.rpc('set_task_item_percentage', { p_task_item_id: item, p_percentage: 100 }));
+    await data(fixtureCas(member, 'set_task_item_percentage', { p_task_item_id: item, p_percentage: 100 }));
     assert.equal((await data(owner.from('tasks').select('status').eq('id', task).single())).status, 'completed');
-    await data(member.rpc('set_task_item_percentage', { p_task_item_id: item, p_percentage: 0 }));
+    await data(fixtureCas(member, 'set_task_item_percentage', { p_task_item_id: item, p_percentage: 0 }));
     assert.equal((await data(owner.from('tasks').select('status').eq('id', task).single())).status, 'not_started');
     const latest = await data(owner.from('task_items').select('sync_version').eq('id', item).single());
     await data(owner.rpc('set_task_item_deadline', { p_task_item_id: item, p_expected_version: latest.sync_version }));

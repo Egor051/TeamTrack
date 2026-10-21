@@ -68,11 +68,11 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub', (select id::text from ntf_state where key='owner'), true);
 select public.add_task_assignee((select id from ntf_state where key='task'), (select id from ntf_state where key='admin'));
 select public.remove_task_assignee((select id from ntf_state where key='task'), (select id from ntf_state where key='admin'));
-select public.set_task_item_state((select id from ntf_state where key='item'), true);
-select public.set_task_item_state((select id from ntf_state where key='item'), false);
-select public.set_task_item_comment((select id from ntf_state where key='item'), 'Progress context note');
-select public.set_task_item_percentage((select id from ntf_state where key='item'), 25);
-select public.update_task_item((select id from ntf_state where key='item'), 'Changed checklist text');
+select public.set_task_item_state((select id from ntf_state where key='item'),true,(select sync_version from public.task_items where id=(select id from ntf_state where key='item')));
+select public.set_task_item_state((select id from ntf_state where key='item'),false,(select sync_version from public.task_items where id=(select id from ntf_state where key='item')));
+select public.set_task_item_comment((select id from ntf_state where key='item'),'Progress context note',(select sync_version from public.task_items where id=(select id from ntf_state where key='item')));
+select public.set_task_item_percentage((select id from ntf_state where key='item'),25,(select sync_version from public.task_items where id=(select id from ntf_state where key='item')));
+select public.update_task_item((select id from ntf_state where key='item'),'Changed checklist text',(select sync_version from public.task_items where id=(select id from ntf_state where key='item')));
 select public.clear_task_member_override((select id from ntf_state where key='task'), (select id from ntf_state where key='admin'));
 reset role;
 

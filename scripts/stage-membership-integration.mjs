@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PostgrestClient } from '@supabase/postgrest-js';
@@ -37,12 +38,12 @@ export async function verifyStageMembershipIntegration({ api, db, owner, token, 
   assert.equal((await guest.rpc('set_task_member_override', { p_task_id: task, p_user_id: guestId, p_role: 'admin' })).error?.code, '42501');
   const before = await data(owner.from('tasks').select('title,description').eq('id', task).single());
   // A status/progress update is unrelated to an editor's title/description base.
-  await data(guest.rpc('set_task_item_percentage', { p_task_item_id: item, p_percentage: 0 }));
+  await data(fixtureCas(guest, 'set_task_item_percentage', { p_task_item_id: item, p_percentage: 0 }));
   const args = { p_task_id: task, p_expected_title: before.title, p_expected_description: before.description ?? '' };
-  const edits = await Promise.all(['First concurrent title', 'Second concurrent title'].map((p_title) => owner.rpc('update_task', { ...args, p_title, p_description: 'Concurrent description' })));
+  const edits = await Promise.all(['First concurrent title', 'Second concurrent title'].map((p_title) => fixtureCas(owner, 'update_task', { ...args, p_title, p_description: 'Concurrent description' })));
   assert.equal(edits.filter((result) => !result.error).length, 1);
   assert.equal(edits.filter((result) => result.error?.code === 'PT409').length, 1);
-  await data(owner.rpc('update_task', { p_task_id: task, p_title: before.title, p_description: before.description ?? '' }));
+  await data(fixtureCas(owner, 'update_task', { p_task_id: task, p_title: before.title, p_description: before.description ?? '' }));
   await data(owner.rpc('remove_task_member', { p_task_id: task, p_user_id: guestId }));
   assert.equal((await data(guest.from('tasks').select('*'))).length, 0);
   assert.equal((await data(guest.from('task_items').select('*'))).length, 0);

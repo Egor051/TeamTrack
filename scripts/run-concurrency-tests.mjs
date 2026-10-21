@@ -81,7 +81,7 @@ try {
   await blocker.query('begin');
   await blocker.query('select id from public.projects where id=$1 for update', [projectId]);
   const revokedWrite = asUser(memberWriter, memberId, () => memberWriter.query(
-    'select public.set_task_item_comment($1,$2)', [itemId, 'must not commit after revocation'],
+    'select public.set_task_item_comment($1,$2,1)', [itemId, 'must not commit after revocation'],
   ));
   await waitForWaitEvent(observer, `tt_member_writer_${nonce}`, (row) => row.wait_event_type === 'Lock');
   await blocker.query('delete from public.project_members where project_id=$1 and user_id=$2', [projectId, memberId]);
@@ -98,7 +98,7 @@ try {
   await blocker.query('begin');
   await blocker.query('select id from public.projects where id=$1 for update', [projectId]);
   const archivedWrite = asUser(archiveWriter, memberId, () => archiveWriter.query(
-    'select public.set_task_item_percentage($1,$2)', [itemId, 77],
+    'select public.set_task_item_percentage($1,$2,(select sync_version from public.task_items where id=$1))', [itemId, 77],
   ));
   await waitForWaitEvent(observer, `tt_archive_writer_${nonce}`, (row) => row.wait_event_type === 'Lock');
   await blocker.query("update public.projects set status='archived', archived_at=now() where id=$1", [projectId]);
@@ -120,13 +120,13 @@ try {
   )).rows[0].n);
   const duplicates = await Promise.all([
     asUser(memberWriter, memberId, () => memberWriter.query(
-      'select public.apply_task_item_percentage_operation($1,$2,$3) result', [operationId, itemId, 42],
+      'select public.apply_task_item_percentage_operation_v2($1,$2,1,$3) result', [operationId, itemId, 42],
     )),
     asUser(archiveWriter, memberId, () => archiveWriter.query(
-      'select public.apply_task_item_percentage_operation($1,$2,$3) result', [operationId, itemId, 42],
+      'select public.apply_task_item_percentage_operation_v2($1,$2,1,$3) result', [operationId, itemId, 42],
     )),
   ]);
-  assert.deepEqual(duplicates.map((result) => result.rows[0].result), [42, 42]);
+  assert.deepEqual(duplicates.map((result) => result.rows[0].result.item.percentage), [42, 42]);
   assert.equal(Number((await observer.query(
     "select count(*) n from public.audit_log where entity_type='task_item' and entity_id=$1", [itemId],
   )).rows[0].n), beforeAudit + 1);
@@ -135,7 +135,7 @@ try {
   )).rows[0].n);
   assert.ok(afterNotifications >= beforeNotifications);
   await asUser(memberWriter, memberId, () => memberWriter.query(
-    'select public.apply_task_item_percentage_operation($1,$2,$3)', [operationId, itemId, 42],
+    'select public.apply_task_item_percentage_operation_v2($1,$2,1,$3)', [operationId, itemId, 42],
   ));
   assert.equal(Number((await observer.query(
     "select count(*) n from public.notifications where data->>'entity_id'=$1", [itemId],
@@ -189,13 +189,13 @@ try {
 
   // A second server write before the user's choice forces another conflict.
   const secondConflictId = randomUUID();
-  await asUser(observer, ownerId, () => observer.query('select public.set_task_item_percentage($1,$2)', [itemId, 80]));
+  await asUser(observer, ownerId, () => observer.query('select public.set_task_item_percentage($1,$2,(select sync_version from public.task_items where id=$1))', [itemId, 80]));
   const firstConflict = await asUser(memberWriter, memberId, () => memberWriter.query(
     'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result',
     [secondConflictId, itemId, Number(resolved.rows[0].result.version), 90],
   ));
   assert.equal(firstConflict.rows[0].result.status, 'conflict');
-  await asUser(observer, ownerId, () => observer.query('select public.set_task_item_percentage($1,$2)', [itemId, 55]));
+  await asUser(observer, ownerId, () => observer.query('select public.set_task_item_percentage($1,$2,(select sync_version from public.task_items where id=$1))', [itemId, 55]));
   const secondConflict = await asUser(memberWriter, memberId, () => memberWriter.query(
     'select public.apply_task_item_percentage_operation_v2($1,$2,$3,$4) result',
     [secondConflictId, itemId, Number(firstConflict.rows[0].result.version), 90],
@@ -214,7 +214,7 @@ try {
   await waitForWaitEvent(observer, `tt_member_writer_${nonce}`, (row) => row.wait_event_type === 'Lock');
   await blocker.query('set local role authenticated');
   await blocker.query("select set_config('request.jwt.claim.sub',$1,true)", [ownerId]);
-  await blocker.query('select public.set_task_item_percentage($1,$2)', [itemId, 85]);
+  await blocker.query('select public.set_task_item_percentage($1,$2,(select sync_version from public.task_items where id=$1))', [itemId, 85]);
   await blocker.query('commit');
   assert.equal((await raceWrite).rows[0].result.status, 'conflict');
   assert.equal(Number((await observer.query('select percentage from public.task_items where id=$1', [itemId])).rows[0].percentage), 85);

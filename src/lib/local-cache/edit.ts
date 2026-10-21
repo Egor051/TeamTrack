@@ -10,12 +10,13 @@ export async function performSupportedEdit(input: {
   projectId: string;
   taskId: string;
   itemId: string;
-  itemVersion?: number;
+  itemVersion: number;
   offline: boolean;
   edit: SupportedEdit;
   onlineAction: () => Promise<unknown>;
 }): Promise<{ kind: 'server' } | { kind: 'local'; operation: OfflineOperation }> {
   if (await activeCacheUserId() !== input.userId) throw new Error('Требуется авторизация.');
+  if (!Number.isSafeInteger(input.itemVersion) || input.itemVersion < 1) throw new Error('Обновите пункт перед сохранением.');
   const enabled = (await runtimeCapabilities(input.userId)).write;
   const dirty = await hasPendingOperations(input.userId, input.taskId, input.itemId);
   if (dirty && !enabled) throw new Error('Новые локальные изменения временно отключены. Сохранённые изменения остаются на устройстве.');

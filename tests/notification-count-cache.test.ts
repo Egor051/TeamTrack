@@ -40,7 +40,11 @@ beforeEach(async () => {
       } };
     return query;
   });
-  f.rpc.mockImplementation(async (name, args) => { for (const row of f.rows) if (name === 'mark_all_notifications_read' || row.id === args.p_notification_id) row.is_read = true; return { error: null }; });
+  f.rpc.mockImplementation(async (name, args) => {
+    if (name === 'execute_client_mutation') { name = args.p_name; args = args.p_args; }
+    for (const row of f.rows) if (name === 'mark_all_notifications_read' || row.id === args.p_notification_id) row.is_read = true;
+    return { data: null, error: null, status: 200 };
+  });
   f.subscribe.mockReturnValue(() => {});
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });

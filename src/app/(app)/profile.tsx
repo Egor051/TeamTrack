@@ -30,6 +30,7 @@ export default function ProfileScreen() {
   const actionRef = useRef(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
+  const [nameBaseline, setNameBaseline] = useState('');
   const [profileError, setProfileError] = useState('');
   const [profileSaved, setProfileSaved] = useState(false);
   const [ownedLoading, setOwnedLoading] = useState(true);
@@ -105,7 +106,7 @@ export default function ProfileScreen() {
     actionRef.current = true;
     setBusyAction('save');
     setProfileError('');
-    try { await updateProfile(value); setEditing(false); setProfileSaved(true); }
+    try { await updateProfile(value, nameBaseline); setEditing(false); setProfileSaved(true); }
     catch (e) { setProfileError(mutationUserMessage(e, 'Не удалось сохранить ник.')); }
     finally { actionRef.current = false; setBusyAction(null); }
   }
@@ -152,7 +153,7 @@ export default function ProfileScreen() {
           <Button loading={busyAction === 'save'} disabled={busy || !name.trim() || name.trim() === state.profile?.display_name} onPress={() => void save()}>Сохранить</Button>
           <Button variant="outline" disabled={busy} onPress={() => { setEditing(false); setProfileError(''); }}>Отмена</Button>
         </View>
-      </> : <Button size="sm" variant="outline" style={styles.leading} disabled={busy} onPress={() => { setName(state.profile?.display_name || ''); setProfileError(''); setProfileSaved(false); setEditing(true); }}>Изменить ник</Button>}
+      </> : <Button size="sm" variant="outline" style={styles.leading} disabled={busy || !state.profile} onPress={() => { const baseline = state.profile?.display_name || ''; setName(baseline); setNameBaseline(baseline); setProfileError(''); setProfileSaved(false); setEditing(true); }}>Изменить ник</Button>}
       {profileSaved ? <ThemedText type="small" accessibilityLiveRegion="polite" style={{ color: theme.colors.success }}>Ник сохранён.</ThemedText> : null}
     </Card>
     <Card style={styles.section}>

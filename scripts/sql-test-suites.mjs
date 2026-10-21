@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs';
 
 export function sqlTestSuites(directory, { fresh = false, requested = [] } = {}) {
   const all = readdirSync(directory).filter((name) => name.endsWith('_test.sql')).sort();
-  const upgradeOnly = ['audit_upgrade_test.sql', 'audit_template_ordering_test.sql'];
+  const upgradeOnly = ['audit_upgrade_test.sql', 'audit_template_ordering_test.sql', 'audit_followup_upgrade_test.sql'];
   // This file contains manual two-session instructions, not an executable suite.
   // CI requires run-security-integrations -> run-concurrency-tests.mjs instead.
   const manual = 'concurrency_test.sql';

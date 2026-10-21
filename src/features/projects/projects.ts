@@ -17,6 +17,7 @@ import { localCacheDriver } from '@/lib/local-cache/driver';
 import { confirmCacheAccess } from '@/lib/local-cache/access-state';
 import { isFutureDeadline, progressStatus } from './deadlines';
 import { readTemplatePages } from './template-pages';
+import { executeMutation, type MutationArgs } from '@/lib/supabase/mutation';
 export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -48,9 +49,9 @@ export type { Task, TaskItem };
 
 type SupabaseResult<T> = { data: T | null; error: { message: string } | null };
 
-async function mutationRpc<Name extends keyof Database['public']['Functions']>(name: Name, args: Database['public']['Functions'][Name]['Args']) {
+async function mutationRpc<Name extends keyof Database['public']['Functions']>(name: Name, args: MutationArgs<Name>) {
   const userId = await activeCacheUserId();
-  const result = await supabase.rpc(name, args);
+  const result = await executeMutation(name, args);
   if (result.error) return result;
   if (!userId || await activeCacheUserId() !== userId) return result;
   try {
@@ -339,13 +340,21 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
   const operations = await listPendingOperations(userId, taskId);
   return inheritCachedResult(confirmed, applyPendingOperations(confirmed, operations, userId, taskId));
 }
-export async function updateTaskItem(itemId: string, title: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('update_task_item', { p_task_item_id: itemId, p_title: title })); }
-export async function updateTask(taskId: string, title: string, description: string, expected?: Pick<Task, 'title' | 'description'>) {
+function checkedItemVersion(version: number): number {
+  if (!Number.isSafeInteger(version) || version < 1) throw new Error('Обновите пункт перед сохранением.');
+  return version;
+}
+export async function getTaskItemForEdit(itemId: string): Promise<TaskItem> {
+  assertUuid(itemId, 'task item id');
+  return requireData(await uiRead(supabase.from('task_items').select('*').eq('id', itemId).single()));
+}
+export async function updateTaskItem(itemId: string, title: string, version: number) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('update_task_item', { p_task_item_id: itemId, p_title: title, p_expected_version: checkedItemVersion(version) })); }
+export async function updateTask(taskId: string, title: string, description: string, expected: Pick<Task, 'title' | 'description'>) {
   assertUuid(taskId, 'task id');
   return requireSuccess(await mutationRpc('update_task', { p_task_id: taskId, p_title: title, p_description: description,
-    ...(expected ? { p_expected_title: expected.title, p_expected_description: expected.description ?? '' } : {}) }));
+    p_expected_title: expected.title, p_expected_description: expected.description ?? '' }));
 }
-export async function setTaskItemComment(itemId: string, comment: string | null) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 10000) throw new Error('Комментарий слишком длинный (максимум 10000 символов).'); return requireSuccess(await mutationRpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '' })); }
+export async function setTaskItemComment(itemId: string, comment: string | null, version: number) { assertUuid(itemId, 'task item id'); if (comment && comment.length > 10000) throw new Error('Комментарий слишком длинный (максимум 10000 символов).'); return requireSuccess(await mutationRpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: comment ?? '', p_expected_version: checkedItemVersion(version) })); }
 export async function setTaskItemDeadline(itemId: string, deadline: string | null, version: number) {
   assertUuid(itemId, 'task item id');
   if (usesLocalReads()) throw new Error('Для изменения дедлайна требуется подключение. Сохранённые сроки доступны офлайн.');
@@ -355,9 +364,9 @@ export async function setTaskItemDeadline(itemId: string, deadline: string | nul
     throw new Error('Сначала синхронизируйте изменения этого чек-листа.');
   return requireData(await mutationRpc('set_task_item_deadline', { p_task_item_id: itemId, ...(deadline === null ? {} : { p_deadline_at: deadline }), p_expected_version: version }));
 }
-export async function setTaskItemPercentage(itemId: string, percentage: number) { assertUuid(itemId, 'task item id'); if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) throw new Error('Процент должен быть целым числом от 0 до 100.'); return requireData(await mutationRpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage })); }
+export async function setTaskItemPercentage(itemId: string, percentage: number, version: number) { assertUuid(itemId, 'task item id'); if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) throw new Error('Процент должен быть целым числом от 0 до 100.'); return requireData(await mutationRpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage, p_expected_version: checkedItemVersion(version) })); }
 export async function archiveTaskItem(itemId: string) { assertUuid(itemId, 'task item id'); return requireSuccess(await mutationRpc('archive_task_item', { p_task_item_id: itemId })); }
-export async function setTaskItemState(itemId: string, completed: boolean) { assertUuid(itemId, 'task item id'); return requireData(await mutationRpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed })); }
+export async function setTaskItemState(itemId: string, completed: boolean, version: number) { assertUuid(itemId, 'task item id'); return requireData(await mutationRpc('set_task_item_state', { p_task_item_id: itemId, p_completed: completed, p_expected_version: checkedItemVersion(version) })); }
 export async function createTaskItem(taskId: string, title: string, position?: number, description?: string) { assertUuid(taskId, 'task id'); return requireData(await mutationRpc('create_task_item', { p_task_id: taskId, p_title: title, ...(position !== undefined ? { p_position: position } : {}), ...(description ? { p_description: description } : {}) })); }
 export async function getMyTaskRole(taskId: string): Promise<ProjectRole> {
   assertUuid(taskId, 'task id');
@@ -626,36 +635,36 @@ export async function restoreProject(projectId: string) {
   assertUuid(projectId, 'project id'); return requireSuccess(await mutationRpc('restore_project', { p_project_id: projectId }));
 }
 
-export async function updateProject(projectId: string, name: string, description: string, expected?: { name: string; description: string }) {
+export async function updateProject(projectId: string, name: string, description: string, expected: { name: string; description: string }) {
   assertUuid(projectId, 'project id');
   return requireSuccess(await mutationRpc('update_project', { p_project_id: projectId, p_name: name, p_description: description,
-    ...(expected ? { p_expected_name: expected.name, p_expected_description: expected.description } : {}) }));
+    p_expected_name: expected.name, p_expected_description: expected.description }));
 }
 
 export async function listTaskTemplates(): Promise<TaskTemplate[]> {
-  return readThroughCache('templates', () => readTemplatePages<TaskTemplate>((offset, limit, revision) =>
-    uiRead(supabase.rpc('get_task_template_page', { p_offset: offset, p_limit: limit, p_revision: revision ?? undefined }))));
+  return readThroughCache('templates', () => readTemplatePages<TaskTemplate>((offset, limit, revision, after) =>
+    uiRead(supabase.rpc('get_task_template_page_v2', { p_offset: offset, p_limit: limit, p_revision: revision ?? undefined, p_after: after ?? undefined }))));
 }
 export async function listTaskTemplateItems(templateId: string): Promise<TaskTemplateItem[]> {
   assertUuid(templateId, 'template id');
   return readThroughCache(`template-items:${templateId}`, async () => {
-    const rows = await readTemplatePages<Omit<TaskTemplateItem, 'position'>>((offset, limit, revision) =>
-      uiRead(supabase.rpc('get_task_template_page', { p_template_id: templateId, p_offset: offset, p_limit: limit, p_revision: revision ?? undefined })));
+    const rows = await readTemplatePages<Omit<TaskTemplateItem, 'position'>>((offset, limit, revision, after) =>
+      uiRead(supabase.rpc('get_task_template_page_v2', { p_template_id: templateId, p_offset: offset, p_limit: limit, p_revision: revision ?? undefined, p_after: after ?? undefined })));
     return rows.map((row) => ({ ...row, position: row.template_position }));
   });
 }
 export async function getTaskTemplate(templateId: string): Promise<Database['public']['Functions']['get_task_template']['Returns']> { assertUuid(templateId, 'template id'); return readThroughCache(`template:${templateId}`, async () => requireData(await uiRead(supabase.rpc('get_task_template', { p_template_id: templateId })))); }
 export async function createTaskTemplate(name: string, description?: string) { return requireData(await mutationRpc('create_task_template', { p_name: name, ...(description ? { p_description: description } : {}) })); }
-export async function updateTaskTemplate(templateId: string, name: string, description: string, expected?: { name: string; description: string }) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description,
-  ...(expected ? { p_expected_name: expected.name, p_expected_description: expected.description } : {}) })); }
+export async function updateTaskTemplate(templateId: string, name: string, description: string, expected: { name: string; description: string }) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('update_task_template', { p_template_id: templateId, p_name: name, p_description: description,
+  p_expected_name: expected.name, p_expected_description: expected.description })); }
 /**
  * User-facing deletion keeps the existing soft-delete backend contract: the
  * template is marked archived and immediately disappears from all listings.
  */
 export async function deleteTaskTemplate(templateId: string) { assertUuid(templateId, 'template id'); return requireSuccess(await mutationRpc('archive_task_template', { p_template_id: templateId })); }
 export async function createTaskTemplateItem(templateId: string, title: string, description?: string, position?: number) { assertUuid(templateId, 'template id'); return requireData(await mutationRpc('create_task_template_item', { p_template_id: templateId, p_title: title, ...(description ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}) })); }
-export async function updateTaskTemplateItem(itemId: string, title: string, description?: string, position?: number, expected?: { name: string; description: string }) { assertUuid(itemId, 'template item id'); return requireSuccess(await mutationRpc('update_task_template_item', { p_item_id: itemId, p_title: title, ...(description !== undefined ? { p_description: description } : {}), ...(position !== undefined ? { p_position: position } : {}),
-  ...(expected ? { p_expected_title: expected.name, p_expected_description: expected.description } : {}) })); }
+export async function updateTaskTemplateItem(itemId: string, title: string, description: string, position: undefined, expected: { name: string; description: string }) { assertUuid(itemId, 'template item id'); return requireSuccess(await mutationRpc('update_task_template_item', { p_item_id: itemId, p_title: title, p_description: description,
+  p_expected_title: expected.name, p_expected_description: expected.description })); }
 export async function moveTaskTemplateItem(itemId: string, direction: -1 | 1) {
   assertUuid(itemId, 'template item id');
   return requireSuccess(await mutationRpc('move_task_template_item', { p_item_id: itemId, p_direction: direction }));

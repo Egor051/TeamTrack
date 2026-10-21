@@ -641,6 +641,10 @@ export type Database = {
         Args: { p_item_id: string }
         Returns: undefined
       }
+      execute_client_mutation: {
+        Args: { p_args: Json; p_name: string; p_operation_id: string }
+        Returns: Json
+      }
       get_my_profile: {
         Args: never
         Returns: {
@@ -685,11 +689,31 @@ export type Database = {
             Returns: Json
           }
       get_offline_runtime_config: { Args: never; Returns: Json }
+      get_task_item_snapshot_page: {
+        Args: {
+          p_limit?: number
+          p_mode?: string
+          p_offset?: number
+          p_revision?: number
+          p_task_id: string
+        }
+        Returns: Json
+      }
       get_task_item_sync_cursor: { Args: never; Returns: number }
       get_task_project_context: { Args: { p_task_id: string }; Returns: Json }
       get_task_template: { Args: { p_template_id: string }; Returns: Json }
       get_task_template_page: {
         Args: {
+          p_limit?: number
+          p_offset?: number
+          p_revision?: string
+          p_template_id?: string
+        }
+        Returns: Json
+      }
+      get_task_template_page_v2: {
+        Args: {
+          p_after?: Json
           p_limit?: number
           p_offset?: number
           p_revision?: string
@@ -796,10 +820,19 @@ export type Database = {
       }
       restore_project: { Args: { p_project_id: string }; Returns: undefined }
       restore_task: { Args: { p_task_id: string }; Returns: undefined }
-      set_task_item_comment: {
-        Args: { p_comment: string; p_task_item_id: string }
-        Returns: undefined
-      }
+      set_task_item_comment:
+        | {
+            Args: { p_comment: string; p_task_item_id: string }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_comment: string
+              p_expected_version: number
+              p_task_item_id: string
+            }
+            Returns: undefined
+          }
       set_task_item_deadline: {
         Args: {
           p_deadline_at?: string
@@ -829,18 +862,36 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      set_task_item_percentage: {
-        Args: { p_percentage: number; p_task_item_id: string }
-        Returns: number
-      }
+      set_task_item_percentage:
+        | {
+            Args: { p_percentage: number; p_task_item_id: string }
+            Returns: number
+          }
+        | {
+            Args: {
+              p_expected_version: number
+              p_percentage: number
+              p_task_item_id: string
+            }
+            Returns: number
+          }
       set_task_item_progress: {
         Args: { p_completion_percent: number; p_task_item_id: string }
         Returns: number
       }
-      set_task_item_state: {
-        Args: { p_completed: boolean; p_task_item_id: string }
-        Returns: boolean
-      }
+      set_task_item_state:
+        | {
+            Args: { p_completed: boolean; p_task_item_id: string }
+            Returns: boolean
+          }
+        | {
+            Args: {
+              p_completed: boolean
+              p_expected_version: number
+              p_task_item_id: string
+            }
+            Returns: boolean
+          }
       set_task_member_override: {
         Args: {
           p_role: Database["public"]["Enums"]["project_role"]
@@ -853,22 +904,39 @@ export type Database = {
         Args: { p_new_owner_id: string; p_project_id: string }
         Returns: undefined
       }
-      update_my_profile: {
-        Args: { p_display_name: string }
-        Returns: {
-          avatar_url: string | null
-          created_at: string
-          display_name: string
-          id: string
-          updated_at: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "profiles"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
+      update_my_profile:
+        | {
+            Args: { p_display_name: string }
+            Returns: {
+              avatar_url: string | null
+              created_at: string
+              display_name: string
+              id: string
+              updated_at: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "profiles"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+        | {
+            Args: { p_display_name: string; p_expected_display_name: string }
+            Returns: {
+              avatar_url: string | null
+              created_at: string
+              display_name: string
+              id: string
+              updated_at: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "profiles"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
       update_project:
         | {
             Args: {
@@ -907,15 +975,34 @@ export type Database = {
             }
             Returns: undefined
           }
-      update_task_item: {
-        Args: {
-          p_description?: string
-          p_position?: number
-          p_task_item_id: string
-          p_title?: string
-        }
-        Returns: undefined
-      }
+      update_task_item:
+        | {
+            Args: {
+              p_description?: string
+              p_position?: number
+              p_task_item_id: string
+              p_title?: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_description: string
+              p_expected_version: number
+              p_position: number
+              p_task_item_id: string
+              p_title: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_expected_version: number
+              p_task_item_id: string
+              p_title: string
+            }
+            Returns: undefined
+          }
       update_task_template:
         | {
             Args: {

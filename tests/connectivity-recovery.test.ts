@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { connectivityFetch, AUTH_REQUEST_TIMEOUT_MS } from '@/lib/connectivity/fetch';
+import { connectivityFetch, AUTH_REQUEST_TIMEOUT_MS, API_REQUEST_TIMEOUT_MS } from '@/lib/connectivity/fetch';
 import { CONNECTIVITY_PROBE_INTERVAL_MS, CONNECTIVITY_PROBE_TIMEOUT_MS, OFFLINE_HINT_RECHECK_MS, connectivityRequestEpoch,
   getConnectivityState, monitorConnectivity, reportBrowserConnectivity, reportConnectivityFailure,
   reportRequestFailure, revalidateConnectivity, usesLocalReads } from '@/lib/connectivity/state';
@@ -60,6 +60,17 @@ describe('request failures versus service availability', () => {
 });
 
 describe('bounded service proofs', () => {
+  it.each([['token?grant_type=password', 'POST'], ['signup', 'POST'], ['recover', 'POST'], ['user', 'PUT'], ['logout?scope=local', 'POST']])('BUG-05 bounds interactive Auth %s %s including a stalled body', async (path, method) => {
+    stop = monitorConnectivity(async () => undefined);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }))));
+    const rejected = expect(connectivityFetch(`https://server.test/auth/v1/${path}`, { method })).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS); await rejected;
+  });
+  it('BUG-05 bounds a REST mutation whose transport ignores cancellation', async () => {
+    stop = monitorConnectivity(async () => undefined); vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    const rejected = expect(connectivityFetch('https://server.test/rest/v1/rpc/create_task', { method: 'POST' })).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS); await rejected;
+  });
   it.each([401, 403])('classifies probe HTTP %s as an authorization problem without entering offline', async (status) => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{"code":"42501","message":"Denied"}', { status })));
     stop = monitorConnectivity((signal) => probeSupabase('https://server.test', 'fixture-key', stored, signal));

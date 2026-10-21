@@ -41,6 +41,7 @@ describe('automatic cache read connectivity', () => {
     let release!: (response: Response) => void;
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { release = resolve; })));
     const old = connectivityFetch('https://server.test/rest/v1/projects');
+    await Promise.resolve();
     reportConnectivityFailure(new TypeError('Failed to fetch'));
     release(new Response('[]', { status: 200 })); await old;
     expect(getConnectivityState()).toBe('degraded');

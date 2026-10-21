@@ -81,15 +81,15 @@ try{
  pull_task_item_changes:()=>({p_after_cursor:0,p_limit:100}),pull_task_item_changes_v2:()=>({p_after_cursor:0,p_limit:100}),
  remove_project_member:f=>({p_project_id:f.project,p_user_id:member}),remove_task_assignee:f=>({p_task_id:f.task,p_user_id:member}),
  restore_project:f=>({p_project_id:f.archivedProject}),restore_task:f=>({p_task_id:f.archivedTask}),
- set_task_item_comment:f=>({p_task_item_id:f.item,p_comment:'accepted'}),
+ set_task_item_comment:f=>({p_task_item_id:f.item,p_comment:'accepted',p_expected_version:1}),
  set_task_item_deadline:f=>({p_task_item_id:f.item,p_expected_version:1,p_deadline_at:new Date(Date.now()+86400000).toISOString()}),
- set_task_item_percentage:f=>({p_task_item_id:f.item,p_percentage:40}),
+ set_task_item_percentage:f=>({p_task_item_id:f.item,p_percentage:40,p_expected_version:1}),
  set_task_item_progress:f=>({p_task_item_id:f.item,p_completion_percent:40}),
- set_task_item_state:f=>({p_task_item_id:f.item,p_completed:true}),set_task_member_override:f=>({p_task_id:f.task,p_user_id:member,p_role:'viewer'}),
- transfer_project_ownership:f=>({p_project_id:f.project,p_new_owner_id:member}),update_my_profile:()=>({p_display_name:'Updated Security Owner'}),
- update_project:f=>({p_project_id:f.project,p_name:'Updated project',p_description:'Updated description'}),
- update_task:f=>({p_task_id:f.task,p_title:'Updated stage'}),update_task_item:f=>({p_task_item_id:f.item,p_title:'Updated item'}),
- update_task_template:f=>({p_template_id:f.template,p_name:'Updated template'}),update_task_template_item:f=>({p_item_id:f.templateItem,p_title:'Updated template item'}),
+ set_task_item_state:f=>({p_task_item_id:f.item,p_completed:true,p_expected_version:1}),set_task_member_override:f=>({p_task_id:f.task,p_user_id:member,p_role:'viewer'}),
+ transfer_project_ownership:f=>({p_project_id:f.project,p_new_owner_id:member}),update_my_profile:()=>({p_display_name:'Updated Security Owner',p_expected_display_name:'Security Owner'}),
+ update_project:f=>({p_project_id:f.project,p_name:'Updated project',p_description:'Updated description',p_expected_name:'Project A',p_expected_description:''}),
+ update_task:f=>({p_task_id:f.task,p_title:'Updated stage',p_description:'',p_expected_title:'Stage A',p_expected_description:''}),update_task_item:f=>({p_task_item_id:f.item,p_title:'Updated item',p_expected_version:1}),
+ update_task_template:f=>({p_template_id:f.template,p_name:'Updated template',p_description:'',p_expected_name:'Global template A',p_expected_description:''}),update_task_template_item:f=>({p_item_id:f.templateItem,p_title:'Updated template item',p_description:'',p_expected_title:'B',p_expected_description:''}),
  };
  const original=JSON.parse(readFileSync(root+'/supabase/tests/fixtures/hosted_security_baseline_20261016.json','utf8')).snapshot.functions.filter(f=>f.schema==='public'&&f.definer).map(f=>f.name).sort();
  assert.deepEqual(Object.keys(cases).sort(),original);
@@ -117,6 +117,16 @@ try{
   const f=await fixture();
   f.notification=(await env.db.query("insert into public.notifications(user_id,project_id,task_id,type,title,body,data,dedupe_key) values($1,$2,$3,'task_item_changed','Private notice','Private body','{}',$4) returning id",[owner,f.project,f.task,randomUUID()])).rows[0].id;
   const args=cases[name](f);
+  // Capture each fixture's actual baseline; do not bypass CAS or ACL checks.
+  if(name==='update_project'){const r=(await env.db.query('select name,description from public.projects where id=$1',[f.project])).rows[0];args.p_expected_name=r.name;args.p_expected_description=r.description??'';}
+  if(name==='update_task'){const r=(await env.db.query('select title,description from public.tasks where id=$1',[f.task])).rows[0];args.p_expected_title=r.title;args.p_expected_description=r.description??'';}
+  if(name==='update_task_template'){const r=(await env.db.query('select name,description from public.task_templates where id=$1',[f.template])).rows[0];args.p_expected_name=r.name;args.p_expected_description=r.description??'';}
+  if(name==='update_task_template_item'){const r=(await env.db.query('select title,description from public.task_template_items where id=$1',[f.templateItem])).rows[0];args.p_expected_title=r.title;args.p_expected_description=r.description??'';}
+  if(name==='update_my_profile')args.p_expected_display_name=(await env.db.query('select display_name from public.profiles where id=$1',[owner])).rows[0].display_name;
+  if(name.startsWith('apply_task_item_')&&!name.endsWith('_v2')||name==='set_task_item_progress'){
+   for(const id of [owner,admin,member,viewer,outsider])assert.equal((await denied(name+': retired contract requires upgrade',clients[id],name,args)).error.code,'PT426');
+   await denied(name+': anonymous',anon,name,args);await denied(name+': service_role',service,name,args);
+  }
   await denied(name+': anonymous',anon,name,args);
   await denied(name+': service_role',service,name,args);
   await denied(name+': forged actor argument',clients[owner],name,{...args,p_actor:owner});
@@ -125,7 +135,8 @@ try{
   assert.equal(malformed.status,400);assert.equal(await business(),malformedBefore);pass(name+': malformed JSON cannot execute');
   if(!ownScope.has(name))await denied(name+': outsider',clients[outsider],name,args);
   else{
-   const r=await clients[outsider].rpc(name,args);
+   const ownArgs=name==='update_my_profile'?{...args,p_expected_display_name:(await env.db.query('select display_name from public.profiles where id=$1',[outsider])).rows[0].display_name}:args;
+   const r=await clients[outsider].rpc(name,ownArgs);
    assert(!r.error,name+': self/global scope should remain usable');
    if(name==='get_my_profile')assert.equal(r.data.id,outsider);
    if(name==='list_task_item_last_editors')assert.deepEqual(r.data,[]);
@@ -174,8 +185,12 @@ try{
    assert.equal(await business(),before,name+': incorrect lifecycle changed state');pass(name+': active/archived inverse state');
   }
   const concurrent=await Promise.all([clients[owner].rpc(name,args),clients[owner].rpc(name,args)]);
-  assert(concurrent.some(result=>!result.error),name+': authorized concurrent calls failed '+JSON.stringify(concurrent));
-  for(const result of concurrent)if(result.error)assert(['P0001','42501','PT409','TT_MEMBER_LOOKUP'].includes(result.error.code),name+': unexpected concurrency failure '+JSON.stringify(result.error));
+  const retired=name.startsWith('apply_task_item_')&&!name.endsWith('_v2')||name==='set_task_item_progress';
+  if(retired)assert(concurrent.every(result=>result.error?.code==='PT426'),name+': retired concurrent write must require upgrade');
+  else{
+   assert(concurrent.some(result=>!result.error),name+': authorized concurrent calls failed '+JSON.stringify(concurrent));
+   for(const result of concurrent)if(result.error)assert(['P0001','42501','PT409','TT_MEMBER_LOOKUP'].includes(result.error.code),name+': unexpected concurrency failure '+JSON.stringify(result.error));
+  }
   pass(name+': two concurrent authorized requests','concurrency');
   coverage.push(name);pass(name+': authorized','rpc');
   if(coverage.length%10===0)console.log('RPC matrix progress '+coverage.length+'/57');
@@ -218,7 +233,7 @@ try{
   assert.equal(r.error.code,'22023');
  }
  assert.equal((await env.db.query('select count(*)::int n from private.member_identifier_limits')).rows[0].n,0);
- for(const id of [admin,viewer])await asUser(env.db,id,()=>env.db.query("select public.update_my_profile('Duplicate Security Name')"));
+ for(const id of [admin,viewer])await asUser(env.db,id,()=>env.db.query("select public.update_my_profile('Duplicate Security Name',(select display_name from public.profiles where id=auth.uid()))"));
  const failures=[];
  for(const p_identifier of ['absent@security.test',member+'@security.test','Duplicate Security Name']){
   const before=await business(),r=await clients[owner].rpc('add_project_member_by_identifier',{...lookupArgs,p_identifier});

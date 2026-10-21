@@ -89,9 +89,9 @@ end $$;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000002',true);
-select public.set_task_item_percentage(:'item',100);
-select public.set_task_item_percentage(:'item',100);
-select public.set_task_item_percentage(:'item',99);
+select public.set_task_item_percentage(:'item',100,(select sync_version from public.task_items where id=:'item'));
+select public.set_task_item_percentage(:'item',100,(select sync_version from public.task_items where id=:'item'));
+select public.set_task_item_percentage(:'item',99,(select sync_version from public.task_items where id=:'item'));
 reset role;
 do $$
 declare v_id uuid := current_setting('tasktrace.deadline_item')::uuid;

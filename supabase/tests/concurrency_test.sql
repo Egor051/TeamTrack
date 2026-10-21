@@ -37,14 +37,14 @@ select * from cc_state;
 -- select pg_sleep(5);
 -- set local role authenticated;
 -- select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000001',true);
--- select public.set_task_item_state(:'item', true);
+-- select public.set_task_item_state(:'item',true,(select sync_version from public.task_items where id=:'item'));
 -- commit;
 
 -- SESSION B (start while SESSION A is sleeping; it waits for A's lock)
 -- begin;
 -- set local role authenticated;
 -- select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000001',true);
--- select public.set_task_item_state(:'item', false);
+-- select public.set_task_item_state(:'item',false,(select sync_version from public.task_items where id=:'item'));
 -- commit;
 
 -- FINAL ASSERTIONS (run after both sessions commit)

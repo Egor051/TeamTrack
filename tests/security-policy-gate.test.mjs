@@ -68,6 +68,51 @@ describe('owner-approved tooling security policy', () => {
     const newRaw = changedAudit(report => { report.vulnerabilities.expo.via.push('braces'); });
     expect(() => evaluatePolicy(input({ raw: newRaw }))).toThrow(/dependency chain changed/);
   });
+  it('normalizes only the two captured Arborist reverse-edge variants, without losing via or affected-node checks', () => {
+    const first = changedAudit(report => {
+      const metro = report.vulnerabilities['@react-native/metro-config'];
+      const native = report.vulnerabilities['react-native'];
+      metro.effects = [...metro.effects.filter(name => name !== 'react-native-worklets'), 'react-native-worklets'];
+      native.effects = native.effects.filter(name => name !== 'react-native-worklets');
+    });
+    const variant = changedAudit(report => {
+      report.vulnerabilities['@react-native/metro-config'].effects = ['@react-native/community-cli-plugin'];
+      const native = report.vulnerabilities['react-native'];
+      native.effects = [...native.effects.filter(name => name !== 'react-native-worklets'), 'react-native-worklets'];
+    });
+    expect(auditGraphSha256(JSON.parse(first))).toBe(policy.auditGraphSha256);
+    expect(evaluatePolicy(input({ raw: first }))).toEqual(evaluatePolicy(input({ raw: variant })));
+    expect(auditGraphSha256(JSON.parse(variant))).toBe(policy.auditGraphSha256);
+    expect(evaluatePolicy(input({ raw: variant }))).toEqual(evaluatePolicy(input()));
+    for (const field of ['via', 'nodes', 'range', 'severity', 'fixAvailable']) {
+      const altered = changedAudit(report => {
+        const row = report.vulnerabilities['react-native-worklets'];
+        if (field === 'via') row.via = ['react-native'];
+        if (field === 'nodes') row.nodes.push('node_modules/another/node_modules/react-native-worklets');
+        if (field === 'range') row.range = '*';
+        if (field === 'severity') row.severity = 'critical';
+        if (field === 'fixAvailable') row.fixAvailable = false;
+      });
+      expect(() => evaluatePolicy(input({ raw: altered })), field).toThrow();
+    }
+  });
+  it('rejects an effects edge not supported by via, rather than silently discarding it', () => {
+    const altered = changedAudit(report => { report.vulnerabilities.braces.effects.push('react-native-worklets'); });
+    expect(() => evaluatePolicy(input({ raw: altered }))).toThrow(/Unknown effects edge/);
+    const unknown = changedAudit(report => { report.vulnerabilities.braces.effects.push('unknown-package'); });
+    expect(() => evaluatePolicy(input({ raw: unknown }))).toThrow(/Unknown effects edge/);
+  });
+  it('normalizes only the two frozen-input breaking downgrade proposals for the same meta finding', () => {
+    for (const fix of [{name:'react-native',version:'0.72.17',isSemVerMajor:true},{name:'react-native-worklets',version:'0.7.4',isSemVerMajor:true}]) {
+      const alternate=changedAudit(report=>{report.vulnerabilities['@react-native/metro-config'].fixAvailable=fix;});
+      expect(auditGraphSha256(JSON.parse(alternate))).toBe(policy.auditGraphSha256);
+      expect(evaluatePolicy(input({raw:alternate}))).toEqual(evaluatePolicy(input()));
+    }
+  });
+  it.each([{name:'react-native-worklets',version:'0.7.5',isSemVerMajor:true},{name:'react-native-worklets',version:'0.7.4',isSemVerMajor:false},{name:'another-parent',version:'0.7.4',isSemVerMajor:true}])('still rejects an unreviewed remediation proposal: %j', fix => {
+    const alternate=changedAudit(report=>{report.vulnerabilities['@react-native/metro-config'].fixAvailable=fix;});
+    expect(()=>evaluatePolicy(input({raw:alternate}))).toThrow();
+  });
   it('blocks unresolved and unanchored cyclic meta findings', () => {
     expect(() => evaluatePolicy(input({ raw: changedAudit(report => { report.vulnerabilities.expo.via.push('missing'); }) }))).toThrow(/Unresolved/);
     const cycle = changedAudit(report => {

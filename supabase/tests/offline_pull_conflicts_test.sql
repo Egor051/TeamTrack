@@ -42,25 +42,25 @@ begin
   if (select sync_version from public.task_items where id=v_item) <> 1 then
     raise exception 'initial sync version missing';
   end if;
-  perform public.set_task_item_comment(v_item, 'online');
+  perform public.set_task_item_comment(v_item,'online',(select sync_version from public.task_items where id=v_item));
   if (select sync_version from public.task_items where id=v_item) <> 2 then
     raise exception 'online comment did not advance version';
   end if;
-  perform public.update_task_item(v_item, 'Renamed item');
-  if (select sync_version from public.task_items where id=v_item) <> 2 then
-    raise exception 'title caused false version bump';
+  perform public.update_task_item(v_item,'Renamed item',(select sync_version from public.task_items where id=v_item));
+  if (select sync_version from public.task_items where id=v_item) <> 3 then
+    raise exception 'title edit did not advance version';
   end if;
   select count(*) into v_audit from public.audit_log where entity_id=v_item;
   v_result := public.apply_task_item_percentage_operation_v2(
     '92000000-0000-4000-8000-000000000011', v_item, 1, 70);
-  if v_result->>'status' <> 'conflict' or (v_result->>'version')::bigint <> 2
+  if v_result->>'status' <> 'conflict' or (v_result->>'version')::bigint <> 3
      or (select percentage from public.task_items where id=v_item) <> 0
      or (select count(*) from public.audit_log where entity_id=v_item) <> v_audit then
     raise exception 'conflict had side effects or consumed receipt';
   end if;
   v_result := public.apply_task_item_percentage_operation_v2(
-    '92000000-0000-4000-8000-000000000011', v_item, 2, 70);
-  if v_result->>'status' <> 'applied' or (v_result->>'version')::bigint <> 3
+    '92000000-0000-4000-8000-000000000011', v_item, 3, 70);
+  if v_result->>'status' <> 'applied' or (v_result->>'version')::bigint <> 4
      or (select percentage from public.task_items where id=v_item) <> 70 then
     raise exception 'retry after conflict failed';
   end if;
@@ -70,19 +70,19 @@ begin
      or (select count(*) from public.audit_log where entity_id=v_item) <> v_audit then
     raise exception 'completed duplicate did not win over stale version';
   end if;
-  perform public.set_task_item_percentage(v_item, 100);
-  if (select sync_version from public.task_items where id=v_item) <> 4 then
+  perform public.set_task_item_percentage(v_item,100,(select sync_version from public.task_items where id=v_item));
+  if (select sync_version from public.task_items where id=v_item) <> 5 then
     raise exception 'online progress did not advance version';
   end if;
   v_result := public.apply_task_item_state_operation_v2(
-    '92000000-0000-4000-8000-000000000012', v_item, 4, true);
-  if v_result->>'status' <> 'applied' or (v_result->>'version')::bigint <> 5
-     or (select sync_version from public.task_items where id=v_item) <> 5 then
+    '92000000-0000-4000-8000-000000000012', v_item, 5, true);
+  if v_result->>'status' <> 'applied' or (v_result->>'version')::bigint <> 6
+     or (select sync_version from public.task_items where id=v_item) <> 6 then
     raise exception 'accepted no-op did not advance version';
   end if;
   v_result := public.apply_task_item_comment_operation_v2(
-    '92000000-0000-4000-8000-000000000013', v_item, 5, 'offline');
-  if v_result->>'status' <> 'applied' or (v_result->>'version')::bigint <> 6 then
+    '92000000-0000-4000-8000-000000000013', v_item, 6, 'offline');
+  if v_result->>'status' <> 'applied' or (v_result->>'version')::bigint <> 7 then
     raise exception 'operation chain version failed';
   end if;
   v_cursor := 0;

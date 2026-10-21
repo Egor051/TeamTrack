@@ -3,6 +3,7 @@ import { reportRequestFailure, reportConnectivitySuccess, usesLocalReads, connec
 import { boundedOperation } from './deadline';
 let authRevalidations = 0;
 export const AUTH_REQUEST_TIMEOUT_MS = 5000;
+export const API_REQUEST_TIMEOUT_MS = 20_000;
 // Auth refresh retries span a 30s SDK tick. Recovery is background work and
 // must allow an in-flight retry lifecycle to finish; individual fetches are 5s.
 export const AUTH_REVALIDATION_TIMEOUT_MS = 35_000;
@@ -18,7 +19,7 @@ export async function revalidateAuthTransport<T>(restore: () => Promise<T>): Pro
 function aborted(message: string): Error {
   const error = new Error(message); error.name = 'AbortError'; return error;
 }
-async function fetchAuth(input: RequestInfo | URL, init: RequestInit | undefined, parent?: AbortSignal): Promise<Response> {
+async function fetchResponse(input: RequestInfo | URL, init: RequestInit | undefined, milliseconds: number, parent?: AbortSignal): Promise<Response> {
   let received: Response | undefined;
   try {
     return await boundedOperation(async (signal) => {
@@ -27,7 +28,7 @@ async function fetchAuth(input: RequestInfo | URL, init: RequestInit | undefined
       // otherwise refreshingDeferred can remain stuck after headers arrive.
       await response.clone().arrayBuffer();
       return response;
-    }, AUTH_REQUEST_TIMEOUT_MS, parent);
+    }, milliseconds, parent);
   } catch (error) {
     if (!parent?.aborted && received && [401, 403].includes(received.status)) {
       // Preserve an actual server denial even if its body never completes.
@@ -45,19 +46,14 @@ export const connectivityFetch: typeof fetch = async (input, init) => {
   const authRequest = /\/auth\/v1\//.test(url);
   const authRecovery = authRevalidations > 0 && authRequest;
   const request = typeof Request !== 'undefined' && input instanceof Request ? input : null;
-  const method = (init?.method ?? request?.method ?? 'GET').toUpperCase();
   // An initial expired session refresh must also fail within a bounded time.
   // Otherwise a half-open mobile connection never reports failure, getSession
   // never releases cached reads, and the recovery probe cannot start.
-  const authRefresh = authRequest && new URL(url).pathname.endsWith('/token')
-    && new URL(url).searchParams.get('grant_type') === 'refresh_token';
-  const boundedAuth = authRecovery || authRefresh || (authRequest && method === 'GET');
   const epoch = connectivityRequestEpoch();
   if (usesLocalReads() && !authRecovery) throw aborted(new ConnectivityUnavailableError().message);
   try {
-    const response = boundedAuth
-      ? await fetchAuth(input, init, init?.signal ?? request?.signal)
-      : await fetch(input, init);
+    const response = await fetchResponse(input, init, authRequest ? AUTH_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS,
+      init?.signal ?? request?.signal);
     if (init?.signal?.aborted || request?.signal.aborted) throw aborted('Operation cancelled');
     if (response.ok && !authRecovery && /\/rest\/v1\//.test(url)) reportConnectivitySuccess(epoch);
     else if ([502, 503, 504].includes(response.status)) {

@@ -2,7 +2,9 @@ import { createElement, useEffect } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const f = vi.hoisted(() => ({ user: { id: 'user' }, params: { id: 'project', taskId: 'stage' },
-  getTask: vi.fn(), editors: vi.fn(), replace: vi.fn(), load: async () => {}, refresh: async () => { await f.load(); } }));
+  getTask: vi.fn(), editors: vi.fn(), replace: vi.fn(), items: [] as Record<string, unknown>[], role: 'owner',
+  comment: vi.fn(), percentage: vi.fn(), title: vi.fn(), deadline: vi.fn(), perform: vi.fn(),
+  load: async () => {}, refresh: async () => { await f.load(); } }));
 vi.mock('expo-router', () => ({ router: { replace: f.replace }, useLocalSearchParams: () => f.params, useFocusEffect: (callback: () => void | (() => void)) => useEffect(callback, [callback]) }));
 vi.mock('react-native', () => ({ View: 'View', ScrollView: 'ScrollView', Pressable: 'Pressable', StyleSheet: { create: (value: unknown) => value }, useWindowDimensions: () => ({ width: 390 }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
@@ -15,14 +17,17 @@ vi.mock('@/lib/local-cache/cache', () => ({ SupersededReadError: class Supersede
   getCached: async () => null, isTaskProjectBlocked: async () => false, isCachedResult: () => false, isExplicitAccessError: (error: { code?: string }) => error?.code === '42501', isTransportFailure: () => false }));
 vi.mock('@/lib/local-cache/runtime-config', () => ({ buildSyncEnabled: () => false }));
 vi.mock('@/lib/local-cache/outbox', () => ({ listPendingOperations: async () => [], offlineWriteEnabled: () => false }));
-vi.mock('@/lib/local-cache/edit', () => ({ performSupportedEdit: vi.fn() }));
+vi.mock('@/lib/local-cache/edit', () => ({ performSupportedEdit: f.perform }));
 vi.mock('@/lib/local-cache/sync', () => ({ subscribeSyncChanges: () => () => {} }));
 vi.mock('@/lib/local-cache/repository', () => ({ ChecklistLocalRepository: {} }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeMany: () => () => {} }));
 vi.mock('@/features/projects/use-deadline-clock', () => ({ useDeadlineClock: () => Date.now() }));
 vi.mock('@/features/projects/task-members-panel', () => ({ TaskMembersPanel: 'TaskMembersPanel' }));
 vi.mock('@/features/projects/projects', () => ({ getTask: f.getTask, getTaskProjectContext: async () => ({ id: 'project', name: 'Project', role: 'owner', status: 'active' }),
-  listTaskItems: async () => [], getMyTaskRole: async () => 'owner', listTaskParticipants: async () => [], listTaskAssignees: async () => [], listTaskItemLastEditors: f.editors }));
+  listTaskItems: async (_task: string, mode: string) => f.items.filter((item) => Boolean(item.is_archived) === (mode === 'archived')).map((item) => ({ ...item })),
+  getMyTaskRole: async () => f.role, listTaskParticipants: async () => [], listTaskAssignees: async () => [], listTaskItemLastEditors: f.editors,
+  setTaskItemComment: f.comment, setTaskItemPercentage: f.percentage, updateTaskItem: f.title, setTaskItemDeadline: f.deadline,
+  getTaskItemForEdit: async () => ({ ...f.items[0] }) }));
 vi.mock('@/components/ui/theme-provider', () => ({ useTheme: () => ({ colors: {} }) }));
 vi.mock('@/components/ui/screen', () => ({ Screen: 'Screen' }));
 vi.mock('@/components/ui/page-header', () => ({ PageHeader: 'PageHeader' }));
@@ -49,6 +54,8 @@ let screen: ReactTestRenderer;
 const stage = (title = 'Initial', id = 'stage') => ({ id, project_id: 'project', title, description: null, status: 'not_started' });
 const body = () => JSON.stringify(screen.toJSON(), (key, value) => key === '_owner' ? undefined : value);
 beforeEach(() => { vi.clearAllMocks(); f.params = { id: 'project', taskId: 'stage' }; f.getTask.mockResolvedValue(stage()); f.editors.mockResolvedValue([]);
+  f.items = []; f.role = 'owner'; f.deadline.mockReset().mockResolvedValue(undefined);
+  f.perform.mockImplementation(async (input: { onlineAction: () => Promise<void> }) => { await input.onlineAction(); return { kind: 'server' }; });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.spyOn(console, 'error').mockImplementation(() => {}); vi.spyOn(console, 'warn').mockImplementation(() => {}); });
 afterEach(async () => { await act(async () => screen?.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function mount() { await act(async () => { screen = create(createElement(TaskScreen)); }); }
@@ -91,4 +98,53 @@ it('a late response from the previous stage cannot overwrite a newly opened rout
   await act(async () => screen.update(createElement(TaskScreen)));
   await act(async () => resolve(stage('Late old stage')));
   expect(body()).toContain('New stage'); expect(body()).not.toContain('Late old stage');
+});
+const item = () => ({ id: 'item', task_id: 'stage', title: 'Checklist item', description: 'Independent work instructions', comment: 'Original comment', percentage: 20,
+  is_completed: false, is_archived: false, sync_version: 1, position: 1, deadline_at: null });
+const button = (label: string) => screen.root.findByProps({ children: label });
+async function details() { await act(async () => button('Детали').props.onPress()); }
+it('BUG-01/09 preserves a comment draft, displays instructions and requires explicit review before using the new version', async () => {
+  f.items = [item()]; await mount(); await details(); expect(body()).toContain('Independent work instructions');
+  await act(async () => button('Изменить комментарий').props.onPress());
+  await act(async () => screen.root.findByProps({ label: 'Комментарий к пункту' }).props.onChangeText('My draft'));
+  f.items = [{ ...item(), comment: 'Remote comment', sync_version: 2 }]; await act(async () => f.refresh());
+  expect(screen.root.findByProps({ label: 'Комментарий к пункту' }).props.value).toBe('My draft');
+  expect(button('Сохранить комментарий').props.disabled).toBe(true); expect(f.comment).not.toHaveBeenCalled();
+  await act(async () => button('Продолжить с моим черновиком пункта').props.onPress());
+  await act(async () => button('Сохранить комментарий').props.onPress());
+  expect(f.comment).toHaveBeenCalledWith('item', 'My draft', 2);
+  expect(f.perform.mock.calls.at(-1)?.[0].itemVersion).toBe(2);
+});
+it('BUG-01 preserves the original version of an edited percentage through a background reload', async () => {
+  f.items = [item()]; await mount(); await details();
+  const field = () => screen.root.findByProps({ label: 'Прогресс, от 1 до 100%' });
+  await act(async () => field().props.onChangeText('40'));
+  f.items = [{ ...item(), percentage: 70, sync_version: 2 }]; await act(async () => f.refresh());
+  expect(field().props.value).toBe('40'); expect(button('Сохранить прогресс').props.disabled).toBe(true);
+  await act(async () => button('Продолжить с моим черновиком пункта').props.onPress());
+  await act(async () => button('Сохранить прогресс').props.onPress()); expect(f.percentage).toHaveBeenCalledWith('item', 40, 2);
+});
+it('BUG-01 applies CAS to a renamed item and keeps its text during a remote rename', async () => {
+  f.items = [item()]; await mount(); await details(); await act(async () => button('Изменить текст').props.onPress());
+  await act(async () => screen.root.findByProps({ label: 'Текст пункта' }).props.onChangeText('My title'));
+  f.items = [{ ...item(), title: 'Remote title', sync_version: 2 }]; await act(async () => f.refresh());
+  expect(button('Сохранить').props.disabled).toBe(true); expect(screen.root.findByProps({ label: 'Текст пункта' }).props.value).toBe('My title');
+  await act(async () => button('Продолжить с моим черновиком пункта').props.onPress());
+  await act(async () => button('Сохранить').props.onPress()); expect(f.title).toHaveBeenCalledWith('item', 'My title', 2);
+});
+it('BUG-08 retries a deadline only after accepting the authoritative version without discarding the chosen date', async () => {
+  f.items = [item()]; await mount(); await details(); await act(async () => button('Установить дедлайн').props.onPress());
+  f.items = [{ ...item(), sync_version: 2 }]; f.deadline.mockRejectedValueOnce({ code: 'PT409' });
+  const picker = () => screen.root.find((node) => String(node.type) === 'DeadlinePicker'); const chosen = '2030-01-01T12:30:00Z';
+  await act(async () => picker().props.onSave(chosen)); expect(f.deadline).toHaveBeenLastCalledWith('item', chosen, 1);
+  expect(picker().props.onResolveConflict).toBeTypeOf('function');
+  await act(async () => picker().props.onResolveConflict()); await act(async () => picker().props.onSave(chosen));
+  expect(f.deadline).toHaveBeenLastCalledWith('item', chosen, 2); expect(screen.root.findAll((node) => String(node.type) === 'DeadlinePicker')).toHaveLength(0);
+});
+it('BUG-11 retains the active/archive switch after losing checklist administration', async () => {
+  f.items = [item(), { ...item(), id: 'archived', title: 'Archived item', is_archived: true }]; await mount();
+  const toggle = () => screen.root.findByProps({ accessibilityLabel: 'Пункты чек-листа' });
+  await act(async () => toggle().props.onChange('archived')); f.role = 'member'; await act(async () => f.refresh());
+  expect(toggle().props.value).toBe('archived'); await act(async () => toggle().props.onChange('active'));
+  expect(body()).toContain('Checklist item'); expect(toggle().props.value).toBe('active');
 });

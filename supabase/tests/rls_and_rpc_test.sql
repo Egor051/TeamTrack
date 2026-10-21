@@ -84,20 +84,20 @@ reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='member'),true);
-select public.update_task_item((select id from sec_state where key='item'),'Raised checklist admin');
+select public.update_task_item((select id from sec_state where key='item'),'Raised checklist admin',(select sync_version from public.task_items where id=(select id from sec_state where key='item')));
 do $$ declare denied boolean:=false; begin
   if public.get_my_task_role((select id from sec_state where key='task')) <> 'admin' then raise exception 'FAIL SEC04'; end if;
-  begin perform public.update_task((select id from sec_state where key='task'),'Project-level escalation',null); exception when insufficient_privilege then denied:=true; end;
+  begin perform public.update_task((select id from sec_state where key='task'),'Project-level escalation',null,(select title from public.tasks where id=(select id from sec_state where key='task')),(select description from public.tasks where id=(select id from sec_state where key='task'))); exception when insufficient_privilege then denied:=true; end;
   if not denied then raise exception 'FAIL SEC04: checklist override escalated stage authority'; end if;
 end $$;
 reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='admin_a'),true);
-select public.update_task((select id from sec_state where key='task'),'Admin still controls stage','project authority retained');
+select public.update_task((select id from sec_state where key='task'),'Admin still controls stage','project authority retained',(select title from public.tasks where id=(select id from sec_state where key='task')),(select description from public.tasks where id=(select id from sec_state where key='task')));
 do $$ declare denied boolean:=false; begin
   if public.get_my_task_role((select id from sec_state where key='task')) <> 'viewer' then raise exception 'FAIL SEC05'; end if;
-  begin perform public.set_task_item_percentage((select id from sec_state where key='item'),10); exception when insufficient_privilege then denied:=true; end;
+  begin perform public.set_task_item_percentage((select id from sec_state where key='item'),10,(select sync_version from public.task_items where id=(select id from sec_state where key='item'))); exception when insufficient_privilege then denied:=true; end;
   if not denied then raise exception 'FAIL SEC05: lowered checklist viewer mutated progress'; end if;
 end $$;
 do $$ declare denied boolean:=false; begin
@@ -124,9 +124,9 @@ reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='viewer'),true);
-select public.set_task_item_percentage((select id from sec_state where key='item'),25);
+select public.set_task_item_percentage((select id from sec_state where key='item'),25,(select sync_version from public.task_items where id=(select id from sec_state where key='item')));
 do $$ declare denied boolean:=false; begin
-  begin perform public.update_task_item((select id from sec_state where key='item'),'Viewer structural edit'); exception when insufficient_privilege then denied:=true; end;
+  begin perform public.update_task_item((select id from sec_state where key='item'),'Viewer structural edit',(select sync_version from public.task_items where id=(select id from sec_state where key='item'))); exception when insufficient_privilege then denied:=true; end;
   if not denied then raise exception 'FAIL SEC07: member override granted checklist-admin authority'; end if;
 end $$;
 reset role;
@@ -142,10 +142,10 @@ do $$ begin
 end $$;
 do $$ declare denied boolean; begin
   denied:=false;
-  begin perform public.update_project((select id from sec_state where key='project'),'Fail closed',null); exception when insufficient_privilege then denied:=true; end;
+  begin perform public.update_project((select id from sec_state where key='project'),'Fail closed',null,(select name from public.projects where id=(select id from sec_state where key='project')),(select description from public.projects where id=(select id from sec_state where key='project'))); exception when insufficient_privilege then denied:=true; end;
   if not denied then raise exception 'FAIL SEC08: null project role bypassed project mutation'; end if;
   denied:=false;
-  begin perform public.set_task_item_comment((select id from sec_state where key='item'),'Fail closed'); exception when insufficient_privilege then denied:=true; end;
+  begin perform public.set_task_item_comment((select id from sec_state where key='item'),'Fail closed',(select sync_version from public.task_items where id=(select id from sec_state where key='item'))); exception when insufficient_privilege then denied:=true; end;
   if not denied then raise exception 'FAIL SEC08: null task role bypassed checklist mutation'; end if;
   denied:=false;
   begin perform * from public.list_task_member_overrides((select id from sec_state where key='task')); exception when insufficient_privilege then denied:=true; end;
@@ -165,7 +165,7 @@ reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='member'),true);
-select public.update_my_profile('Canonical Member');
+select public.update_my_profile('Canonical Member',(select display_name from public.profiles where id=auth.uid()));
 do $$ declare denied boolean:=false; n integer:=0; begin
   begin
     update public.profiles set display_name='Bypass' where id=(select id from sec_state where key='member');
@@ -216,7 +216,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='owner'),true);
 do $$ declare before_count integer; after_count integer; begin
   select count(*) into before_count from public.audit_log where entity_type='task' and entity_id=(select id from sec_state where key='task') and action='updated';
-  perform public.update_task((select id from sec_state where key='task'),'Single audit update','one row');
+  perform public.update_task((select id from sec_state where key='task'),'Single audit update','one row',(select title from public.tasks where id=(select id from sec_state where key='task')),(select description from public.tasks where id=(select id from sec_state where key='task')));
   select count(*) into after_count from public.audit_log where entity_type='task' and entity_id=(select id from sec_state where key='task') and action='updated';
   if after_count-before_count <> 1 then raise exception 'FAIL SEC14 task update audit count=%',after_count-before_count; end if;
 end $$;
@@ -233,14 +233,14 @@ reset role;
 -- Text limits are consistent in RPCs and table constraints.
 set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from sec_state where key='owner'),true);
-select public.update_task((select id from sec_state where key='task'),repeat('T',500),repeat('D',10000));
-select public.update_task_item((select id from sec_state where key='item'),repeat('I',500),repeat('D',10000));
-select public.set_task_item_comment((select id from sec_state where key='item'),repeat('C',10000));
+select public.update_task((select id from sec_state where key='task'),repeat('T',500),repeat('D',10000),(select title from public.tasks where id=(select id from sec_state where key='task')),(select description from public.tasks where id=(select id from sec_state where key='task')));
+select public.update_task_item((select id from sec_state where key='item'),repeat('I',500),repeat('D',10000),null::numeric,(select sync_version from public.task_items where id=(select id from sec_state where key='item')));
+select public.set_task_item_comment((select id from sec_state where key='item'),repeat('C',10000),(select sync_version from public.task_items where id=(select id from sec_state where key='item')));
 do $$ declare denied boolean:=false; begin
-  begin perform public.update_task((select id from sec_state where key='task'),repeat('T',501),null); exception when others then denied:=true; end;
+  begin perform public.update_task((select id from sec_state where key='task'),repeat('T',501),null,(select title from public.tasks where id=(select id from sec_state where key='task')),(select description from public.tasks where id=(select id from sec_state where key='task'))); exception when others then denied:=true; end;
   if not denied then raise exception 'FAIL SEC16 task title >500'; end if;
   denied:=false;
-  begin perform public.set_task_item_comment((select id from sec_state where key='item'),repeat('C',10001)); exception when others then denied:=true; end;
+  begin perform public.set_task_item_comment((select id from sec_state where key='item'),repeat('C',10001),(select sync_version from public.task_items where id=(select id from sec_state where key='item'))); exception when others then denied:=true; end;
   if not denied then raise exception 'FAIL SEC16 comment >10000'; end if;
 end $$;
 reset role;
@@ -252,7 +252,9 @@ end $$;
 -- Corrected catalog/grant/Realtime exposure.
 do $$ declare n integer; begin
   select count(*) into n from pg_proc p join pg_namespace ns on ns.oid=p.pronamespace where ns.nspname='public' and p.proname='update_task_item';
-  if n <> 1 then raise exception 'FAIL SEC18 update_task_item overload count=%',n; end if;
+  if n <> 3 or not exists(select 1 from pg_proc where oid='public.update_task_item(uuid,text,bigint)'::regprocedure
+    and pronargdefaults=0 and proargnames=array['p_task_item_id','p_title','p_expected_version']::text[]) then
+    raise exception 'FAIL SEC18 unexpected/ambiguous update_task_item overloads=%',n; end if;
   if exists (
     select 1 from pg_publication_tables
      where pubname='supabase_realtime'

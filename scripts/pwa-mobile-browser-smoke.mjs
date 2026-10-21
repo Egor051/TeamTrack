@@ -17,11 +17,15 @@ await mkdir(evidence, { recursive: true });
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png',
   '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 const held = new Set();
-let stallNavigation = false, failNavigation = false, version = 1;
+let stallNavigation = false, stallBody = false, failNavigation = false, version = 1;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const appRoute = isAppNavigation({ request: { mode: 'navigate' }, url: new URL(req.url, origin) });
   if (appRoute && stallNavigation) { held.add(res); res.on('close', () => held.delete(res)); return; }
+  if (appRoute && stallBody) {
+    res.writeHead(200, { 'Content-Type': 'text/html' }); res.write('<!doctype html><html><head>');
+    held.add(res); res.on('close', () => held.delete(res)); return;
+  }
   if (appRoute && failNavigation) { req.socket.destroy(); return; }
   const path = resolve(root, `.${url.pathname}`);
   if (path !== root && !path.startsWith(root + sep)) { res.writeHead(403).end(); return; }
@@ -47,7 +51,7 @@ try {
     let browser;
     const errors = [];
     try {
-      version = 1; stallNavigation = false; failNavigation = false;
+      version = 1; stallNavigation = false; stallBody = false; failNavigation = false;
       browser = await engine.launch({ headless: true });
       const context = await browser.newContext({ ...device });
       await context.route('**/*', (route) => new URL(route.request().url()).origin === origin
@@ -82,6 +86,13 @@ try {
       assert.equal(await page.evaluate(() => navigator.onLine), true);
       for (const response of held) response.destroy();
       stallNavigation = false;
+      // BUG-06: headers and a partial body are not a usable app document.
+      stallBody = true;
+      const bodyStarted = Date.now();
+      await page.reload({ waitUntil: 'load', timeout: 8000 }); await login().waitFor({ timeout: 1000 });
+      const bodyRecoveryMs = Date.now() - bodyStarted;
+      assert.ok(bodyRecoveryMs < 7500, 'Cached shell did not release a stalled HTML body');
+      stallBody = false; for (const response of held) response.destroy();
 
       // A waiting update stays waiting until the existing user action. Apply
       // it once, reload once, and keep cached navigation working afterwards.
@@ -102,7 +113,7 @@ try {
       assert.equal(await page.evaluate(async () => !!(await navigator.serviceWorker.ready).waiting), false);
       assert.deepEqual(errors, []);
       await page.screenshot({ path: resolve(evidence, `${name}-pwa.png`), fullPage: true });
-      const result = { name, pass: true, navigationRecoveryMs, updateReloads: navigations, errors };
+      const result = { name, pass: true, navigationRecoveryMs, bodyRecoveryMs, updateReloads: navigations, errors };
       results.push(result); console.log(JSON.stringify(result));
       await context.close();
     } catch (error) {

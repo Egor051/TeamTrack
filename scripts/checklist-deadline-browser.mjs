@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { openSync, closeSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
@@ -9,12 +10,12 @@ export async function verifyDeadlineBrowser({ api, db, owner, ids, token, projec
   const data = async (query) => { const r = await query; if (r.error) throw new Error(JSON.stringify(r.error)); return r.data; };
   await db.query("update private.offline_runtime_config set write_enabled=true,sync_enabled=true,updated_at=now()");
   await db.query("update public.profiles set display_name='Тест дедлайнов' where id=$1", [ids[0]]);
-  await data(owner.rpc('update_task_item', { p_task_item_id: item, p_title: 'Очень длинное название пункта чек-листа для проверки мобильного экрана: ' + 'Согласование подробных требований и результатов работ. '.repeat(5) }));
+  await data(fixtureCas(owner, 'update_task_item', { p_task_item_id: item, p_title: 'Очень длинное название пункта чек-листа для проверки мобильного экрана: ' + 'Согласование подробных требований и результатов работ. '.repeat(5) }));
   const nextTask = await data(owner.rpc('create_task', { p_project_id: project, p_title: 'Горящий этап' }));
   const nextItem = await data(owner.rpc('create_task_item', { p_task_id: nextTask, p_title: 'Горящий чек-лист' }));
   const archivedTask = await data(owner.rpc('create_task', { p_project_id: project, p_title: 'Архивный этап для статистики' }));
   const archivedItem = await data(owner.rpc('create_task_item', { p_task_id: archivedTask, p_title: 'Архив не входит в обзор' }));
-  await data(owner.rpc('set_task_item_percentage', { p_task_item_id: archivedItem, p_percentage: 50 }));
+  await data(fixtureCas(owner, 'set_task_item_percentage', { p_task_item_id: archivedItem, p_percentage: 50 }));
   const archivedVersion = (await data(owner.from('task_items').select('sync_version').eq('id', archivedItem).single())).sync_version;
   await data(owner.rpc('set_task_item_deadline', { p_task_item_id: archivedItem, p_expected_version: archivedVersion, p_deadline_at: new Date(Date.now() + 3_600_000).toISOString() }));
   await data(owner.rpc('archive_task', { p_task_id: archivedTask }));

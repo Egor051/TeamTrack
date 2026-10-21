@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 // Only the local stack is allowed, including the optional legacy reproduction.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -92,7 +93,7 @@ try {
   }
   report.stable = { datasets: 15, rounds: 10, separate_http_pages: verified, snapshot_at: m.snapshot_at };
   console.log('PASS stable revisions across separate HTTP transactions:', JSON.stringify(report.stable));
-  await value(user.rpc('set_task_item_percentage', { p_task_item_id: item, p_percentage: 67 }));
+  await value(fixtureCas(user, 'set_task_item_percentage', { p_task_item_id: item, p_percentage: 67 }));
   const conflict = await page(m, 'items');
   check(conflict.status === 409 && conflict.data.code === 'PT409', 'Mutation did not return one HTTP conflict');
   const details = JSON.parse(conflict.data.details);

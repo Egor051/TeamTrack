@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 // Exported application, independent browser sessions and real disposable services.
 // Run via run-security-integrations.mjs. No hosted data, account or key is used.
 import assert from 'node:assert/strict';
@@ -22,7 +23,7 @@ const base = 'http://127.0.0.1:4178', password = 'TemplateBrowserUnique9!';
 const out = process.env.TASKTRACE_SECURITY_EVIDENCE || resolve('.expo/security-evidence');
 mkdirSync(out, { recursive: true });
 const value = async p => { const r = await p; if (r.error) throw r.error; return r.data; };
-const rpc = (name, args) => value(owner.rpc(name, args));
+const rpc = (name, args) => value(fixtureCas(owner,name,args));
 const pause = ms => new Promise(r => setTimeout(r, ms));
 async function until(probe, label, timeout = 30000) {
   const end = Date.now() + timeout;
@@ -105,7 +106,7 @@ try {
   await b.getByRole('button', { name: 'Продолжить с моим черновиком', exact: true }).waitFor();
   assert.equal(await b.getByLabel('Название', { exact: true }).nth(1).inputValue(), 'Second session draft');
   assert(await b.getByRole('button', { name: 'Сохранить шаблон', exact: true }).isDisabled());
-  const stale = await owner.rpc('update_task_template', { p_template_id: template, p_name: 'Lost', p_description: '', p_expected_name: 'Realtime renamed', p_expected_description: '' });
+  const stale = await fixtureCas(owner, 'update_task_template', { p_template_id: template, p_name: 'Lost', p_description: '', p_expected_name: 'Realtime renamed', p_expected_description: '' });
   assert.equal(stale.error?.code, 'PT409');
   await b.getByRole('button', { name: 'Продолжить с моим черновиком', exact: true }).click();
   await b.getByRole('button', { name: 'Сохранить шаблон', exact: true }).click();
@@ -133,7 +134,7 @@ try {
   await until(async () => await b.getByLabel('Название', { exact: true }).nth(1).inputValue() === 'After membership revoke', 'global access after revoke');
   const hidden = await value(foreign.rpc('create_task_template', { p_name: 'Foreign active library' }));
   await b.getByRole('button', { name: 'Раскрыть шаблон Foreign active library', exact: true }).waitFor();
-  assert.equal((await owner.rpc('update_task_template', { p_template_id: hidden, p_name: 'Forbidden' })).error?.code, '42501');
+  assert.equal((await fixtureCas(owner, 'update_task_template', { p_template_id: hidden, p_name: 'Forbidden' })).error?.code, '42501');
   await value(foreign.rpc('archive_task_template', { p_template_id: hidden }));
   await until(async () => !(await b.getByRole('button', { name: 'Раскрыть шаблон Foreign active library', exact: true }).count()), 'foreign archived template hidden');
   assert.equal(await rpc('get_task_template', { p_template_id: hidden }), null);

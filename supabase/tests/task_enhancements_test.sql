@@ -21,9 +21,9 @@ select public.create_task_item(:'task','First item') \gset
 
 select public.add_project_member(:'project','30000000-0000-0000-0000-000000000003','admin');
 
-select public.update_task(:'task','Renamed task','Updated description');
-select public.set_task_item_comment(:'item','A useful note');
-select public.set_task_item_percentage(:'item',50);
+select public.update_task(:'task','Renamed task','Updated description',(select title from public.tasks where id=:'task'),(select description from public.tasks where id=:'task'));
+select public.set_task_item_comment(:'item','A useful note',(select sync_version from public.task_items where id=:'item'));
+select public.set_task_item_percentage(:'item',50,(select sync_version from public.task_items where id=:'item'));
 select exists (select 1 from public.audit_log where entity_type='task_item' and entity_id=:'item' and action='updated' and new_data @> '{"comment":"A useful note"}'::jsonb) as comment_audit_ok \gset
 \if :comment_audit_ok
 \else
@@ -49,7 +49,7 @@ select exists (select 1 from public.task_items where id = :'item' and comment='A
 \quit 1
 \endif
 
-select public.set_task_item_state(:'item', true);
+select public.set_task_item_state(:'item',true,(select sync_version from public.task_items where id=:'item'));
 select exists (
     select 1
     from public.audit_log
@@ -97,7 +97,7 @@ declare
     v_count integer;
 begin
     begin
-        perform public.update_task_item(current_setting('task_enhancements.item_id')::uuid,'Title-only rename');
+        perform public.update_task_item(current_setting('task_enhancements.item_id')::uuid,'Title-only rename',(select sync_version from public.task_items where id=current_setting('task_enhancements.item_id')::uuid));
     exception when insufficient_privilege then
         v_denied := true;
     end;
@@ -107,7 +107,7 @@ begin
 
     v_denied := false;
     begin
-        perform public.update_task(current_setting('task_enhancements.task_id')::uuid,'Member stage rename',null);
+        perform public.update_task(current_setting('task_enhancements.task_id')::uuid,'Member stage rename',null,(select title from public.tasks where id=current_setting('task_enhancements.task_id')::uuid),(select description from public.tasks where id=current_setting('task_enhancements.task_id')::uuid));
     exception when insufficient_privilege then
         v_denied := true;
     end;
@@ -133,8 +133,8 @@ select title = 'First item' as member_text_edit_denied
 \quit 1
 \endif
 
-select public.set_task_item_comment(:'item','Комментарий: Member note');
-select public.set_task_item_percentage(:'item',75);
+select public.set_task_item_comment(:'item','Комментарий: Member note',(select sync_version from public.task_items where id=:'item'));
+select public.set_task_item_percentage(:'item',75,(select sync_version from public.task_items where id=:'item'));
 select comment = 'Комментарий: Member note' and percentage = 75 and not is_completed as member_progress_comment_ok
   from public.task_items where id=:'item' \gset
 \if :member_progress_comment_ok
@@ -144,7 +144,7 @@ select comment = 'Комментарий: Member note' and percentage = 75 and n
 \endif
 
 select set_config('request.jwt.claim.sub','30000000-0000-0000-0000-000000000003',true);
-select public.update_task(:'task','Admin stage rename','Admin stage description');
+select public.update_task(:'task','Admin stage rename','Admin stage description',(select title from public.tasks where id=:'task'),(select description from public.tasks where id=:'task'));
 select title = 'Admin stage rename' and description = 'Admin stage description' as admin_stage_edit_ok
   from public.tasks where id=:'task' \gset
 \if :admin_stage_edit_ok

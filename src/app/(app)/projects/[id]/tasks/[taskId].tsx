@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getTask,
+  getTaskItemForEdit,
   getTaskProjectContext,
   listTaskItems,
   createTaskItem,
@@ -102,6 +103,7 @@ export default function TaskScreen() {
   const expandedItem = expansion.query === linkedItem ? expansion.id : linkedItem ?? null;
   const setExpandedItem = (itemId: string | null) => setExpansion({ query: linkedItem, id: itemId });
   const [deadlineEditing, setDeadlineEditing] = useState<TaskItem | null>(null);
+  const [deadlineConflict, setDeadlineConflict] = useState<TaskItem | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const listTop = useRef(0);
   const linkedPositions = useRef(new Map<string, number>());
@@ -116,6 +118,8 @@ export default function TaskScreen() {
   const [commentEditing, setCommentEditing] = useState<string | null>(null);
   const [editComment, setEditComment] = useState("");
   const [editPercentage, setEditPercentage] = useState<Record<string, string>>({});
+  const [draftVersions, setDraftVersions] = useState<Record<string, number>>({});
+  const draftVersion = (item: TaskItem, field: string) => draftVersions[`${item.id}:${field}`] ?? item.sync_version;
   const [loadError, setLoadError] = useState("");
   const [supplementaryError, setSupplementaryError] = useState("");
   const [taskEditBase, setTaskEditBase] = useState<Pick<Task, 'id' | 'title' | 'description'> | null>(null);
@@ -366,16 +370,18 @@ export default function TaskScreen() {
       setActionError({ message: "Введите целое число от 1 до 100.", target: item.id });
       return;
     }
-    void runItemEdit(item, { type: 'set_task_item_percentage', payload: { percentage: value } }, () => setTaskItemPercentage(item.id, value), () => {
+    const version = draftVersion(item, 'percentage');
+    void runItemEdit(item, { type: 'set_task_item_percentage', payload: { percentage: value } }, () => setTaskItemPercentage(item.id, value, version), () => {
       setEditPercentage((current) => {
         const next = { ...current };
         delete next[item.id];
         return next;
       });
-    });
+      setDraftVersions((current) => { const next = { ...current }; delete next[`${item.id}:percentage`]; return next; });
+    }, version);
   }
 
-  async function runItemEdit(item: TaskItem, edit: SupportedEdit, onlineAction: () => Promise<unknown>, afterSave?: () => void): Promise<void> {
+  async function runItemEdit(item: TaskItem, edit: SupportedEdit, onlineAction: () => Promise<unknown>, afterSave?: () => void, version = item.sync_version): Promise<void> {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -386,7 +392,7 @@ export default function TaskScreen() {
         throw new Error('Нет доступа к изменению пункта.');
       }
       const result = await performSupportedEdit({ userId: user.id, projectId: id, taskId, itemId: item.id,
-        itemVersion: item.sync_version, offline: offlineForEdits, edit, onlineAction });
+        itemVersion: version, offline: offlineForEdits, edit, onlineAction });
       if (result.kind === 'server') {
         afterSave?.();
         await load();
@@ -399,6 +405,7 @@ export default function TaskScreen() {
       }
     } catch (error) {
       setActionError({ message: userMessage(error, 'Операция не выполнена.'), target: item.id });
+      if ((error as { code?: string })?.code === 'PT409') await load();
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -509,7 +516,7 @@ export default function TaskScreen() {
             </Card>
             <View style={[styles.sectionHead, compact && styles.checklistHeadCompact]}>
               <View style={[styles.sectionTitle, compact && styles.checklistTitleCompact]}><ThemedText type="h2">Чек-лист</ThemedText><ThemedText type="small">{showArchivedItems ? "Архивные пункты доступны для просмотра." : "Отмечайте готовые пункты или уточняйте прогресс в деталях."}</ThemedText></View>
-              {canEditChecklist ? <SegmentedControl value={currentView} accessibilityLabel="Пункты чек-листа" options={[{ value: "active", label: "Активные" }, { value: "archived", label: "Архив" }]} onChange={(value) => { if (busy) return; setShowArchivedItems(value === "archived"); setExpandedItem(null); setEditing(null); setCommentEditing(null); setActionError(null); }} /> : null}
+              {hasTaskAccess ? <SegmentedControl value={currentView} accessibilityLabel="Пункты чек-листа" options={[{ value: "active", label: "Активные" }, { value: "archived", label: "Архив" }]} onChange={(value) => { if (busy) return; setShowArchivedItems(value === "archived"); setExpandedItem(null); setEditing(null); setCommentEditing(null); setActionError(null); }} /> : null}
             </View>
             {loadedView !== currentView ? (loadError ? <View style={styles.feedback}><ThemedText type="small">Выбранный список пунктов не загрузился.</ThemedText><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Повторить</Button></View> : <LoadingState label={showArchivedItems ? "Загружаем архив…" : "Загружаем чек-лист…"} />) : !visibleItems.length ? (
               <EmptyState
@@ -523,6 +530,9 @@ export default function TaskScreen() {
                   const parsedPercentage = parsePercentageInput(percentageRaw);
                   const percentageSaveValid = parsedPercentage !== null && parsedPercentage !== item.percentage;
                   const formattedComment = formatChecklistComment(item.comment);
+                  const conflictingDraft = (editing === item.id && draftVersion(item, 'title') !== item.sync_version)
+                    || (commentEditing === item.id && draftVersion(item, 'comment') !== item.sync_version)
+                    || (editPercentage[item.id] !== undefined && draftVersion(item, 'percentage') !== item.sync_version);
                   return (
                   <DeadlineCard state={task.status === 'archived' ? 'normal' : deadlineState(item, now)} key={item.id} muted={item.is_archived} onLayout={(event) => {
                     linkedPositions.current.set(item.id, event.nativeEvent.layout.y);
@@ -535,7 +545,7 @@ export default function TaskScreen() {
                         disabled={busy || !canUpdateChecklistProgress || item.is_archived}
                         label={`${item.title}, ${item.is_completed ? "выполнено" : "не выполнено"}`}
                         onPress={() =>
-                           void runItemEdit(item, { type: 'set_task_item_state', payload: { completed: !item.is_completed } }, () => setTaskItemState(item.id, !item.is_completed))
+                           void runItemEdit(item, { type: 'set_task_item_state', payload: { completed: !item.is_completed } }, () => setTaskItemState(item.id, !item.is_completed, item.sync_version))
                         }
                       />
                       <View style={styles.flex}>
@@ -558,7 +568,7 @@ export default function TaskScreen() {
                             accessibilityLabel={`${item.is_completed ? "Снять отметку" : "Отметить выполненным"}: ${item.title}`}
                             accessibilityState={{ disabled: busy || !canUpdateChecklistProgress || item.is_archived }}
                             disabled={busy || !canUpdateChecklistProgress || item.is_archived}
-                             onPress={() => void runItemEdit(item, { type: 'set_task_item_state', payload: { completed: !item.is_completed } }, () => setTaskItemState(item.id, !item.is_completed))}
+                             onPress={() => void runItemEdit(item, { type: 'set_task_item_state', payload: { completed: !item.is_completed } }, () => setTaskItemState(item.id, !item.is_completed, item.sync_version))}
                             style={({ pressed }) => [styles.titleToggle, pressed && styles.pressed]}
                           >
                             <ThemedText style={item.is_completed ? [styles.completed, { color: theme.textMuted }] : undefined}>
@@ -567,6 +577,7 @@ export default function TaskScreen() {
                           </Pressable>
                         )}
                         {formattedComment ? <ThemedText type="small" style={styles.itemComment}>{formattedComment}</ThemedText> : null}
+                        {conflictingDraft ? <View><ErrorMessage message={`Пункт изменён другим участником. Сейчас: «${item.title}», ${item.percentage}%, комментарий: ${item.comment || 'нет'}. Ваш ввод сохранён.`} /><Button size="sm" variant="outline" disabled={busy} onPress={() => setDraftVersions((old) => ({ ...old, [`${item.id}:title`]: item.sync_version, [`${item.id}:comment`]: item.sync_version, [`${item.id}:percentage`]: item.sync_version }))}>Продолжить с моим черновиком пункта</Button></View> : null}
                         <View style={styles.itemMeta}>
                            <Badge tone={item.is_archived ? "neutral" : item.is_completed ? "success" : item.percentage > 0 ? "primary" : "neutral"}>{item.is_archived ? "В архиве" : item.is_completed ? "Готово" : item.percentage > 0 ? `${item.percentage}% выполнено` : "Не начат"}</Badge>
                            {pendingItemIds.has(item.id) ? <ThemedText type="caption" accessibilityLiveRegion="polite" style={failedItemIds.has(item.id) ? { color: theme.warning } : undefined}>{failedItemIds.has(item.id) ? 'Не удалось синхронизировать' : 'Ожидает синхронизации'}</ThemedText> : null}
@@ -587,17 +598,18 @@ export default function TaskScreen() {
                       </View>
                     </View>
                     {expandedItem === item.id ? <View style={[styles.itemDetails, { borderTopColor: theme.border }]}>
+                    {item.description ? <ThemedText type="small">{item.description}</ThemedText> : null}
                     <Progress value={item.percentage} label="Выполнение пункта" />
                     {commentEditing === item.id ? <View style={styles.commentEditor}>
                       <Textarea label="Комментарий к пункту" value={editComment} onChangeText={setEditComment} maxLength={10000} placeholder="Необязательно" disabled={busy} />
-                       <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 10000} onPress={() => void runItemEdit(item, { type: 'set_task_item_comment', payload: { comment: editComment } }, () => setTaskItemComment(item.id, editComment), () => setCommentEditing(null))}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
+                       <View style={styles.actions}><Button size="sm" loading={busyAction === item.id} disabled={busy || editComment.length > 10000 || draftVersion(item, 'comment') !== item.sync_version} onPress={() => void runItemEdit(item, { type: 'set_task_item_comment', payload: { comment: editComment } }, () => setTaskItemComment(item.id, editComment, draftVersion(item, 'comment')), () => setCommentEditing(null), draftVersion(item, 'comment'))}>Сохранить комментарий</Button><Button size="sm" variant="outline" disabled={busy} onPress={() => setCommentEditing(null)}>Отмена</Button></View>
                     </View> : null}
                     {canUpdateChecklistProgress && !item.is_archived && editing !== item.id && commentEditing !== item.id ? <View style={styles.progressEditor}>
-                      <View style={styles.percentageField}><Input label="Прогресс, от 1 до 100%" value={percentageRaw} onChangeText={(value) => setEditPercentage((current) => ({ ...current, [item.id]: value }))} keyboardType="numeric" maxLength={7} onSubmitEditing={() => savePercentage(item)} disabled={busy} /></View>
-                      <Button size="sm" variant={percentageSaveValid ? "primary" : "secondary"} loading={busyAction === item.id} disabled={busy || !percentageSaveValid} onPress={() => savePercentage(item)}>Сохранить прогресс</Button>
+                      <View style={styles.percentageField}><Input label="Прогресс, от 1 до 100%" value={percentageRaw} onChangeText={(value) => { setDraftVersions((old) => ({ ...old, [`${item.id}:percentage`]: old[`${item.id}:percentage`] ?? item.sync_version })); setEditPercentage((current) => ({ ...current, [item.id]: value })); }} keyboardType="numeric" maxLength={7} onSubmitEditing={() => savePercentage(item)} disabled={busy} /></View>
+                      <Button size="sm" variant={percentageSaveValid ? "primary" : "secondary"} loading={busyAction === item.id} disabled={busy || !percentageSaveValid || draftVersion(item, 'percentage') !== item.sync_version} onPress={() => savePercentage(item)}>Сохранить прогресс</Button>
                     </View> : null}
                     {canUpdateChecklistProgress && !item.is_archived ? <View style={styles.actions}>
-                      <Button size="sm" variant="outline" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => { setActionError(null); setDeadlineEditing(item); }}>{item.deadline_at ? 'Изменить дедлайн' : 'Установить дедлайн'}</Button>
+                      <Button size="sm" variant="outline" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => { setActionError(null); setDeadlineConflict(null); setDeadlineEditing(item); }}>{item.deadline_at ? 'Изменить дедлайн' : 'Установить дедлайн'}</Button>
                       {item.deadline_at ? <Button size="sm" variant="ghost" disabled={busy || offlineForEdits || pendingItemIds.has(item.id)} onPress={() => setConfirm({ title: 'Удалить дедлайн?', description: 'Активные предупреждения исчезнут. История уведомлений сохранится.', confirmLabel: 'Удалить дедлайн', target: item.id, action: () => setTaskItemDeadline(item.id, null, item.sync_version) })}>Удалить дедлайн</Button> : null}
                       {offlineForEdits || pendingItemIds.has(item.id) ? <ThemedText type="caption">Изменение дедлайна доступно после подключения и синхронизации чек-листа.</ThemedText> : null}
                     </View> : null}
@@ -607,10 +619,11 @@ export default function TaskScreen() {
                         <Button
                           size="sm"
                           loading={busyAction === item.id}
-                          disabled={busy || !editTitle.trim()}
+                          disabled={busy || !editTitle.trim() || draftVersion(item, 'title') !== item.sync_version}
                           onPress={() =>
                             void run(async () => {
-                              await updateTaskItem(item.id, editTitle.trim());
+                              try { await updateTaskItem(item.id, editTitle.trim(), draftVersion(item, 'title')); }
+                              catch (error) { if ((error as { code?: string })?.code === 'PT409') await load(); throw error; }
                               setEditing(null);
                             }, item.id)
                           }
@@ -636,12 +649,13 @@ export default function TaskScreen() {
                           disabled={busy}
                           onPress={() => {
                             setEditing(item.id);
+                            setDraftVersions((old) => ({ ...old, [`${item.id}:title`]: item.sync_version }));
                             setEditTitle(item.title);
                           }}
                         >
                           Изменить текст
                         </Button> : null}
-                        <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setCommentEditing(item.id); setEditComment(item.comment || ""); }}>
+                        <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setCommentEditing(item.id); setEditComment(item.comment || ""); setDraftVersions((old) => ({ ...old, [`${item.id}:comment`]: item.sync_version })); }}>
                           {item.comment ? "Изменить комментарий" : "Добавить комментарий"}
                         </Button>
                         {canEditChecklist ? <Button
@@ -712,9 +726,19 @@ export default function TaskScreen() {
       </ScrollView>
       {deadlineEditing ? <DeadlinePicker value={deadlineEditing.deadline_at} busy={busy}
         error={actionError?.target === deadlineEditing.id ? actionError.message : undefined}
-        onCancel={() => { if (!busy) { setDeadlineEditing(null); setActionError(null); } }}
+        onCancel={() => { if (!busy) { setDeadlineEditing(null); setDeadlineConflict(null); setActionError(null); } }}
+        onResolveConflict={deadlineConflict ? () => { setDeadlineEditing(deadlineConflict); setDeadlineConflict(null); setActionError(null); } : undefined}
+        conflictDeadline={deadlineConflict?.deadline_at}
         onSave={async (value) => {
-          const saved = await run(() => setTaskItemDeadline(deadlineEditing.id, value, deadlineEditing.sync_version), deadlineEditing.id);
+          const saved = await run(async () => {
+            try { await setTaskItemDeadline(deadlineEditing.id, value, deadlineEditing.sync_version); }
+            catch (error) {
+              if ((error as { code?: string })?.code === 'PT409') {
+                setDeadlineConflict(await getTaskItemForEdit(deadlineEditing.id));
+              }
+              throw error;
+            }
+          }, deadlineEditing.id);
           if (saved) setDeadlineEditing(null);
         }} /> : null}
       <ConfirmDialog

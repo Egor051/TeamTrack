@@ -20,6 +20,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertTypeGenerationDatabaseUrl } from './db-url-policy.mjs';
+import { packageRunner } from './package-runner.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outFile = resolve(root, 'src/types/database.types.ts');
@@ -53,17 +54,13 @@ function loadEnvFile() {
 
 function run(...args) {
   const commandArgs = ['--yes', SUPABASE_CLI, 'gen', 'types', 'typescript', ...args];
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const executable = process.platform === 'win32'
-    ? (process.env.ComSpec || 'cmd.exe')
-    : npx;
-  const executableArgs = process.platform === 'win32'
-    ? ['/d', '/s', '/c', npx, ...commandArgs]
-    : commandArgs;
-  return execFileSync(executable, executableArgs, {
+  const invocation = packageRunner(commandArgs);
+  return execFileSync(invocation.command, invocation.args, {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 120000,
+    windowsHide: true,
   });
 }
 
@@ -93,6 +90,8 @@ function main() {
 try {
   main();
 } catch (error) {
-  console.error(`✖ Failed to generate types: ${error.message}`);
+  const databaseUrl = process.env.SUPABASE_DB_URL;
+  const message = databaseUrl ? String(error.message).replaceAll(databaseUrl, '[PostgreSQL URL]') : error.message;
+  console.error(`✖ Failed to generate types: ${message}`);
   process.exit(1);
 }

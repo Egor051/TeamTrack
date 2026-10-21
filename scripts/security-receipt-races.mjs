@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {connect,asUser} from './security-test-harness.mjs';
@@ -9,7 +10,7 @@ export async function verifyReceiptAndAccessRaces({env,api,ids,fixture,business,
  for(const state of ['revoke','downgrade','archive','delete']){
   const f=await fixture(),args={p_operation_id:randomUUID(),p_task_item_id:f.item,p_expected_version:1,p_comment:'Original accepted comment'};
   const original=await value(user.rpc('apply_task_item_comment_operation_v2',args));
-  await value(manager.rpc('set_task_item_comment',{p_task_item_id:f.item,p_comment:'New private server content'}));
+  await value(fixtureCas(manager, 'set_task_item_comment', {p_task_item_id:f.item,p_comment:'New private server content'}));
   if(state==='revoke')await value(manager.rpc('remove_project_member',{p_project_id:f.project,p_user_id:member}));
   if(state==='downgrade')await value(manager.rpc('change_member_role',{p_project_id:f.project,p_user_id:member,p_new_role:'viewer'}));
   if(state==='archive')await value(manager.rpc('archive_task_item',{p_task_item_id:f.item}));
@@ -40,6 +41,12 @@ export async function verifyReceiptAndAccessRaces({env,api,ids,fixture,business,
   const beforeFeed=await count('private.task_item_sync_changes','task_item_id=$1',[f.item]);
   const beforeActions=await count('public.item_actions','task_item_id=$1',[f.item]);
   const beforeNotices=await count('public.notifications',"data->>'entity_id'=$1",[f.item]);
+  if(version===1){
+   const original=await business();const results=await Promise.all([user.rpc(name,args),user.rpc(name,args)]);
+   assert(results.every(r=>r.error?.code==='PT426'));assert.equal(await business(),original);
+   assert.equal(await count('private.client_operation_receipts','user_id=$1 and operation_id=$2',[member,args.p_operation_id]),0);
+   pass(name+': concurrent retired writes require upgrade without any effects','concurrency');continue;
+  }
   const results=await Promise.all([value(user.rpc(name,args)),value(user.rpc(name,args))]);
   assert.deepEqual(results[0],results[1]);
   assert.equal(await count('public.audit_log',"entity_type='task_item' and entity_id=$1",[f.item]),before+1);
@@ -68,7 +75,7 @@ export async function verifyReceiptAndAccessRaces({env,api,ids,fixture,business,
    if(state==='archive')await blocker.query('select public.archive_project($1)',[f.project]);
    if(state==='delete'){await blocker.query('select public.archive_task_item($1)',[f.item]);await blocker.query('select public.hard_delete_task_item($1)',[f.item]);}
    const rpc=state==='delete'?'apply_task_item_comment_operation_v2':'set_task_item_comment';
-   const request=user.rpc(rpc,{p_task_item_id:f.item,p_comment:'Must not commit',...(state==='delete'?{p_operation_id:randomUUID(),p_expected_version:1}:{})}).then(r=>r);
+   const request=user.rpc(rpc,{p_task_item_id:f.item,p_comment:'Must not commit',p_expected_version:1,...(state==='delete'?{p_operation_id:randomUUID()}:{})}).then(r=>r);
    let waiting=false;
    for(let i=0;i<200;i++){
     const r=await env.db.query("select 1 from pg_stat_activity where datname=$1 and state='active' and wait_event_type='Lock' and query like $2",[env.database,'%'+rpc+'%']);

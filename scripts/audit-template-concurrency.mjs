@@ -38,7 +38,7 @@ export async function verifyTemplateConcurrency(port, database) {
       return { project, template, ids };
     });
     await begin(editor);
-    await editor.query('select public.update_task_template_item($1,$2,$3)', [fixture.ids[1], 'NEW', 'Independent text']);
+    await editor.query('select public.update_task_template_item($1,$2,$3,$4,$5)', [fixture.ids[1], 'NEW', 'Independent text', 'B', '']);
     // Reorder/copy started with old rendered content but must read after the
     // text edit's parent lock. Observe a real wait, not a guessed sleep.
     const move = asUser(mover, () => mover.query('select public.move_task_template_item($1,-1)', [fixture.ids[1]]));
@@ -66,7 +66,7 @@ export async function verifyTemplateConcurrency(port, database) {
 
     await begin(editor);
     // Hold the parent through its authorized RPC; clients have no UPDATE ACL.
-    await editor.query("select public.update_task_template($1,'Concurrent ordering')", [fixture.template]);
+    await editor.query("select public.update_task_template($1,'Concurrent ordering',null,'Concurrent ordering','')", [fixture.template]);
     const afterDelete = asUser(mover, () => mover.query('select public.move_task_template_item($1,-1)', [fixture.ids[0]]));
     const deletionResult = afterDelete.then(() => null, (error) => error);
     await waiting(mover);

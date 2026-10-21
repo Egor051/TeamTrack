@@ -41,8 +41,8 @@ describe('profile mutation cache isolation', () => {
     let finish!: (value: { id: string; display_name: string }) => void;
     f.update.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     let pending!: Promise<void>;
-    await act(async () => { pending = api.updateProfile('Changed A'); });
-    expect(f.update).toHaveBeenCalledWith('Changed A');
+    await act(async () => { pending = api.updateProfile('Changed A', 'Profile user-a'); });
+    expect(f.update).toHaveBeenCalledWith('Changed A', 'Profile user-a');
     f.user = 'user-b';
     await act(async () => { f.authChanged('SIGNED_IN', { user: { id: f.user } }); await vi.runAllTimersAsync(); });
     await act(async () => { finish({ id: 'user-a', display_name: 'Changed A' }); await pending; });
@@ -52,7 +52,7 @@ describe('profile mutation cache isolation', () => {
   it('updates the current account profile and its own snapshot normally', async () => {
     const profile = { id: 'user-a', display_name: 'Changed A' };
     f.update.mockResolvedValue(profile);
-    await act(async () => { await api.updateProfile('Changed A'); });
+    await act(async () => { await api.updateProfile('Changed A', 'Profile user-a'); });
     expect(f.put).toHaveBeenCalledWith('user-a', 'profile:self', profile);
     expect(api.state.profile).toMatchObject(profile);
   });

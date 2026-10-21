@@ -213,7 +213,7 @@ begin
 
     v_denied := false;
     begin
-        perform public.set_task_item_state(v_item, true);
+        perform public.set_task_item_state(v_item,true,(select sync_version from public.task_items where id=v_item));
     exception when insufficient_privilege then
         v_denied := true;
     end;
@@ -221,7 +221,7 @@ begin
 
     v_denied := false;
     begin
-        perform public.update_task(v_task, 'forbidden', null);
+        perform public.update_task(v_task,'forbidden',null,(select title from public.tasks where id=v_task),(select description from public.tasks where id=v_task));
     exception when insufficient_privilege then
         v_denied := true;
     end;
@@ -255,7 +255,7 @@ begin
     select count(*) into v_count from public.task_items where id = v_item;
     if v_count <> 1 then raise exception 'viewer cannot read inherited checklist item'; end if;
     begin
-        perform public.set_task_item_state(v_item, true);
+        perform public.set_task_item_state(v_item,true,(select sync_version from public.task_items where id=v_item));
     exception when insufficient_privilege then
         v_denied := true;
     end;

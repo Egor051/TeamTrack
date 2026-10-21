@@ -1,4 +1,8 @@
 // RN's AbortSignal polyfill has no static timeout(). Keep deadlines portable.
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw Object.assign(new Error('Operation cancelled'), { name: 'AbortError' });
+}
+
 export function requestDeadline(milliseconds: number) {
   const controller = new AbortController();
   let expired = false;

@@ -30,7 +30,7 @@ do $$declare v_stage uuid := (select id from stage_state where key='stage'); v_c
  v_context:=public.get_task_project_context(v_stage);
  if v_context->>'role' is not null or v_context ? 'description' or v_context->>'name'<>'Independent membership' then raise exception 'bad minimal context'; end if;
  if not exists(select 1 from public.list_task_participants(v_stage) where user_id=auth.uid() and is_direct) then raise exception 'direct participant missing'; end if;
- perform public.set_task_item_percentage((select id from stage_state where key='item'),42);
+ perform public.set_task_item_percentage((select id from stage_state where key='item'),42,(select sync_version from public.task_items where id=(select id from stage_state where key='item')));
  if exists(select 1 from public.audit_log where entity_id=(select id from stage_state where key='sibling')) then raise exception 'sibling audit leaked'; end if;
  if not private.can_receive_realtime_topic('task:'||v_stage) then raise exception 'direct task broadcast denied'; end if;
  if private.can_receive_realtime_topic('project:'||(select id from stage_state where key='project'))
@@ -43,7 +43,7 @@ do $$declare v_stage uuid := (select id from stage_state where key='stage'); v_c
  begin perform public.create_task_item(v_stage,'Denied'); raise exception 'member created item'; exception when insufficient_privilege then null; end;
  begin perform public.set_task_member_override(v_stage,auth.uid(),'admin'); raise exception 'self promotion succeeded'; exception when insufficient_privilege then null; end;
  begin perform public.add_task_member_by_identifier(v_stage,'stage-user-5@test.local','admin'); raise exception 'member invited user'; exception when insufficient_privilege then null; end;
- begin perform public.update_task(v_stage,'Denied',''); raise exception 'member edited stage'; exception when insufficient_privilege then null; end;
+ begin perform public.update_task(v_stage,'Denied','',(select title from public.tasks where id=v_stage),(select description from public.tasks where id=v_stage)); raise exception 'member edited stage'; exception when insufficient_privilege then null; end;
 end $$;
 select set_config('request.jwt.claim.sub','71000000-0000-4000-8000-000000000001',true);
 select public.set_task_member_override((select id from stage_state where key='stage'),'71000000-0000-4000-8000-000000000004','admin');
@@ -57,7 +57,7 @@ select set_config('request.jwt.claim.sub','71000000-0000-4000-8000-000000000001'
 select public.set_task_member_override((select id from stage_state where key='stage'),'71000000-0000-4000-8000-000000000004','viewer');
 select set_config('request.jwt.claim.sub','71000000-0000-4000-8000-000000000004',true);
 do $$begin
- begin perform public.set_task_item_percentage((select id from stage_state where key='item'),60); raise exception 'viewer edited item'; exception when insufficient_privilege then null; end;
+ begin perform public.set_task_item_percentage((select id from stage_state where key='item'),60,(select sync_version from public.task_items where id=(select id from stage_state where key='item'))); raise exception 'viewer edited item'; exception when insufficient_privilege then null; end;
  if not exists(select 1 from public.notifications where type='task_member_added') then raise exception 'invite notification absent'; end if;
 end $$;
 select set_config('request.jwt.claim.sub','71000000-0000-4000-8000-000000000001',true);

@@ -48,7 +48,11 @@ const { count, size, warnings } = await workboxBuild.generateSW({
         requestWillFetch: async ({ request, state }) => {
           const controller = new AbortController();
           const abort = () => controller.abort();
-          const timer = setTimeout(abort, 5000);
+          let expire;
+          state.expired = new Promise((_, reject) => { expire = reject; });
+          // The request may fail before headers; observe rejection immediately.
+          state.expired.catch(() => undefined);
+          const timer = setTimeout(() => { expire(new Error('Navigation document timed out')); abort(); }, 5000);
           request.signal.addEventListener('abort', abort, { once: true });
           if (request.signal.aborted) abort();
           state.dispose = () => {
@@ -57,7 +61,12 @@ const { count, size, warnings } = await workboxBuild.generateSW({
           };
           return new Request(request, { signal: controller.signal });
         },
-        fetchDidSucceed: async ({ response, state }) => { state.dispose?.(); return response; },
+        fetchDidSucceed: async ({ response, state }) => {
+          try {
+            await Promise.race([response.clone().arrayBuffer(), state.expired]);
+            return response;
+          } finally { state.dispose?.(); }
+        },
         fetchDidFail: async ({ state }) => { state.dispose?.(); },
       }],
       precacheFallback: { fallbackURL: '/offline-shell.html' },

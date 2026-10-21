@@ -75,7 +75,7 @@ do $$ declare denied boolean:=false; n int; begin
 end $$;
 select set_config('request.jwt.claim.sub',(select id::text from it_state where key='viewer'),true);
 do $$ declare denied boolean:=false; begin
-  begin perform public.set_task_item_state((select id from it_state where key='item'),true); exception when insufficient_privilege then denied:=true; end;
+  begin perform public.set_task_item_state((select id from it_state where key='item'),true,(select sync_version from public.task_items where id=(select id from it_state where key='item'))); exception when insufficient_privilege then denied:=true; end;
   if not denied then raise exception 'FAIL viewer checkbox mutation'; end if;
 end $$;
 select set_config('request.jwt.claim.sub',(select id::text from it_state where key='outsider'),true);
@@ -93,10 +93,10 @@ reset role;
 -- Checkbox atomicity, no-op, immutable sequence and archive consistency.
 set local role authenticated;
 select set_config('request.jwt.claim.sub',(select id::text from it_state where key='owner'),true);
-select public.set_task_item_state((select id from it_state where key='item'),true);
-select public.set_task_item_state((select id from it_state where key='item'),true);
-select public.update_task_item((select id from it_state where key='item'),'Edited item');
-select public.set_task_item_state((select id from it_state where key='item'),false);
+select public.set_task_item_state((select id from it_state where key='item'),true,(select sync_version from public.task_items where id=(select id from it_state where key='item')));
+select public.set_task_item_state((select id from it_state where key='item'),true,(select sync_version from public.task_items where id=(select id from it_state where key='item')));
+select public.update_task_item((select id from it_state where key='item'),'Edited item',(select sync_version from public.task_items where id=(select id from it_state where key='item')));
+select public.set_task_item_state((select id from it_state where key='item'),false,(select sync_version from public.task_items where id=(select id from it_state where key='item')));
 select public.archive_task_item((select id from it_state where key='item'));
 reset role;
 do $$ declare a int; h int; old jsonb; new jsonb; denied boolean:=false; begin

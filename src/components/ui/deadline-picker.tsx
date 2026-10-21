@@ -11,9 +11,9 @@ import { formatDeadline, formatUtcOffset, isFutureDeadline, localDeadlineCandida
 export { dialValue } from './clock-dial';
 
 type Step = 'date' | 'hour' | 'minute';
-export function DeadlinePicker({ value, busy, error, onCancel, onSave, futureOnly = true, title }: {
+export function DeadlinePicker({ value, busy, error, onCancel, onSave, futureOnly = true, title, onResolveConflict, conflictDeadline }: {
   value: string | null; busy: boolean; error?: string; onCancel: () => void; onSave: (iso: string) => Promise<void>;
-  futureOnly?: boolean; title?: string;
+  futureOnly?: boolean; title?: string; onResolveConflict?: () => void; conflictDeadline?: string | null;
 }) {
   const { colors } = useTheme();
   const [initial] = useState(() => value ? new Date(value) : new Date());
@@ -34,6 +34,7 @@ export function DeadlinePicker({ value, busy, error, onCancel, onSave, futureOnl
   const moveMonth = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta, 1));
   const adjust = (delta: number) => { if (step === 'hour') setHour(((hour ?? initial.getHours()) + delta + 24) % 24); else setMinute(((minute ?? initial.getMinutes()) + delta + 60) % 60); setValidation(''); };
   const handleConfirm = async () => {
+    if (onResolveConflict) return;
     if (!complete) { setValidation('Выберите дату, часы и минуты.'); return; }
     if (!selected) { setValidation('Это время недоступно из-за перевода часов. Выберите другое.'); return; }
     if (futureOnly && !isFutureDeadline(selected.getTime())) { setValidation('Выберите дату и время в будущем.'); return; }
@@ -45,6 +46,7 @@ export function DeadlinePicker({ value, busy, error, onCancel, onSave, futureOnl
   return <ModalLayer visible onClose={onCancel} busy={busy} contentStyle={styles.sheet} label={title || 'Выбор даты и времени'}>
     <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
       <ThemedText type="h3">{title || (value ? 'Изменить дедлайн' : 'Установить дедлайн')}</ThemedText>
+      {onResolveConflict ? <View><ThemedText type="small">Пункт изменён другим участником. Выбранная дата сохранена. Текущий дедлайн: {conflictDeadline ? formatDeadline(conflictDeadline) : 'не установлен'}.</ThemedText><Button disabled={busy} onPress={onResolveConflict}>Продолжить с выбранной датой</Button></View> : null}
       <SegmentedControl value={step} onChange={setStep} disabled={busy} accessibilityLabel="Шаг выбора дедлайна"
         options={[{ value: 'date', label: 'Дата' }, { value: 'hour', label: 'Часы' }, { value: 'minute', label: 'Минуты' }]} />
       {step === 'date' ? <View style={styles.calendar}>
@@ -100,7 +102,7 @@ export function DeadlinePicker({ value, busy, error, onCancel, onSave, futureOnl
           accessibilityLabel="Смещение при переводе часов" options={candidates.map((candidate) => ({ value: String(candidate.getTimezoneOffset()), label: formatUtcOffset(candidate.getTimezoneOffset()) }))} />
       </View> : null}
       {error || validation ? <ThemedText type="small" accessibilityRole="alert" style={{ color: colors.destructive }}>{error || validation}</ThemedText> : null}
-      <View style={styles.footer}><Button variant="outline" disabled={busy} onPress={onCancel}>Отмена</Button><Button loading={busy} disabled={busy || !complete} onPress={handleConfirm}>Подтвердить</Button></View>
+      <View style={styles.footer}><Button variant="outline" disabled={busy} onPress={onCancel}>Отмена</Button><Button loading={busy} disabled={busy || !complete || !!onResolveConflict} onPress={handleConfirm}>Подтвердить</Button></View>
     </ScrollView>
   </ModalLayer>;
 }

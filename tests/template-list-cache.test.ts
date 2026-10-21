@@ -18,7 +18,7 @@ function pages() {
   f.rpc.mockImplementation(async (name: string, args: { p_offset?: number; p_limit?: number }) => {
     // The old table RPC really returns only 1000 rows. This regression must
     // fail if a caller reintroduces that path, even if the paginator still exists.
-    if (name !== 'get_task_template_page') return { data: rows.slice(0,1000), error: null };
+    if (name !== 'get_task_template_page_v2') return { data: rows.slice(0,1000), error: null };
     const offset=args.p_offset??0;
     return { data: { revision:'one',total:rows.length,offset,rows:rows.slice(offset,offset+(args.p_limit??500)) }, error:null };
   });

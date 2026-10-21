@@ -14,6 +14,8 @@ import { isTransportFailure } from '@/lib/local-cache/cache';
 import { sendAuthEmail } from './email-cooldown';
 import { getReadSession } from '@/lib/supabase/session';
 import { usesLocalReads, reportRequestFailure, connectivityRequestEpoch } from '@/lib/connectivity/state';
+import { boundedOperation } from '@/lib/connectivity/deadline';
+import { executeMutation } from '@/lib/supabase/mutation';
 
 export type SignUpInput = {
   email: string;
@@ -104,9 +106,15 @@ export async function signOut() {
   }
   // Keep other devices signed in; this client explicitly clears its own
   // persisted session and AuthProvider tears down local realtime channels.
-  const { error } = await supabase.auth.signOut({ scope: 'local' });
-  if (error) {
-    throw error;
+  try {
+    const { error } = await boundedOperation(() => supabase.auth.signOut({ scope: 'local' }), 10_000);
+    if (error) throw error;
+  } catch (error) {
+    if (!isTransportFailure(error) && (error as Error)?.name !== 'AbortError') throw error;
+    // Local logout does not require a server acknowledgement. Removing the
+    // persisted identity also fences pending refreshes in the SDK.
+    await boundedOperation(() => clearPersistedSession(), 5000);
+    void supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
   }
 }
 
@@ -204,11 +212,11 @@ export async function getVerifiedCurrentUser() {
   }
 }
 
-export async function updateMyProfile(displayName: string) {
+export async function updateMyProfile(displayName: string, expectedDisplayName: string) {
   const value = displayName.trim();
   if (value.length < 2 || value.length > 80) throw new Error('Ник должен быть от 2 до 80 символов.');
   if (!/^[\p{L}\p{N}_ .-]+$/u.test(value)) throw new Error('Ник содержит недопустимые символы.');
-  const { data, error } = await supabase.rpc('update_my_profile', { p_display_name: value });
+  const { data, error } = await executeMutation('update_my_profile', { p_display_name: value, p_expected_display_name: expectedDisplayName });
   if (error) throw error;
   return data;
 }

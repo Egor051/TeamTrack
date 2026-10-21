@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 // End-to-end Phase 6 smoke against a local Supabase stack and a production web export.
 // Requires Docker/local Supabase and `npx agent-browser` (Chromium).
 import { spawn, spawnSync } from 'node:child_process';
@@ -131,7 +132,7 @@ async function bodyEventually(text) {
 }
 async function remoteChange(email, itemId, value) {
   const client = await signedClient(email);
-  const result = await client.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: value });
+  const result = await fixtureCas(client, 'set_task_item_percentage', { p_task_item_id: itemId, p_percentage: value });
   if (result.error) throw result.error;
 }
 async function signedClient(email) {

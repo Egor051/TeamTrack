@@ -24,7 +24,7 @@ insert into hd_state
 select 'item_task', public.create_task((select id from hd_state where key = 'item_project'), 'HD item task', null);
 insert into hd_state
 select 'item', public.create_task_item((select id from hd_state where key = 'item_task'), 'HD item', null);
-select public.set_task_item_state((select id from hd_state where key = 'item'), true);
+select public.set_task_item_state((select id from hd_state where key = 'item'),true,(select sync_version from public.task_items where id=(select id from hd_state where key = 'item')));
 select public.archive_task_item((select id from hd_state where key = 'item'));
 select public.hard_delete_task_item((select id from hd_state where key = 'item'));
 reset role;
@@ -58,7 +58,7 @@ insert into hd_state
 select 'task', public.create_task((select id from hd_state where key = 'task_project'), 'HD task', null);
 insert into hd_state
 select 'task_item', public.create_task_item((select id from hd_state where key = 'task'), 'HD task item', null);
-select public.set_task_item_state((select id from hd_state where key = 'task_item'), true);
+select public.set_task_item_state((select id from hd_state where key = 'task_item'),true,(select sync_version from public.task_items where id=(select id from hd_state where key = 'task_item')));
 select public.archive_task((select id from hd_state where key = 'task'));
 select public.hard_delete_task((select id from hd_state where key = 'task'));
 reset role;
@@ -96,7 +96,7 @@ insert into hd_state
 select 'project_task', public.create_task((select id from hd_state where key = 'project'), 'HD project task', null);
 insert into hd_state
 select 'project_item', public.create_task_item((select id from hd_state where key = 'project_task'), 'HD project item', null);
-select public.set_task_item_state((select id from hd_state where key = 'project_item'), true);
+select public.set_task_item_state((select id from hd_state where key = 'project_item'),true,(select sync_version from public.task_items where id=(select id from hd_state where key = 'project_item')));
 select public.archive_project((select id from hd_state where key = 'project'));
 select public.hard_delete_project((select id from hd_state where key = 'project'));
 reset role;

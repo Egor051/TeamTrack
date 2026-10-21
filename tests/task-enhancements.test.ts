@@ -16,8 +16,8 @@ describe('percentage progress model', () => {
 
 describe('percentage input validation', () => {
   it('rejects values outside 0..100 before the RPC call', async () => {
-    await expect(setTaskItemPercentage('00000000-0000-4000-8000-000000000001', -1)).rejects.toThrow('целым числом от 0 до 100');
-    await expect(setTaskItemPercentage('00000000-0000-4000-8000-000000000001', 101)).rejects.toThrow('целым числом от 0 до 100');
+    await expect(setTaskItemPercentage('00000000-0000-4000-8000-000000000001', -1, 1)).rejects.toThrow('целым числом от 0 до 100');
+    await expect(setTaskItemPercentage('00000000-0000-4000-8000-000000000001', 101, 1)).rejects.toThrow('целым числом от 0 до 100');
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 });

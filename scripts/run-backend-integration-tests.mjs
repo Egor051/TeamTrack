@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
@@ -24,7 +25,7 @@ let taskId;
 let itemId;
 
 async function rpc(client, name, args) {
-  const result = await client.rpc(name, args);
+  const result = await fixtureCas(client,name,args);
   if (result.error) throw result.error;
   return result.data;
 }
@@ -117,31 +118,32 @@ try {
     accessToken: async () => ownerSession.access_token,
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
-  assert.equal(await rpc(replayClient, 'apply_task_item_percentage_operation', {
-    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 30,
-  }), 30);
+  assert.equal((await replayClient.rpc('apply_task_item_percentage_operation', {p_operation_id:operationId,p_task_item_id:offlineItemId,p_percentage:30})).error?.code,'PT426');
+  assert.equal((await rpc(replayClient, 'apply_task_item_percentage_operation_v2', {
+    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 30, p_expected_version:1,
+  })).item.percentage, 30);
   const auditAfterFirst = await owner.from('audit_log').select('id').eq('entity_type', 'task_item').eq('entity_id', offlineItemId);
   assert.equal(auditAfterFirst.error, null);
-  assert.equal(await rpc(replayClient, 'apply_task_item_percentage_operation', {
-    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 30,
-  }), 30);
+  assert.equal((await rpc(replayClient, 'apply_task_item_percentage_operation_v2', {
+    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 30, p_expected_version:1,
+  })).item.percentage, 30);
   const auditAfterRetry = await owner.from('audit_log').select('id').eq('entity_type', 'task_item').eq('entity_id', offlineItemId);
   assert.equal(auditAfterRetry.error, null);
   assert.equal(auditAfterRetry.data.length, auditAfterFirst.data.length);
-  const mismatch = await replayClient.rpc('apply_task_item_percentage_operation', {
-    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 20,
+  const mismatch = await replayClient.rpc('apply_task_item_percentage_operation_v2', {
+    p_operation_id: operationId, p_task_item_id: offlineItemId, p_percentage: 20, p_expected_version:1,
   });
   assert.equal(mismatch.error?.code, '22023');
   const anonClient = createClient(local.API_URL, local.ANON_KEY, clientOptions);
-  const anonReplay = await anonClient.rpc('apply_task_item_percentage_operation', {
-    p_operation_id: randomUUID(), p_task_item_id: offlineItemId, p_percentage: 10,
+  const anonReplay = await anonClient.rpc('apply_task_item_percentage_operation_v2', {
+    p_operation_id: randomUUID(), p_task_item_id: offlineItemId, p_percentage: 10, p_expected_version:1,
   });
   assert.ok(anonReplay.error, 'anon called offline replay RPC');
   const privateRead = await owner.schema('private').from('client_operation_receipts').select('operation_id');
   assert.ok(privateRead.error, 'authenticated accessed private receipts through Data API');
 
   // TT-H01: the exact app-shaped RPC resolves, while the removed overload does not.
-  const appShape = await owner.rpc('update_task_item', { p_task_item_id: itemId, p_title: 'App-shaped update' });
+  const appShape = await fixtureCas(owner, 'update_task_item', { p_task_item_id: itemId, p_title: 'App-shaped update' });
   assert.equal(appShape.error, null, appShape.error?.message);
   const removedOverload = await owner.rpc('update_task_item', {
     p_task_item_id: itemId,
@@ -163,11 +165,11 @@ try {
   await rpc(owner, 'set_task_member_override', { p_task_id: taskId, p_user_id: identities.member.id, p_role: 'admin' });
   assert.equal(await rpc(member, 'get_my_task_role', { p_task_id: taskId }), 'admin');
   await rpc(member, 'update_task_item', { p_task_item_id: itemId, p_title: 'Raised checklist role' });
-  const memberStageEdit = await member.rpc('update_task', { p_task_id: taskId, p_title: 'Forbidden stage edit', p_description: null });
+  const memberStageEdit = await fixtureCas(member, 'update_task', { p_task_id: taskId, p_title: 'Forbidden stage edit', p_description: null });
   assert.ok(memberStageEdit.error, 'checklist override escalated project-level stage rights');
 
   await rpc(owner, 'set_task_member_override', { p_task_id: taskId, p_user_id: identities['admin-a'].id, p_role: 'viewer' });
-  const loweredChecklistWrite = await adminA.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 30 });
+  const loweredChecklistWrite = await fixtureCas(adminA, 'set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 30 });
   assert.ok(loweredChecklistWrite.error, 'lowered checklist viewer changed progress');
   await rpc(adminA, 'update_task', { p_task_id: taskId, p_title: 'Project admin retained stage rights', p_description: 'After' });
 
@@ -190,9 +192,9 @@ try {
   assert.equal(foreignProfileAudit.data.length, 0, 'project admin saw global profile history');
 
   // Limits are enforced through public mutation paths.
-  const oversizedTitle = await owner.rpc('update_task', { p_task_id: taskId, p_title: 'T'.repeat(501), p_description: null });
+  const oversizedTitle = await fixtureCas(owner, 'update_task', { p_task_id: taskId, p_title: 'T'.repeat(501), p_description: null });
   assert.ok(oversizedTitle.error, 'title >500 accepted');
-  const oversizedComment = await owner.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: 'C'.repeat(10_001) });
+  const oversizedComment = await fixtureCas(owner, 'set_task_item_comment', { p_task_item_id: itemId, p_comment: 'C'.repeat(10_001) });
   assert.ok(oversizedComment.error, 'comment >10000 accepted');
 
   // service_role is Auth administration only, not an undocumented app CRUD/RPC API.

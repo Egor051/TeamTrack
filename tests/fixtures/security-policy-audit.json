@@ -16,7 +16,7 @@
       ],
       "range": "<=0.0.0-canary-20231123-1b19f96-4 || >=0.0.1-canary-20231125-d600e44",
       "nodes": [
-        "node_modules/@expo/cli"
+        "node_modules/expo/node_modules/@expo/cli"
       ],
       "fixAvailable": {
         "name": "expo",
@@ -410,12 +410,12 @@
       "total": 18
     },
     "dependencies": {
-      "prod": 594,
+      "prod": 588,
       "dev": 452,
       "optional": 82,
       "peer": 29,
       "peerOptional": 0,
-      "total": 1066
+      "total": 1060
     }
   }
 }

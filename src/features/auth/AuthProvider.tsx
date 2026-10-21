@@ -34,7 +34,7 @@ type AuthContextType = {
   resendConfirmation: (email: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
   refreshSession: () => Promise<void>;
-  updateProfile: (displayName: string) => Promise<void>;
+  updateProfile: (displayName: string, expectedDisplayName: string) => Promise<void>;
   clearError: () => void;
 };
 
@@ -276,11 +276,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateProfile = async (displayName: string) => {
+  const updateProfile = async (displayName: string, expectedDisplayName: string) => {
     const userId = state.user?.id;
     const { updateMyProfile } = await import('./auth');
     if (!userId || await activeCacheUserId() !== userId) throw new Error('Сеанс изменился.');
-    const profile = await updateMyProfile(displayName) as unknown as Profile;
+    const profile = await updateMyProfile(displayName, expectedDisplayName) as unknown as Profile;
     if (profile?.id !== userId || await activeCacheUserId() !== userId) return;
     await putCached(userId, 'profile:self', profile);
     setState((prev) => prev.user?.id === userId ? { ...prev, profile } : prev);

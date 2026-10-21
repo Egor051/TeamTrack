@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
 import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
@@ -33,7 +34,7 @@ try {
   for (let n = 0; n < 100 && !subscription.events.length; n++) await pause(50);
   assert(subscription.events.length > 0);
   assert.equal((await value(reader.rpc('get_task_template', { p_template_id: id }))).name, 'Opaque global fixture');
-  assert.equal((await reader.rpc('update_task_template', { p_template_id: id, p_name: 'Forbidden' })).error?.code, '42501');
+  assert.equal((await fixtureCas(reader, 'update_task_template', { p_template_id: id, p_name: 'Forbidden' })).error?.code, '42501');
   // Verify SELECT-only channel authorization also prevents client forgery.
   const observer = await subscribe(owner);
   const before = subscription.events.length;

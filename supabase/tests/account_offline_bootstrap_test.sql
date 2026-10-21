@@ -13,8 +13,8 @@ select public.create_project('Bootstrap active','') as active_project \gset
 select public.create_task(:'active_project','Bootstrap stage','') as task \gset
 select public.create_task_item(:'task','Bootstrap item') as item \gset
 select public.create_task_item(:'task','Archived item') as archived_item \gset
-select public.set_task_item_percentage(:'item',40);
-select public.set_task_item_comment(:'item','Current comment');
+select public.set_task_item_percentage(:'item',40,(select sync_version from public.task_items where id=:'item'));
+select public.set_task_item_comment(:'item','Current comment',(select sync_version from public.task_items where id=:'item'));
 select public.archive_task_item(:'archived_item');
 select public.add_project_member(:'active_project','94000000-0000-4000-8000-000000000002','viewer');
 select public.set_task_member_override(:'task','94000000-0000-4000-8000-000000000002','member');

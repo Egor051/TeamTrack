@@ -18,7 +18,39 @@ const exactKeys = (value, keys) => object(value) && Object.keys(value).length ==
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const canonical = value => Array.isArray(value) ? value.map(canonical).sort((a, b) => compare(JSON.stringify(a), JSON.stringify(b)))
   : object(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-export const auditGraphSha256 = report => sha256(JSON.stringify(canonical(report.vulnerabilities)));
+const reviewedBreakingFixes = [
+  { name: 'react-native', version: '0.72.17', isSemVerMajor: true },
+  { name: 'react-native-worklets', version: '0.7.4', isSemVerMajor: true },
+];
+function normalizedFix(name, value) {
+  // Arborist keeps the first breaking parent recommendation propagated over
+  // its order-dependent internal via Set. These two captured downgrades both
+  // leave the supported Expo 57 stack. Frozen-tree/calculator replay proves
+  // that only the recommendation changes, not any affected node/advisory.
+  // No other name, version, nonbreaking fix or availability flag is ignored.
+  return name === '@react-native/metro-config' && reviewedBreakingFixes.some(fix => JSON.stringify(canonical(fix)) === JSON.stringify(canonical(value)))
+    ? reviewedBreakingFixes[0] : value;
+}
+export function auditGraphSha256(report) {
+  // npm serializes `via` from all advisories, but `effects` from a separately
+  // traversed Vuln.effects Set. Arborist's seen(name@range) short circuit can
+  // omit one reverse edge when equal-range metavulns arrive in another order.
+  // Fingerprint the complete reverse of via instead. Reject any supplied
+  // effects edge which via does not justify. The only other equivalence is
+  // the two independently reproduced breaking recommendations above.
+  const findings = report.vulnerabilities;
+  const reverse = new Map(Object.keys(findings).map(name => [name, []]));
+  for (const [name, finding] of Object.entries(findings)) for (const via of finding.via) {
+    if (typeof via !== 'string') continue;
+    requireThat(reverse.has(via), 'Unresolved meta finding: ' + via);
+    reverse.get(via).push(name);
+  }
+  for (const [name, finding] of Object.entries(findings)) for (const effect of finding.effects)
+    requireThat(reverse.get(name).includes(effect), 'Unknown effects edge: ' + name + ' -> ' + effect);
+  const normalized = Object.fromEntries(Object.entries(findings).map(([name, finding]) =>
+    [name, { ...finding, effects: [...new Set(reverse.get(name))], fixAvailable: normalizedFix(name, finding.fixAvailable) }]));
+  return sha256(JSON.stringify(canonical(normalized)));
+}
 
 export function parseAudit(raw, exitCode) {
   const report = JSON.parse(raw);
@@ -49,6 +81,7 @@ export function parseAudit(raw, exitCode) {
 
 function validatePolicy(policy, lockBytes, manifestBytes) {
   requireThat(policy.policyVersion === 1 && policy.decision === 'owner-approved-temporary-risk'
+    && policy.auditGraphNormalization === 'arborist-derived-metadata-v2'
     && Array.isArray(policy.advisories) && policy.advisories.length === 2
     && new Set(policy.advisories.map(row => row.id)).size === 2
     && policy.advisories.every(row => allowedIds.get(row.id) === row.package), 'Unapproved exception policy');

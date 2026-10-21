@@ -30,7 +30,7 @@ vi.mock('@/lib/local-cache/sync', () => ({ syncPendingOperations: vi.fn(async ()
 import { applyPendingOperations, enqueueOperation, listPendingOperations, offlineSyncEnabled, offlineWriteEnabled } from '@/lib/local-cache/outbox';
 import { performSupportedEdit } from '@/lib/local-cache/edit';
 
-const context = { userId: 'user-a', projectId: 'project-1', taskId: 'task-1', itemId: 'item-1' };
+const context = { userId: 'user-a', projectId: 'project-1', taskId: 'task-1', itemId: 'item-1', itemVersion: 1 };
 const base = [{ id: 'item-1', percentage: 20, is_completed: false, comment: null }];
 const percentage = (value: number) => ({ type: 'set_task_item_percentage' as const, payload: { percentage: value } });
 const state = (completed: boolean) => ({ type: 'set_task_item_state' as const, payload: { completed } });

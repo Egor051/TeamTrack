@@ -7,6 +7,7 @@ import { cacheAccessDecision, cacheAccessEpoch, confirmCacheAccess, deniedSince,
 import { announceReadModelCommit, overviewReadModelChanged } from './read-model-events';
 import { confirmReadFreshness, durableReadInvalidation, freshnessKey, GLOBAL_ACL_KEY, invalidateReadModels, isReadModelKey, readAccountEpoch, READ_FRESHNESS_MS, readConfirmationEntries, readInvalidation, settleReadInvalidations, type DurableReadInvalidation } from './read-freshness';
 import type { TaskItem } from '@/lib/supabase/client';
+import { throwIfAborted } from '@/lib/connectivity/deadline';
 export { isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 
 const cachedResults = new WeakSet<object>();
@@ -110,7 +111,8 @@ export async function getCached<T>(userId: string, key: string): Promise<T | nul
   }
 }
 
-export async function putCached<T>(userId: string, key: string, value: T): Promise<void> {
+export async function putCached<T>(userId: string, key: string, value: T, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   if ((key.startsWith('blocked:') || key.startsWith('blocked-task:')) && value === true) denyCacheAccess(userId, key);
   try {
     const entry: CacheEntry = {
@@ -120,7 +122,7 @@ export async function putCached<T>(userId: string, key: string, value: T): Promi
       last_synced_at: new Date().toISOString(),
       schema_version: cacheSchemaVersion(key),
     };
-    await localCacheDriver.put(entry);
+    await (signal && localCacheDriver.withOperation ? localCacheDriver.withOperation(signal) : localCacheDriver).put(entry);
   } catch (error) {
     logCacheError('write', error);
   }
@@ -159,9 +161,10 @@ async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, ex
   return { committed: false };
 }
 
-async function removeCached(userId: string, key: string): Promise<void> {
+async function removeCached(userId: string, key: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   try {
-    await localCacheDriver.remove(userId, key);
+    await (signal && localCacheDriver.withOperation ? localCacheDriver.withOperation(signal) : localCacheDriver).remove(userId, key);
   } catch (error) {
     logCacheError('remove', error);
   }
@@ -337,11 +340,12 @@ export async function filterBlockedProjects<T extends { id: string }>(userId: st
   return projects.filter((_, index) => !blocked[index]);
 }
 
-export async function reconcileVisibleProjects(userId: string, previous: { id: string }[], current: { id: string }[], accessBaseline = cacheAccessEpoch()): Promise<void> {
+export async function reconcileVisibleProjects(userId: string, previous: { id: string }[], current: { id: string }[], accessBaseline = cacheAccessEpoch(), signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   const currentIds = new Set(current.map((project) => project.id));
   await Promise.all([
-    ...current.map((project) => confirmCacheAccess(userId, `blocked:${project.id}`, accessBaseline) ? removeCached(userId, `blocked:${project.id}`) : Promise.resolve()),
-    ...previous.filter((project) => !currentIds.has(project.id)).map((project) => putCached(userId, `blocked:${project.id}`, true)),
+    ...current.map((project) => confirmCacheAccess(userId, `blocked:${project.id}`, accessBaseline) ? removeCached(userId, `blocked:${project.id}`, signal) : Promise.resolve()),
+    ...previous.filter((project) => !currentIds.has(project.id)).map((project) => putCached(userId, `blocked:${project.id}`, true, signal)),
   ]);
 }
 

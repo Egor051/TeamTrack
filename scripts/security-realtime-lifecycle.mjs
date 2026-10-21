@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { createClient } from '@supabase/supabase-js';
@@ -49,20 +50,20 @@ try{
  const forbidden=await channel(member,'project:'+b,false);await member.removeChannel(forbidden.ch);
  const foreignUser=await channel(owner,'user:'+users[2],false);await owner.removeChannel(foreignUser.ch);
  checks.push('project and user topics enforce current membership/identity');
- await value(owner.rpc('update_task',{p_task_id:task,p_title:'First private title'}));
+ await value(fixtureCas(owner, 'update_task', {p_task_id:task,p_title:'First private title'}));
  await until(()=>memberTopic.events.length>0);memberTopic.events.forEach(minimal);
  await member.removeAllChannels();member.realtime.disconnect();member.realtime.connect();
  const reconnected=await channel(member,'project:'+a);
- await value(owner.rpc('update_task',{p_task_id:task,p_title:'After transport reconnect'}));
+ await value(fixtureCas(owner, 'update_task', {p_task_id:task,p_title:'After transport reconnect'}));
  await until(()=>reconnected.events.length>0);reconnected.events.forEach(minimal);
  checks.push('authorized reconnect/rejoin receives a new Broadcast');
  await value(owner.rpc('remove_project_member',{p_project_id:a,p_user_id:users[1]}));
  const before=(await db.query('select count(*)::int n from public.audit_log')).rows[0].n;
  assert.deepEqual(await value(member.from('tasks').select('*').eq('id',task)),[]);
- assert.equal((await member.rpc('set_task_item_percentage',{p_task_item_id:item,p_percentage:60})).error?.code,'42501');
+ assert.equal((await fixtureCas(member, 'set_task_item_percentage', {p_task_item_id:item,p_percentage:60})).error?.code,'42501');
  assert.equal((await db.query('select count(*)::int n from public.audit_log')).rows[0].n,before);
  const previous=reconnected.events.length;
- await value(owner.rpc('update_task',{p_task_id:task,p_title:'New inaccessible private content'}));await pause(1000);
+ await value(fixtureCas(owner, 'update_task', {p_task_id:task,p_title:'New inaccessible private content'}));await pause(1000);
  reconnected.events.forEach(minimal);
  const cachedAfterRevoke=reconnected.events.slice(previous).filter(p=>p.table==='tasks'&&p.operation==='UPDATE').length;
  await member.removeAllChannels();
@@ -73,13 +74,13 @@ try{
  checks.push('revoke immediately fences RLS/new writes; fresh/re-authenticated joins fail; foreign project gets no events');
  await value(owner.rpc('add_project_member',{p_project_id:a,p_user_id:users[1],p_role:'member'}));
  const restored=await channel(member,'project:'+a);
- await value(owner.rpc('update_task',{p_task_id:task,p_title:'Access restored'}));await until(()=>restored.events.length>0);
+ await value(fixtureCas(owner, 'update_task', {p_task_id:task,p_title:'Access restored'}));await until(()=>restored.events.length>0);
  assert.equal((await value(member.from('tasks').select('id').eq('id',task))).length,1);
  checks.push('restored membership can rejoin and read again');
  await value(owner.rpc('change_member_role',{p_project_id:a,p_user_id:users[1],p_new_role:'viewer'}));
- assert.equal((await member.rpc('set_task_item_percentage',{p_task_item_id:item,p_percentage:60})).error?.code,'42501');
+ assert.equal((await fixtureCas(member, 'set_task_item_percentage', {p_task_item_id:item,p_percentage:60})).error?.code,'42501');
  await member.removeAllChannels();const viewer=await channel(member,'project:'+a);
- await value(owner.rpc('update_task',{p_task_id:task,p_title:'Viewer can read only'}));await until(()=>viewer.events.length>0);
+ await value(fixtureCas(owner, 'update_task', {p_task_id:task,p_title:'Viewer can read only'}));await until(()=>viewer.events.length>0);
  checks.push('downgraded viewer retains read subscription and cannot mutate');
  const out=process.env.TASKTRACE_SECURITY_EVIDENCE||root+'/.expo/security-evidence';mkdirSync(out,{recursive:true});
  writeFileSync(out+'/realtime-lifecycle.json',JSON.stringify({checks,checks_passed:checks.length,cached_events_after_revoke:cachedAfterRevoke,

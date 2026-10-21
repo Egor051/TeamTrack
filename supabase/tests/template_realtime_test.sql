@@ -13,15 +13,15 @@ do $$begin
 end $$;
 insert into template_realtime_state values('template', public.create_task_template('Global library secret marker','Not in Broadcast'));
 insert into template_realtime_state values('item',public.create_task_template_item((select id from template_realtime_state where key='template'),'Private payload marker','Not in Broadcast'));
-select public.update_task_template((select id from template_realtime_state where key='template'),'Changed library marker','Changed');
-select public.update_task_template_item((select id from template_realtime_state where key='item'),'Changed item marker','Changed');
+select public.update_task_template((select id from template_realtime_state where key='template'),'Changed library marker','Changed','Global library secret marker','Not in Broadcast');
+select public.update_task_template_item((select id from template_realtime_state where key='item'),'Changed item marker','Changed','Private payload marker','Not in Broadcast');
 select public.delete_task_template_item((select id from template_realtime_state where key='item'));
 -- Global read access does not grant edit rights, even to a project/stage admin.
 select set_config('request.jwt.claim.sub','73000000-0000-4000-8000-000000000002',true);
 do $$declare v_id uuid := (select id from template_realtime_state where key='template'); begin
   if not private.can_receive_realtime_topic('templates') or public.get_task_template(v_id) is null then
     raise exception 'authenticated global library is inaccessible'; end if;
-  begin perform public.update_task_template(v_id,'Denied',''); raise exception 'foreign template write accepted';
+  begin perform public.update_task_template(v_id,'Denied','','Changed library marker','Changed'); raise exception 'foreign template write accepted';
     exception when insufficient_privilege then null; end;
   begin perform public.create_task_template_item(v_id,'Denied'); raise exception 'foreign item write accepted';
     exception when insufficient_privilege then null; end;

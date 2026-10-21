@@ -52,7 +52,7 @@ vi.mock('@react-native-community/netinfo', () => ({ default: { addEventListener:
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ state: { user: { id: 'user-a' }, session: { access_token: 'test' }, isLoading: false } }) }));
 vi.mock('@/lib/supabase/realtime', () => ({ subscribeTable: () => () => undefined }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: string, options: { accessToken: () => Promise<string> }) => ({
-  rpc: async (name: string, args: { p_operation_id?: string; p_task_item_id?: string; p_expected_version?: number; p_percentage?: number; p_completed?: boolean; p_comment?: string; p_after_cursor?: number }) => {
+  rpc: async (name: string, args: { p_operation_id?: string; p_task_item_id?: string; p_expected_version?: number; p_percentage?: number; p_completed?: boolean; p_comment?: string; p_after_cursor?: number; p_mode?: string }) => {
     state.tokens.push(await options.accessToken());
     if (name === 'pull_task_item_changes_v2') {
       const cursor = args.p_after_cursor!;
@@ -61,6 +61,15 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: str
       return { data: { changes, next_cursor: changes.at(-1)?.cursor ?? cursor, has_more: false }, error: null };
     }
     if (name === 'get_task_item_sync_cursor') return { data: 0, error: null };
+    if (name === 'get_task_item_snapshot_page') {
+      const snapshot = { ...state.server };
+      if (state.bootstrapChange) {
+        state.bootstrapChange = false; state.server.percentage = 80; state.server.sync_version = 11;
+        state.pulled = [{ cursor: 1, task_id: 'task', task_item_id: 'item', change_type: 'upsert', item: { ...state.server } }];
+      }
+      const rows = state.missingItem || (args.p_mode !== 'all' && snapshot.is_archived !== (args.p_mode === 'archived')) ? [] : [snapshot];
+      return { data: { revision: 0, total: rows.length, offset: 0, rows }, error: null };
+    }
     state.calls.push({ name, id: args.p_operation_id!, expected: args.p_expected_version! });
     if (args.p_task_item_id === 'item' && (state.revoked || state.revokeDuringSend)) {
       state.revoked = true; state.revokeDuringSend = false;

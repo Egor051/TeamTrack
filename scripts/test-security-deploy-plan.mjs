@@ -1,6 +1,6 @@
 // Rehearse a captured production lineage with the real CLI, only in a disposable DB.
 import assert from 'node:assert/strict';
-import { readFileSync, mkdirSync, writeFileSync, cpSync, appendFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, cpSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -56,11 +56,13 @@ try {
   const template = await value(client.rpc('create_task_template', { p_name: 'Legacy template' }));
   const item = await value(client.rpc('create_task_template_item', { p_template_id: template, p_title: 'Legacy item' }));
   await value(client.rpc('update_project', { p_project_id: project, p_name: 'Legacy before', p_description: '' }));
-  assert.equal((await client.rpc('get_task_template_page')).error?.code, 'PGRST202');
-  const rejected = await client.rpc('update_project', { p_project_id: project, p_name: 'Must not save', p_description: '', p_expected_name: 'Legacy before', p_expected_description: '' });
+  // The current hosted baseline already has project/template CAS. The pending
+  // client additionally requires the online receipt executor and page v2.
+  assert.equal((await client.rpc('get_task_template_page_v2')).error?.code, 'PGRST202');
+  const rejected = await client.rpc('execute_client_mutation', {p_operation_id:randomUUID(),p_name:'update_project',p_args:{p_project_id:project,p_name:'Must not save',p_description:'',p_expected_name:'Legacy before',p_expected_description:''}});
   assert.equal(rejected.error?.code, 'PGRST202');
   assert.equal((await env.db.query('select name from public.projects where id=$1', [project])).rows[0].name, 'Legacy before');
-  console.log('PASS partial deployment: legacy client works; new page/CAS RPCs fail closed on old server without mutation');
+  console.log('PASS partial deployment: baseline client works; missing executor/page-v2 fail closed without mutation');
   await env.db.query('create schema supabase_migrations authorization postgres;create table supabase_migrations.schema_migrations(version text primary key,statements text[],name text);alter table supabase_migrations.schema_migrations owner to postgres');
   for (const row of history) await env.db.query('insert into supabase_migrations.schema_migrations values($1,$2,$3)', [row.version, row.statements, row.name]);
   const uri = 'postgresql://postgres:postgres@127.0.0.1:' + env.port + '/' + env.database;
@@ -73,14 +75,17 @@ try {
   const dry = await cli(true);
   for (const file of plan.pending) assert(dry.includes(file.file), 'CLI did not propose ' + file.file);
   assert.equal(dry.split(/\r?\n/).filter(line => /^\s*[•*]\s+\d{14}_/.test(line)).length, plan.pending.length);
-  const failedPlan = resolve(evidence, 'failed-plan-' + process.pid);
+  const failedPlan = resolve(evidence, 'failed-plan-' + process.pid + '-' + Date.now());
   cpSync(resolve(planPath, 'supabase'), resolve(failedPlan, 'supabase'), { recursive: true, errorOnExist: true, force: false });
-  appendFileSync(resolve(failedPlan,'supabase/migrations',plan.pending[0].file), '\nselect 1/0; -- isolated failure injection\n');
+  const failurePath=resolve(failedPlan,'supabase/migrations',plan.pending[0].file);
+  const failureSource=readFileSync(failurePath,'utf8'),commit=failureSource.toLowerCase().lastIndexOf('\ncommit;');
+  const injection='\nselect 1/0; -- isolated failure INSIDE the migration transaction\n';
+  writeFileSync(failurePath,commit<0?failureSource+injection:failureSource.slice(0,commit)+injection+failureSource.slice(commit));
   const preFailure = await snapshot(env);
   await assert.rejects(() => cli(false, failedPlan), /division by zero/);
   assert.equal((await env.db.query('select count(*)::int n from supabase_migrations.schema_migrations')).rows[0].n, history.length);
   assert.deepEqual(snapshotDiff(await snapshot(env), preFailure), {}, 'failed migration partially changed application schema');
-  console.log('PASS failed deployment: injected SQL error rolls back DDL/history, legacy API remains usable, corrected plan can resume');
+  console.log('PASS failed deployment: SQL error inside the migration transaction rolls back DDL/history; baseline API remains usable');
   await cli(false);
   assert.equal((await env.db.query('select count(*)::int n from supabase_migrations.schema_migrations')).rows[0].n, history.length + plan.pending.length);
   assert.match(await cli(true), /up to date/i);
@@ -91,15 +96,17 @@ try {
     await new Promise(done => setTimeout(done, 200));
   }
   assert(refreshed, 'Running PostgREST did not adopt new RPCs after migration; schema reload missing');
-  await value(client.rpc('update_project', { p_project_id: project, p_name: 'Legacy after', p_description: '' }));
-  await value(client.rpc('update_task_template', { p_template_id: template, p_name: 'Legacy template after', p_description: '' }));
-  await value(client.rpc('update_task_template_item', { p_item_id: item, p_title: 'Legacy item after', p_description: '' }));
-  await value(client.rpc('update_project', { p_project_id: project, p_name: 'CAS saved', p_description: '', p_expected_name: 'Legacy after', p_expected_description: '' }));
-  assert.equal((await client.rpc('update_project', { p_project_id: project, p_name: 'Lost', p_description: '', p_expected_name: 'Legacy after', p_expected_description: '' })).error?.code, 'PT409');
+  for(const [name,args] of [
+    ['update_project',{p_project_id:project,p_name:'Legacy after',p_description:''}],
+    ['update_task_template',{p_template_id:template,p_name:'Legacy template after',p_description:''}],
+    ['update_task_template_item',{p_item_id:item,p_title:'Legacy item after',p_description:''}],
+  ])assert.equal((await client.rpc(name,args)).error?.code,'PT426',name+': cutover must explicitly refuse unversioned drafts');
+  await value(client.rpc('update_project', { p_project_id: project, p_name: 'CAS saved', p_description: '', p_expected_name: 'Legacy before', p_expected_description: '' }));
+  assert.equal((await client.rpc('update_project', { p_project_id: project, p_name: 'Lost', p_description: '', p_expected_name: 'Legacy before', p_expected_description: '' })).error?.code, 'PT409');
   const diff = snapshotDiff(await snapshot(env), expected);
   writeFileSync(resolve(evidence, 'release-upgrade-schema-diff.json'), JSON.stringify(diff, null, 2));
   assert.deepEqual(diff, {});
   writeFileSync(resolve(evidence, 'release-deployment-rehearsal.json'), JSON.stringify({ production_applied: false, baseline: history.length, pending: plan.pending.length, final_history: history.length + plan.pending.length,
-    exact_hosted_boundary: true, failed_migration_rolled_back: true, new_client_old_server_fails_closed: true, old_client_new_server_compatible: true, running_api_schema_reloaded: true, final_schema_matches_canonical: true }, null, 2));
-  console.log('PASS real CLI rehearsal: ' + history.length + '+' + plan.pending.length + ', second dry-run empty, running API reload, legacy signatures, CAS, canonical schema');
+    exact_hosted_boundary: true, failed_migration_rolled_back: true, new_client_old_server_fails_closed: true, old_client_new_server_compatible: false, legacy_requires_upgrade: true, running_api_schema_reloaded: true, final_schema_matches_canonical: true }, null, 2));
+  console.log('PASS real CLI rehearsal: ' + history.length + '+' + plan.pending.length + ', second dry-run empty, running API reload, controlled legacy refusal, CAS, canonical schema');
 } finally { api?.close(); await env.close(); }

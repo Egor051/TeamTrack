@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 // Real production PWA against local Supabase. Never reads/writes hosted data.
 import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -192,7 +193,7 @@ async function runRequestMeasurements(taskId, itemId) {
   await capture('open project', () => spa(`/projects/${projectId}`, 'Основной этап'));
   await capture('project -> task', () => spa(`/projects/${projectId}/tasks/${taskId}`, 'Сохранённый комментарий'));
   await capture('task -> project', () => spa(`/projects/${projectId}`, 'Основной этап'));
-  await capture('realtime one item', async () => { await value(owner.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 41 })); });
+  await capture('realtime one item', async () => { await value(fixtureCas(owner, 'set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 41 })); });
   await capture('foreground unchanged', async () => { browser('eval', "dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));true"); });
   await spa('/projects', 'Офлайн основной проект'); await settle();
   await capture('manual refresh', async () => { browser('click', ref(browser('snapshot','-i'), 'button "Обновить"')); });
@@ -209,8 +210,8 @@ try {
   projectId = await value(owner.rpc('create_project', { p_name: 'Офлайн основной проект' }));
   const taskId = await value(owner.rpc('create_task', { p_project_id: projectId, p_title: 'Основной этап' }));
   const itemId = await value(owner.rpc('create_task_item', { p_task_id: taskId, p_title: 'Основной пункт' }));
-  await value(owner.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 40 }));
-  await value(owner.rpc('set_task_item_comment', { p_task_item_id: itemId, p_comment: 'Сохранённый комментарий' }));
+  await value(fixtureCas(owner, 'set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 40 }));
+  await value(fixtureCas(owner, 'set_task_item_comment', { p_task_item_id: itemId, p_comment: 'Сохранённый комментарий' }));
   const archivedItem = await value(owner.rpc('create_task_item', { p_task_id: taskId, p_title: 'Архивный пункт' }));
   await value(owner.rpc('archive_task_item', { p_task_item_id: archivedItem }));
   archivedProjectId = await value(owner.rpc('create_project', { p_name: 'Офлайн архивный проект' }));

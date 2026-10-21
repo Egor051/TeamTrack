@@ -1,3 +1,4 @@
+import { fixtureCas } from './fixture-cas.mjs';
 // Local-only synthetic users for manual production-build browser smoke checks.
 import { createClient } from '@supabase/supabase-js';
 import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
@@ -36,7 +37,7 @@ if (process.argv[2] === 'setup') {
   await value(owner.rpc('add_project_member', { p_project_id: projectId, p_user_id: b.user.id, p_role: 'member' }));
   const taskId = await value(owner.rpc('create_task', { p_project_id: projectId, p_title: 'Монтаж окон', p_description: 'Local smoke' }));
   const itemId = await value(owner.rpc('create_task_item', { p_task_id: taskId, p_title: 'Оконные блоки установлены' }));
-  await value(owner.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 20 }));
+  await value(fixtureCas(owner, 'set_task_item_percentage', { p_task_item_id: itemId, p_percentage: 20 }));
   const item = await value(owner.from('task_items').select('sync_version,percentage').eq('id', itemId).single());
   console.log(JSON.stringify({ aEmail, bEmail, password, projectId, taskId, itemId, version: item.sync_version, percentage: item.percentage }));
 } else if (process.argv[2] === 'remote') {
@@ -45,7 +46,7 @@ if (process.argv[2] === 'setup') {
   if (!email?.includes('@test.local') || !/^[0-9a-f-]{36}$/i.test(itemId ?? '') || !Number.isInteger(percentage))
     throw new Error('Usage: remote <local-test-email> <item-uuid> <percentage>');
   const remote = await signedIn(email);
-  await value(remote.rpc('set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage }));
+  await value(fixtureCas(remote, 'set_task_item_percentage', { p_task_item_id: itemId, p_percentage: percentage }));
   const item = await value(remote.from('task_items').select('sync_version,percentage').eq('id', itemId).single());
   console.log(JSON.stringify({ itemId, version: item.sync_version, percentage: item.percentage }));
 } else {

@@ -1,11 +1,12 @@
 {
   "policyVersion": 1,
   "decision": "owner-approved-temporary-risk",
-  "approvalReference": "Explicit project-owner decision, option B, task attachment e19b1a75-e347-4eb5-8e56-b4839d7fb609, 2026-10-18",
+  "approvalReference": "Explicit project-owner decision, option B, task attachment e19b1a75-e347-4eb5-8e56-b4839d7fb609, 2026-10-18; scope and expiry preserved after Vite 8.3.3 security update under the all-audit-findings remediation request, 2026-10-21; mandatory Expo Doctor patch alignment (expo 57.0.31, router 57.0.29), same 18 findings and two GHSA roots, reviewed CLI node relocation only, 2026-10-21",
   "expiresAt": "2026-10-25T20:59:00.000Z",
-  "lockSha256": "9759a5d892966c200aef86ee232570df36320259f90a63d4403cfbfa09968129",
-  "packageManifestSha256": "f3e69479867009c65d67700ca9b725db0b6a29d47f632afb140b8ca8dc6f2bc5",
-  "auditGraphSha256": "f63bae014c20184286168ba194c63e8db5f18fe81f5bcd7378ba565e6f9a8f90",
+  "lockSha256": "da18c63f547c5280ede145aec933e9727e70ba868b2c5bcbd315271afbeb5997",
+  "packageManifestSha256": "6bde2d5dfbe38379538c0343a712a533a4944487b82cdcf152db1c442b50d126",
+  "auditGraphNormalization": "arborist-derived-metadata-v2",
+  "auditGraphSha256": "615432ec9baa597a3c08f6eab06797e9b1c722d211cd70d22c93d69076fd63fe",
   "advisories": [
     {
       "id": "GHSA-vfj7-8cjw-p6xm",

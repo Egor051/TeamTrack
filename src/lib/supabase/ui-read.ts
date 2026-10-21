@@ -6,10 +6,10 @@ export const UI_READ_TIMEOUT_MS = 5000;
 export async function uiRead<T>(query: PromiseLike<T> & {
   abortSignal?: (signal: AbortSignal) => PromiseLike<T>;
   retry?: (enabled: boolean) => PromiseLike<T>;
-}): Promise<T> {
+}, parent?: AbortSignal): Promise<T> {
   query.retry?.(false);
   try {
-    const result = await boundedOperation((signal) => query.abortSignal?.(signal) ?? query, UI_READ_TIMEOUT_MS);
+    const result = await boundedOperation((signal) => query.abortSignal?.(signal) ?? query, UI_READ_TIMEOUT_MS, parent);
     const response = result as { error?: { status?: number; message?: string; code?: string }; status?: number } | null;
     // PostgREST stores HTTP status outside its error object. Retain denials.
     if (response?.error && typeof response.status === 'number') response.error.status = response.status;

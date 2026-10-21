@@ -12,6 +12,9 @@ vi.mock('@/lib/supabase/realtime', () => ({ subscribeMany: () => () => undefined
 vi.mock('@/lib/local-cache/use-read-model-updates', () => ({ useReadModelUpdates: (load: () => Promise<void>) => { f.refresh = load; return { refreshFromServer: load }; } }));
 vi.mock('@/features/auth/auth', () => ({ getCurrentUser: async () => ({ data: { user: { id: '00000000-0000-4000-8000-000000000011' } }, error: null }) }));
 vi.mock('@/lib/supabase/client', () => ({ supabase: { rpc: f.rpc } }));
+// This suite verifies UI/RPC arguments; durable receipt behavior has its own
+// tests with the real executor and IndexedDB.
+vi.mock('@/lib/supabase/mutation', () => ({ executeMutation: (name: string, args: unknown) => f.rpc(name, args) }));
 vi.mock('@/features/projects/projects', async (importOriginal) => ({ ...await importOriginal<typeof import('@/features/projects/projects')>(),
   listTaskTemplates: async () => [{ id: '00000000-0000-4000-8000-000000000010', name: f.name, description: f.description, created_by: '00000000-0000-4000-8000-000000000011' }],
   listTaskTemplateItems: async () => { if (f.itemGate) await f.itemGate; return structuredClone(f.rows); },

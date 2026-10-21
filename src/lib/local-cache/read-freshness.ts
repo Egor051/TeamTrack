@@ -1,5 +1,6 @@
 import { localCacheDriver } from './driver';
 import type { CacheEntry } from './types';
+import { throwIfAborted } from '@/lib/connectivity/deadline';
 
 export const READ_FRESHNESS_MS = 60_000;
 export const READ_MODEL_PREFIXES = ['projects:', 'project:', 'tasks:', 'task:', 'task-stats:', 'my-tasks:', 'items:', 'checklist-overview',
@@ -83,7 +84,9 @@ export function clearReadFreshness(): void { waves.clear(); confirmed.clear(); v
 export async function settleReadInvalidations(userId: string): Promise<void> {
   while (persisting.get(userId)?.size) await Promise.allSettled([...persisting.get(userId)!]);
 }
-export function invalidateReadModels(userId: string, prefixes = READ_MODEL_PREFIXES, kind: InvalidationKind = 'data'): Promise<void> {
+export function invalidateReadModels(userId: string, prefixes = READ_MODEL_PREFIXES, kind: InvalidationKind = 'data', signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  const storage = signal && localCacheDriver.withOperation ? localCacheDriver.withOperation(signal) : localCacheDriver;
   // The volatile fence is installed before IndexedDB I/O. Never allow a failed
   // persistence operation to bless cached data after an ACL signal.
   const wave: Wave = { version: ++version, prefixes, kind };
@@ -96,13 +99,15 @@ export function invalidateReadModels(userId: string, prefixes = READ_MODEL_PREFI
       data: `${Date.now()}:${wave.version}:${Math.random().toString(36).slice(2)}`, last_synced_at: new Date().toISOString(), schema_version: 1 };
     // One write regardless of model count; CAS orders competing tab events.
     for (let attempt = 0; attempt < 3; attempt++) {
-      const previous = await localCacheDriver.get(userId, GLOBAL_ACL_KEY);
-      if (await localCacheDriver.commitCacheBatch(userId, [entry], [], [{ key: GLOBAL_ACL_KEY, data: previous?.data ?? null }])) return;
+      const previous = await storage.get(userId, GLOBAL_ACL_KEY);
+      throwIfAborted(signal);
+      if (await storage.commitCacheBatch(userId, [entry], [], [{ key: GLOBAL_ACL_KEY, data: previous?.data ?? null }], signal)) return;
     }
     throw new Error('Не удалось сохранить ACL invalidation.');
   }
   for (let attempt = 0; attempt < 3; attempt++) {
-    const stored = await localCacheDriver.listEntries(userId);
+    const stored = await storage.listEntries(userId);
+    throwIfAborted(signal);
     const byKey = new Map(stored.map((entry) => [entry.key, entry]));
     const targets = stored.filter((entry) => matches(entry.key, prefixes) && !entry.key.startsWith('read:')
       && (confirmed.get(identity(userId, entry.key)) ?? 0) < wave.version);
@@ -119,7 +124,7 @@ export function invalidateReadModels(userId: string, prefixes = READ_MODEL_PREFI
       const entry: CacheEntry = { user_id: userId, key, data: JSON.stringify(marker), last_synced_at: new Date().toISOString(), schema_version: 1 };
       entries.push(entry); guards.push({ key, data: previous?.data ?? null });
     }
-    if (!entries.length || await localCacheDriver.commitCacheBatch(userId, entries, [], guards)) return;
+    if (!entries.length || await storage.commitCacheBatch(userId, entries, [], guards, signal)) return;
     if (attempt === 2) throw new Error('Не удалось сохранить invalidation.');
   }
   })().finally(() => { writes.delete(work); if (!writes.size && persisting.get(userId) === writes) persisting.delete(userId); });
