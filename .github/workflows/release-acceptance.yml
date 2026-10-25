@@ -1,0 +1,127 @@
+name: Release acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: release-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  EXPO_NO_DOTENV: '1'
+  EXPO_PUBLIC_SUPABASE_URL: https://ci.invalid.supabase.co
+  EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-public-anon-key
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check:db
+      - run: npm run typecheck
+      - run: npm run lint -- --no-cache
+      - run: npm run test:unit
+      - run: node scripts/release-manifest.mjs --check
+      - run: node scripts/check-release-workflows.mjs
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx --yes supabase@2.116.0 start
+      - run: npx playwright install --with-deps chromium webkit
+      - run: node scripts/run-release-acceptance.mjs
+      - run: node scripts/pwa-mobile-browser-smoke.mjs
+      - name: Preserve every acceptance result and failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-database-evidence
+          path: |
+            .expo/release-acceptance/
+            .expo/r03/
+            .expo/operation-window*/
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Stop only the disposable CI stack
+        if: always()
+        run: npx --yes supabase@2.116.0 stop --no-backup
+  security:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.security-policy.outputs.status }}
+      npmAudit: ${{ steps.security-policy.outputs.npmAudit }}
+      policySha256: ${{ steps.security-policy.outputs.policySha256 }}
+      lockSha256: ${{ steps.security-policy.outputs.lockSha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        id: dependencies
+      - run: npm run build:web
+      - run: node scripts/security-export.mjs --platform web --platform android --platform ios --source-maps --output-dir .expo/security-export
+      - run: node scripts/release-bundle-exposure.mjs .expo/security-export
+      - run: npx --yes expo-doctor@1.21.5
+      - id: security-policy
+        if: always() && steps.dependencies.outcome == 'success'
+        run: node scripts/security-policy-gate.mjs --bundles .expo/security-export
+      - name: Preserve raw audit and the actual policy decision
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-security-evidence
+          path: |
+            .expo/security-policy/
+            .expo/release-acceptance/bundle-exposure.json
+          include-hidden-files: true
+          if-no-files-found: error
+  decision:
+    name: release-acceptance-decision
+    if: always()
+    needs: [static, database, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Fail closed unless every required job succeeded
+        env:
+          ACCEPTANCE_RESULTS: ${{ toJSON(needs) }}
+          ACCEPTANCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          ACCEPTANCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/release-decision.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-acceptance-decision
+          path: .expo/release-acceptance/acceptance.json
+          include-hidden-files: true
+          if-no-files-found: error

@@ -166,10 +166,11 @@ describe('IndexedDB outbox', () => {
     expect(await localCacheDriver.get('user-a', 'items:task-1:active')).toEqual(entry);
     expect(await localCacheDriver.listPending('user-a')).toEqual([]);
     const upgraded = await requestDone(indexedDB.open(name));
-    expect(upgraded.version).toBe(5);
-    expect([...upgraded.objectStoreNames]).toContain('pending_operations');
-    expect([...upgraded.objectStoreNames]).toContain('sync_conflicts');
-    upgraded.close();
+    try {
+      expect(upgraded.version).toBe(5);
+      expect([...upgraded.objectStoreNames]).toContain('pending_operations');
+      expect([...upgraded.objectStoreNames]).toContain('sync_conflicts');
+    } finally { upgraded.close(); }
   });
 
   it('persists concurrent writes with unique ordering and survives module reload', async () => {
@@ -252,3 +253,5 @@ describe('IndexedDB outbox', () => {
     expect((await localCacheDriver.get('user-a', 'items:task-1:active'))?.data).toContain('"percentage":70');
   });
 });
+import { operationWindowStorageContract } from './operation-window-storage-contract';
+operationWindowStorageContract(async () => (await import('@/lib/local-cache/driver.web')).localCacheDriver);

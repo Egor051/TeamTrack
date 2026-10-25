@@ -1,7 +1,9 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const f = vi.hoisted(() => ({ rpc: vi.fn(), epoch: 1 }));
-vi.mock('@/lib/supabase/client', () => ({ supabase: { rpc: f.rpc } }));
+vi.mock('@/lib/supabase/client', () => ({ supabase: { rpc: (name: string, args: unknown) => name === 'get_client_operation_context'
+  ? Promise.resolve({ data: { protocol_version: 3, fingerprint_version: 1, generation: '11111111-1111-4111-8111-111111111111', epoch: 1,
+    admit_until: '2030-01-02T00:00:00Z', replay_until: '2030-04-02T00:00:00Z' }, error: null }) : f.rpc(name, args) } }));
 vi.mock('@/lib/local-cache/cache', () => ({ activeCacheUserId: async () => 'account-a',
   isTransportFailure: (e: Error) => /fetch|timeout/i.test(e?.message ?? '') || e?.name === 'TimeoutError' }));
 vi.mock('@/lib/local-cache/read-freshness', () => ({ readAccountEpoch: () => f.epoch }));
@@ -14,12 +16,12 @@ function tabStorage() {
 }
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; }
 function serialLocks() {
-  let tail = Promise.resolve(); let held: string | null = null;
+  const tails = new Map<string, Promise<unknown>>(); const held = new Set<string>();
   const request = vi.fn((_key: string, options: { signal: AbortSignal }, work: () => unknown) => {
-    const next = tail.then(async () => { if (options.signal.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' }); held=_key; try { return await work(); } finally { held=null; } });
-    tail = next.then(() => undefined, () => undefined); return next;
+    const next = (tails.get(_key) ?? Promise.resolve()).then(async () => { if (options.signal.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' }); held.add(_key); try { return await work(); } finally { held.delete(_key); } });
+    tails.set(_key,next.then(() => undefined, () => undefined)); return next;
   });
-  vi.stubGlobal('navigator', { locks: { request, query: async () => ({held:held?[{name:held}]:[],pending:[]}) } }); return request;
+  vi.stubGlobal('navigator', { locks: { request, query: async () => ({held:[...held].map(name=>({name})),pending:[]}) } }); return request;
 }
 beforeEach(async () => {
   vi.useRealTimers(); vi.resetModules(); f.rpc.mockReset(); f.epoch = 1;
@@ -38,6 +40,20 @@ async function clean() {
   expect(await localCacheDriver.listEntries('account-a', 'sync:mutation:')).toEqual([]);
   expect(await localCacheDriver.listPending('account-a')).toEqual([]);
 }
+it('re-evaluates an orphaned running handle after a stale lock snapshot', async () => {
+  const { localCacheDriver } = await import('@/lib/local-cache/driver');
+  const id = 'a1111111-1111-4111-8111-111111111111';
+  const handle = { id, protocol_version: 3, fingerprint_version: 1, generation: '11111111-1111-4111-8111-111111111111',
+    epoch: 1, admit_until: '2030-01-02', replay_until: '2030-04-02' };
+  await localCacheDriver.put({ user_id: 'account-a', key: 'sync:mutation:create_project:self', schema_version: 1, last_synced_at: '',
+    data: JSON.stringify({ id, name: 'create_project', args: { p_name: 'Original' }, protocol_version: 3, phase: 'running', handle }) });
+  serialLocks(); vi.stubGlobal('sessionStorage', tabStorage());
+  Object.assign(navigator.locks, { query: async () => ({ held: [{ name: 'tasktrace-mutation:account-a:'+id }], pending: [] }) });
+  const backend=server();f.rpc.mockImplementation(async (_name,args)=>backend.run(args));
+  const { executeMutation }=await import('@/lib/supabase/mutation');
+  expect((await executeMutation('create_project',{p_name:'Original'}, { mode: 'retry' })).data).toBe('created-1');
+  expect(f.rpc.mock.calls[0][1].p_operation_id).toBe(id);expect(backend.effects()).toBe(1);await clean();
+});
 it('REG-01: independent contexts retry the same committed lost ACK with one effect and retire their handles', async () => {
   const locks = serialLocks(), a = tabStorage(), b = tabStorage(), backend = server(), hold = deferred(); let lost = true;
   f.rpc.mockImplementation(async (_name, args) => { const result = backend.run(args); if (lost) { lost = false; throw new TypeError('Failed to fetch'); } await hold.promise; return result; });
@@ -48,8 +64,8 @@ it('REG-01: independent contexts retry the same committed lost ACK with one effe
   await vi.waitFor(() => expect(f.rpc).toHaveBeenCalledTimes(2));
   vi.resetModules(); vi.stubGlobal('sessionStorage', b);
   const tabB = await import('@/lib/supabase/mutation');
-  const retryB = tabB.executeMutation('create_project', { p_name: 'same' });
-  await vi.waitFor(() => expect(locks).toHaveBeenCalledTimes(3));
+  const retryB = tabB.executeMutation('create_project', { p_name: 'same' }, { mode: 'retry' });
+  await vi.waitFor(() => expect(locks.mock.calls.filter(call => call[0] === 'tasktrace-mutation:account-a')).toHaveLength(3));
   hold.resolve(); const results = await Promise.all([retryA, retryB]);
   expect(backend.effects()).toBe(1); expect(new Set(f.rpc.mock.calls.map(call => call[1].p_operation_id)).size).toBe(1);
   expect(results[0].data).toBe(results[1].data); expect(a.values.size).toBe(0); expect(b.values.size).toBe(0); await clean();
@@ -58,6 +74,7 @@ it('a queued retry survives deadline and reload after another tab has removed th
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   const a = tabStorage(), b = tabStorage(), backend = server(), ack = deferred(); let requests = 0, lost = true;
   vi.stubGlobal('navigator', { locks: { request: (_key: string, options: { signal: AbortSignal }, work: () => unknown) => {
+    if (_key !== 'tasktrace-mutation:account-a') return work();
     requests++;
     if (requests !== 3) return work();
     return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(Object.assign(new Error('Cancelled'), { name: 'AbortError' })), { once: true }));
@@ -68,11 +85,11 @@ it('a queued retry survives deadline and reload after another tab has removed th
   const retryA = tabA.executeMutation('create_project', { p_name: 'same' });
   await vi.waitFor(() => expect(f.rpc).toHaveBeenCalledTimes(2));
   vi.resetModules(); vi.stubGlobal('sessionStorage', b); const tabB = await import('@/lib/supabase/mutation');
-  const timeout = expect(tabB.executeMutation('create_project', { p_name: 'same' })).rejects.toMatchObject({ name: 'TimeoutError' });
+  const timeout = expect(tabB.executeMutation('create_project', { p_name: 'same' }, { mode: 'retry' })).rejects.toMatchObject({ name: 'TimeoutError' });
   await vi.waitFor(() => expect(requests).toBe(3)); ack.resolve(); await retryA; await clean();
   await vi.advanceTimersByTimeAsync(45_001); await timeout;
   expect(b.values.size).toBe(1); vi.resetModules();
-  await expect((await import('@/lib/supabase/mutation')).executeMutation('create_project', { p_name: 'same' })).resolves.toMatchObject({ data: 'created-1' });
+  await expect((await import('@/lib/supabase/mutation')).executeMutation('create_project', { p_name: 'same' }, { mode: 'retry' })).resolves.toMatchObject({ data: 'created-1' });
   expect(backend.effects()).toBe(1); expect(new Set(f.rpc.mock.calls.map(call => call[1].p_operation_id)).size).toBe(1);
   expect(b.values.size).toBe(0); await clean();
 });
@@ -82,7 +99,7 @@ it('closing the failed tab leaves its unresolved shared envelope available to an
   vi.stubGlobal('sessionStorage', tabStorage());
   await expect((await import('@/lib/supabase/mutation')).executeMutation('create_project', { p_name: 'same' })).rejects.toThrow();
   vi.resetModules(); vi.stubGlobal('sessionStorage', tabStorage());
-  await expect((await import('@/lib/supabase/mutation')).executeMutation('create_project', { p_name: 'same' })).resolves.toMatchObject({ data: 'created-1' });
+  await expect((await import('@/lib/supabase/mutation')).executeMutation('create_project', { p_name: 'same' }, { mode: 'retry' })).resolves.toMatchObject({ data: 'created-1' });
   expect(backend.effects()).toBe(1); await clean();
 });
 it.each([false, true])('independent identical actions keep different IDs (separate contexts: %s)', async (separate) => {

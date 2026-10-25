@@ -150,8 +150,8 @@ describe('UI architecture regressions', () => {
     expect(confirm).toContain('ModalLayer');
     expect(task).toContain('TaskMembersPanel');
     expect(task).toContain("showArchivedItems ? 'archived' : 'active'");
-    expect(dataLayer).toContain("mode === 'archived'");
-    expect(dataLayer).toContain("query.eq('is_archived', true)");
+    expect(dataLayer).toContain('p_mode: normalizedMode');
+    expect(dataLayer).toContain('readSnapshotPages<TaskItem>');
   });
 
   it('keeps task actions side-by-side with responsive wrapping and separates summary surfaces', () => {

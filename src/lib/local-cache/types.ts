@@ -1,3 +1,4 @@
+import type { OperationHandle } from '@/lib/supabase/operation-handle';
 export const LOCAL_CACHE_SCHEMA_VERSION = 1;
 
 // Version 1 template lists may have been silently capped by the old table RPC.
@@ -32,13 +33,15 @@ export type OfflineOperationInput = {
   protocol_version?: number;
 };
 
-export type OperationStatus = 'pending' | 'synced_unreconciled' | 'failed' | 'conflict';
+export type OperationStatus = 'pending' | 'synced_unreconciled' | 'failed' | 'conflict' | 'review';
 export type OfflineOperation = Omit<OfflineOperationInput, 'status'> & {
   sequence: number;
   status: OperationStatus;
   server_result?: boolean | number | string | null;
   last_error?: string | null;
   server_version?: number | null;
+  operation_handle?: OperationHandle | null;
+  logical_operation_id?: string | null;
 };
 
 export type ReconciledItem = {
@@ -81,6 +84,7 @@ export type PullChange = {
 };
 
 export interface LocalCacheDriver {
+  bindOperationHandle(userId: string, operationId: string, handle: OperationHandle): Promise<OfflineOperation>;
   // Operation-scoped transactions abort/roll back if their worker is superseded.
   withOperation?(signal: AbortSignal): LocalCacheDriver;
   // Confirmed cache/metadata only. Never touches pending operations/conflicts.
@@ -92,7 +96,8 @@ export interface LocalCacheDriver {
   listEntries(userId: string, prefix?: string): Promise<CacheEntry[]>;
   enqueue(operation: OfflineOperationInput): Promise<OfflineOperation>;
   listPending(userId: string, taskId?: string): Promise<OfflineOperation[]>;
-  markOperation(userId: string, operationId: string, status: OperationStatus, result?: OfflineOperation['server_result'], error?: string): Promise<void>;
+  // Terminal review releases its conflict gate in the same transaction.
+  markOperation(userId: string, operationId: string, status: OperationStatus, result?: OfflineOperation['server_result'], error?: string, reviewConflictId?: string): Promise<void>;
   acknowledgeOperation(userId: string, operationId: string, version: number, conflictId?: string, item?: ReconciledItem): Promise<void>;
   listConflicts(userId: string): Promise<SyncConflict[]>;
   createConflict(conflict: SyncConflict): Promise<void>;

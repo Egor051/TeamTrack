@@ -2,7 +2,7 @@ import type { TaskItem } from '@/lib/supabase/client';
 import { activeCacheUserId } from './cache';
 import { localCacheDriver } from './driver';
 import type { OfflineOperation, OfflineOperationInput } from './types';
-import { newOperationId } from './uuid';
+import { newAttemptId } from './operation-attempt';
 import { validSyncVersion } from './pull-cache';
 import { buildSyncEnabled, buildWriteEnabled, runtimeCapabilities } from './runtime-config';
 
@@ -46,11 +46,11 @@ export async function enqueueOperation(
   if (!userId || await activeCacheUserId() !== userId) throw new Error('Требуется авторизация.');
   const checked = validateEdit(edit);
   const operation: OfflineOperationInput = {
-    operation_id: newOperationId(), user_id: userId, project_id: projectId,
+    operation_id: newAttemptId(), user_id: userId, project_id: projectId,
     task_id: taskId, task_item_id: itemId, ...checked,
     created_at: new Date().toISOString(), status: 'pending',
     expected_version: validSyncVersion(displayedVersion) ? displayedVersion : null,
-    protocol_version: 2,
+    protocol_version: 3,
   };
   const saved = await localCacheDriver.enqueue(operation);
   if (await activeCacheUserId() !== userId) throw new Error('Сеанс изменился. Обновите страницу.');

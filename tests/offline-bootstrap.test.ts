@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountManifest, Dataset } from '@/lib/local-cache/bootstrap-types';
 import { BASIC_DATASETS, EXTENDED_DATASETS, BOOTSTRAP_KEY, initialBootstrap } from '@/lib/local-cache/bootstrap-types';
@@ -321,6 +321,7 @@ describe('account bootstrap', () => {
     }
     expect(pageWrites).toBe(0); expect(samples.every((row) => row.records === baseline.records && row.pages === baseline.pages && row.allCopies === 0)).toBe(true);
     expect(Math.max(...samples.map((row) => row.bytes)) - Math.min(...samples.map((row) => row.bytes))).toBeLessThan(4096);
+    mkdirSync('.expo', { recursive: true });
     writeFileSync('.expo/cache-storage-cycles.json', JSON.stringify({ fixture: '1001 items, 690 byte comments, Basic, fake IndexedDB, 20 reload cycles', pageWrites, samples }, null, 2));
   });
   it('one changed page writes only its replacement and collects the old content after commit', async () => {

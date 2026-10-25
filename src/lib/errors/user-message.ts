@@ -2,8 +2,11 @@ import { ResourceAccessDeniedError } from '@/lib/errors/domain-errors';
 
 export function userMessage(error: unknown, fallback: string): string {
   if (process.env.NODE_ENV !== 'production' && !(error instanceof ResourceAccessDeniedError)) console.error('[TaskTrace]', error);
-  const value = error as { message?: string; code?: string; status?: number } | null;
+  const value = error as { message?: string; code?: string; status?: number; details?: string } | null;
   const message = value?.message?.toLowerCase() ?? '';
+  if (value?.code?.startsWith('TT_OPERATION_')) return 'Результат действия требует согласования. Получите актуальное состояние через индикатор синхронизации; ваш черновик сохранён.';
+  if (value?.details === 'TT_RECEIPT_POLICY') return 'Сохранение временно недоступно: требуется настройка лимитов операций на сервере. Ваш черновик сохранён.';
+  if (value?.details === 'TT_RECEIPT_LIMIT' || value?.details === 'TT_RECEIPT_RATE') return 'Достигнут лимит операций или их хранения. Изменение не выполнено; ваш черновик сохранён. Повторите позже или обратитесь к администратору.';
   if (value?.code === 'PT426') return 'Обновите приложение перед сохранением. Сохраните черновик, закройте старые вкладки и откройте приложение заново. Не очищайте несинхронизированную очередь.';
   if ((error as Error)?.name === 'MutationOutcomeUnknownError' || value?.code === 'TT_MUTATION_RECONCILED' || value?.code === 'TT_MUTATION_PENDING' || value?.code === 'TT_MUTATION_STORAGE') return value?.message || fallback;
   if (value?.code === 'TT_MEMBER_LOOKUP') return 'Не удалось добавить участника по указанному идентификатору.';

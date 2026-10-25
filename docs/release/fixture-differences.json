@@ -1,0 +1,285 @@
+{
+  "scope": "Only the isolated historical fixture. Production preflight always compares exact raw metadata, with NO exceptions.",
+  "deltas": [
+    {
+      "collection": "schemas",
+      "id": "public",
+      "local": {
+        "acl": "{pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,postgres=UC/pg_database_owner}",
+        "name": "public",
+        "owner": "pg_database_owner"
+      },
+      "production": {
+        "acl": "{pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,postgres=U/pg_database_owner,anon=U/pg_database_owner,authenticated=U/pg_database_owner,service_role=U/pg_database_owner}",
+        "name": "public",
+        "owner": "pg_database_owner"
+      },
+      "proof": "Provider fixture explicit CREATE for database owner; API roles already inherit public schema USAGE via PUBLIC. Hosted spells out the same USAGE. No runtime grant or schema owner changes."
+    },
+    {
+      "collection": "functions",
+      "id": "public.public.prevent_history_mutation()",
+      "local": {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "sha256": "82024c3812580d53588234f190d2d478f80b1b4502c68fce0d7fb47d307a01af",
+        "definer": false,
+        "signature": "public.public.prevent_history_mutation()"
+      },
+      "production": {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "sha256": "82024c3812580d53588234f190d2d478f80b1b4502c68fce0d7fb47d307a01af",
+        "definer": false,
+        "signature": "public.public.prevent_history_mutation()"
+      },
+      "proof": "Identical SQL tokens; hosted has authenticated EXECUTE on this existing invoker trigger-only function. PostgreSQL trigger functions cannot be invoked as ordinary RPC. No project grant is changed."
+    },
+    {
+      "collection": "functions",
+      "id": "public.public.set_updated_at()",
+      "local": {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "sha256": "1f017b404bf607777937272652f1e6f823602fad96c9191a80f55c52693a6963",
+        "definer": false,
+        "signature": "public.public.set_updated_at()"
+      },
+      "production": {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "sha256": "1f017b404bf607777937272652f1e6f823602fad96c9191a80f55c52693a6963",
+        "definer": false,
+        "signature": "public.public.set_updated_at()"
+      },
+      "proof": "Identical SQL tokens; hosted has authenticated EXECUTE on this existing invoker trigger-only function. PostgreSQL trigger functions cannot be invoked as ordinary RPC. No project grant is changed."
+    },
+    {
+      "collection": "tables",
+      "id": "private.checklist_deadline_state",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "private.checklist_deadline_state",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "private.checklist_deadline_state",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "tables",
+      "id": "private.client_operation_receipts",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "private.client_operation_receipts",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "private.client_operation_receipts",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "tables",
+      "id": "private.member_identifier_limits",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "private.member_identifier_limits",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "private.member_identifier_limits",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "tables",
+      "id": "private.offline_runtime_config",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "private.offline_runtime_config",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "private.offline_runtime_config",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "tables",
+      "id": "private.task_item_sync_changes",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "private.task_item_sync_changes",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "private.task_item_sync_changes",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "tables",
+      "id": "private.task_item_sync_retention",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "private.task_item_sync_retention",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "private.task_item_sync_retention",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "tables",
+      "id": "public.task_template_items",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "public.task_template_items",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "public.task_template_items",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "tables",
+      "id": "public.task_templates",
+      "local": {
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "rls": true,
+        "kind": "r",
+        "name": "public.task_templates",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "production": {
+        "acl": null,
+        "rls": true,
+        "kind": "r",
+        "name": "public.task_templates",
+        "view": null,
+        "owner": "postgres",
+        "options": null,
+        "forceRls": false
+      },
+      "proof": "Explicit owner-only ACL equals PostgreSQL default owner-only NULL relacl. RLS/owner/view definition/options are identical."
+    },
+    {
+      "collection": "constraints",
+      "id": "public.profiles/profiles_display_name_valid",
+      "local": {
+        "name": "profiles_display_name_valid",
+        "table": "public.profiles",
+        "definition": "CHECK ((((char_length(btrim(display_name)) >= 2) AND (char_length(btrim(display_name)) <= 80)) AND (btrim(display_name) ~ '^[[:alnum:]_ .-]+$'::text)))"
+      },
+      "production": {
+        "name": "profiles_display_name_valid",
+        "table": "public.profiles",
+        "definition": "CHECK (((char_length(btrim(display_name)) >= 2) AND (char_length(btrim(display_name)) <= 80) AND (btrim(display_name) ~ '^[[:alnum:]_ .-]+$'::text)))"
+      },
+      "proof": "Only association of three deterministic AND predicates differs: trimmed length >=2, <=80 and the same character regex. Full exact expression pair is frozen."
+    }
+  ]
+}

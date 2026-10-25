@@ -23,11 +23,13 @@ import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { usePermissionVersion } from "@/features/auth/PermissionProvider";
 import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
+import { DailyProgressRow } from '@/features/projects/daily-progress-row';
 
 export default function ProjectDailyProgressScreen() {
   const { colors: theme } = useTheme();
   const { width } = useWindowDimensions();
-  const compact = width < 700;
+  const [contentWidth, setContentWidth] = useState<number | null>(null);
+  const compact = (contentWidth ?? width) < 700;
   const { id } = useLocalSearchParams<{ id: string }>();
   const permissionVersion = usePermissionVersion();
   const [projectName, setProjectName] = useState("");
@@ -107,7 +109,7 @@ export default function ProjectDailyProgressScreen() {
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
-        contentContainerStyle={[styles.content, compact && styles.compactContent]}
+        contentContainerStyle={[styles.content, width < 700 && styles.compactContent]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFromServer()} tintColor={theme.primary} />}
@@ -128,10 +130,12 @@ export default function ProjectDailyProgressScreen() {
         ) : !hasProgress ? (
           <EmptyState title="Прогресс дня" description="Сегодня ещё не было увеличений прогресса." />
         ) : progress ? (
-          <View style={styles.tables}>
+          <View testID="daily-progress-content" style={styles.tables} onLayout={event => setContentWidth(event.nativeEvent.layout.width)}>
             <View style={styles.tableBlock}>
               <ThemedText type="small">Здесь каждому отображаемому этапу сопоставлен порядковый номер для второй таблицы. <ThemedText type="small" style={styles.emphasis}>Вторая таблица является основной.</ThemedText></ThemedText>
-              <View style={[styles.table, { borderColor: theme.border }]}>
+              {compact ? <View style={styles.tables}>{progress.stages.map(stage => <View key={stage.taskId} style={styles.feedback}>
+                <ThemedText type="small">Этап {stage.stageNumber}</ThemedText><ThemedText style={{ minWidth: 0, maxWidth: '100%' }}>{stage.title}</ThemedText>
+              </View>)}</View> : <View style={[styles.table, { borderColor: theme.border }]}>
                 <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
                   <View style={[styles.cell, styles.stageCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Этап</ThemedText></View>
                   <View style={[styles.cell, styles.numberCell]}><ThemedText type="small" numberOfLines={1} style={styles.headerText}>Порядковый номер</ThemedText></View>
@@ -142,11 +146,13 @@ export default function ProjectDailyProgressScreen() {
                     <View style={[styles.cell, styles.numberCell]}><ThemedText>{stage.stageNumber}</ThemedText></View>
                   </View>
                 ))}
-              </View>
+              </View>}
             </View>
             <View style={styles.tableBlock}>
               <ThemedText type="small">Здесь показаны пункты этапов, которые вы изменяли сегодня. Столбец «Этап» содержит номер этапа из первой таблицы. <ThemedText type="small" style={styles.emphasis}>Вторая таблица является основной.</ThemedText></ThemedText>
-              <View style={[styles.table, { borderColor: theme.border }]}>
+              {compact ? <View style={styles.tables}>{progress.entries.map(entry => <DailyProgressRow key={`${entry.taskId}-${entry.taskItemId}`}
+                title={entry.title} stage={entry.stageNumber} completed={entry.newPercentage === 100}
+                status={entry.newPercentage === 100 ? 'Выполнен' : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`} />)}</View> : <View style={[styles.table, { borderColor: theme.border }]}>
                 <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
                   <View style={[styles.cell, styles.stageNumberCell, { borderRightColor: theme.border }]}><ThemedText type="small" numberOfLines={1} style={styles.headerText}>Этап</ThemedText></View>
                   <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Пункт</ThemedText></View>
@@ -162,7 +168,7 @@ export default function ProjectDailyProgressScreen() {
                     </View>
                   );
                 })}
-              </View>
+              </View>}
             </View>
           </View>
         ) : null}

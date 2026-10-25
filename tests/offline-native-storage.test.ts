@@ -106,7 +106,29 @@ describe('SQLite outbox migration', () => {
     const { localCacheDriver } = await import('@/lib/local-cache/driver.native');
     expect(await localCacheDriver.get('user-a', entry.key)).toEqual(entry);
     expect(await localCacheDriver.listPending('user-a')).toEqual([]);
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(6);
+  });
+
+  it('F01 compatible SQLite rollback preserves an opaque v3 handle when old sync rejects its version', async () => {
+    const { localCacheDriver: d } = await import('@/lib/local-cache/driver.native');
+    await d.put({ user_id: 'user-a', key: 'items:task-1:active', data: JSON.stringify([{ id: 'item-1', sync_version: 10 }]), schema_version: 1, last_synced_at: '' });
+    const id = '11111111-1111-8111-8111-111111111111';
+    await d.enqueue({ ...input(id), protocol_version: 3 });
+    const handle = { id, protocol_version: 3 as const, fingerprint_version: 1 as const,
+      generation: '22222222-2222-4222-8222-222222222222', epoch: 3, admit_until: '2030-01-02', replay_until: '2030-04-02' };
+    await d.bindOperationHandle('user-a', id, handle);
+    // Released native sync marks unsupported versions failed; its old UPDATE
+    // must not erase the new columns or reinterpret this as a legacy attempt.
+    state.database!.prepare('UPDATE pending_operations SET status = ?, last_error = ? WHERE operation_id = ?').run('failed', 'Unsupported protocol', id);
+    vi.resetModules();
+    const reopened = (await import('@/lib/local-cache/driver.native')).localCacheDriver;
+    expect((await reopened.listPending('user-a'))[0]).toMatchObject({ operation_id: id, status: 'failed', operation_handle: handle });
+    const oldKey = 'sync:mutation:create_project:self', newKey = 'sync:mutation:v3:create_project:self';
+    const data = JSON.stringify({ id, handle, protocol_version: 3, phase: 'unknown' });
+    await reopened.put({ user_id: 'user-a', key: oldKey, data, schema_version: 1, last_synced_at: '' });
+    expect(await reopened.commitCacheBatch('user-a', [{ user_id: 'user-a', key: newKey, data, schema_version: 1, last_synced_at: '' }], [oldKey], [{ key: oldKey, data }, { key: newKey, data: null }])).toBe(true);
+    expect(await reopened.get('user-a', oldKey)).toBeNull();
+    expect((await reopened.get('user-a', newKey))?.data).toBe(data);
   });
 
   it('rolls back a failed SQLite migration and preserves existing cache', async () => {
@@ -179,3 +201,5 @@ describe('SQLite outbox migration', () => {
     expect((await localCacheDriver.get('user-a', 'items:task-1:active'))?.data).toContain('"percentage":100');
   });
 });
+import { operationWindowStorageContract } from './operation-window-storage-contract';
+operationWindowStorageContract(async () => (await import('@/lib/local-cache/driver.native')).localCacheDriver);

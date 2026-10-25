@@ -3,6 +3,7 @@ import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
 import { useCurrentDay } from '@/lib/local-cache/use-current-day';
 import { useCallback, useRef, useState } from "react";
+import { DailyProgressRow } from '@/features/projects/daily-progress-row';
 import { RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
 import { Screen } from "@/components/ui/screen";
@@ -28,7 +29,8 @@ import { ResourceAccessDeniedError } from "@/lib/errors/domain-errors";
 export default function DailyProgress() {
   const { colors: theme } = useTheme();
   const { width } = useWindowDimensions();
-  const compact = width < 700;
+  const [contentWidth, setContentWidth] = useState<number | null>(null);
+  const compact = (contentWidth ?? width) < 700;
   const { id, taskId } = useLocalSearchParams<{ id: string; taskId: string }>();
   const permissionVersion = usePermissionVersion();
   const [taskTitle, setTaskTitle] = useState("");
@@ -114,7 +116,7 @@ export default function DailyProgress() {
   return (
     <Screen padded={false} centerContent={false}>
       <ScrollView
-        contentContainerStyle={[styles.content, compact && styles.compactContent]}
+        contentContainerStyle={[styles.content, width < 700 && styles.compactContent]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFromServer()} tintColor={theme.primary} />}
@@ -135,7 +137,10 @@ export default function DailyProgress() {
         ) : !progress.length ? (
           <EmptyState title="Прогресс дня" description="Сегодня ещё не было увеличений прогресса." />
         ) : (
-          <View style={[styles.table, { borderColor: theme.border }]}>
+          <View testID="daily-progress-content" onLayout={event => setContentWidth(event.nativeEvent.layout.width)}>
+          {compact ? <View style={styles.feedback}>{progress.map(entry => <DailyProgressRow key={entry.taskItemId}
+            title={entry.title} completed={entry.newPercentage === 100}
+            status={entry.newPercentage === 100 ? 'Выполнен' : `Выполнен частично: ${entry.oldPercentage}% → ${entry.newPercentage}%`} />)}</View> : <View style={[styles.table, { borderColor: theme.border }]}>
             <View style={[styles.row, styles.headerRow, { backgroundColor: theme.surfaceMuted, borderBottomColor: theme.border }]}>
               <View style={[styles.cell, styles.itemCell, { borderRightColor: theme.border }]}><ThemedText type="small" style={styles.headerText}>Пункт</ThemedText></View>
               <View style={[styles.cell, styles.statusCell]}><ThemedText type="small" style={styles.headerText}>Статус</ThemedText></View>
@@ -153,6 +158,7 @@ export default function DailyProgress() {
                 </View>
               );
             })}
+          </View>}
           </View>
         )}
       </ScrollView>

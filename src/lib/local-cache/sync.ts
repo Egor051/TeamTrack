@@ -20,6 +20,7 @@ import { announceReadModelCommit } from './read-model-events';
 import { nextPushOperation } from './failed-chain';
 import { readAccountEpoch } from './read-freshness';
 import { readSnapshotPages } from './snapshot-pages';
+import { operationContext, operationReview, reviewError, type OperationResolution } from '@/lib/supabase/operation-handle';
 
 type V2Result = { status: 'applied' | 'conflict'; version: number; item: ReconciledItem };
 type PullPage = { changes: PullChange[]; next_cursor: number; has_more: boolean } | { reset_required: true; retained_after_cursor: number };
@@ -120,14 +121,29 @@ async function clientFor(userId: string, ctx?: SyncContext): Promise<SupabaseCli
 }
 
 async function send(client: SupabaseClient<Database>, operation: OfflineOperation, ctx: SyncContext): Promise<V2Result> {
-  if (operation.protocol_version && operation.protocol_version > 2) throw new Error('Unsupported local protocol version');
+  if (operation.protocol_version && operation.protocol_version > 3) throw new Error('Unsupported local protocol version');
   if (!['set_task_item_state', 'set_task_item_percentage', 'set_task_item_comment'].includes(operation.type))
     throw new Error('Unsupported local operation type');
   if (!validSyncVersion(operation.expected_version)) throw new Error('Operation has no confirmed server version');
+  if (operation.protocol_version === 3 && !operation.operation_handle) {
+    const context = await syncRead(client.rpc('get_client_operation_context'), ctx);
+    if (context.error) throw context.error;
+    operation = await ctx.storage.bindOperationHandle(operation.user_id, operation.operation_id,
+      { ...operationContext(context.data), id: operation.operation_id });
+  }
+  if (!validSyncVersion(operation.expected_version)) throw new Error('Bound operation has no confirmed server version');
   const common = { p_operation_id: operation.operation_id, p_task_item_id: operation.task_item_id,
     p_expected_version: operation.expected_version };
+  const v3 = operation.operation_handle;
+  if (operation.protocol_version === 3 && !v3) throw new Error('Missing durable operation handle');
+  const window = v3 ? { p_generation: v3.generation, p_epoch: v3.epoch } : null;
   ctx.pushed = true;
-  const response = await syncRead(operation.type === 'set_task_item_state'
+  const response = await syncRead(window ? (operation.type === 'set_task_item_state'
+    ? client.rpc('apply_task_item_state_operation_v3', { ...common, ...window, p_completed: (operation.payload as { completed: boolean }).completed })
+    : operation.type === 'set_task_item_percentage'
+      ? client.rpc('apply_task_item_percentage_operation_v3', { ...common, ...window, p_percentage: (operation.payload as { percentage: number }).percentage })
+      : client.rpc('apply_task_item_comment_operation_v3', { ...common, ...window, p_comment: (operation.payload as { comment: string | null }).comment ?? '' }))
+    : operation.type === 'set_task_item_state'
     ? client.rpc('apply_task_item_state_operation_v2', { ...common,
       p_completed: (operation.payload as { completed: boolean }).completed })
     : operation.type === 'set_task_item_percentage'
@@ -136,6 +152,7 @@ async function send(client: SupabaseClient<Database>, operation: OfflineOperatio
       : client.rpc('apply_task_item_comment_operation_v2', { ...common,
         p_comment: (operation.payload as { comment: string | null }).comment ?? '' }), ctx);
   if (response.error) throw response.error;
+  if ((response.data as { state?: string } | null)?.state === 'result_redacted') throw reviewError('TT_OPERATION_RESULT_REDACTED');
   const result = response.data as V2Result | null;
   if (!result || !['applied', 'conflict'].includes(result.status) || !validSyncVersion(result.version)
     || !result.item || result.item.id !== operation.task_item_id) throw new Error('Invalid sync response');
@@ -249,6 +266,12 @@ async function pull(client: SupabaseClient<Database>, userId: string, ctx: SyncC
   throw new Error('Pull page limit exceeded');
 }
 
+async function moveToReview(operation: OfflineOperation, reason: string, ctx: SyncContext, conflict?: SyncConflict) {
+  await ctx.storage.markOperation(operation.user_id, operation.operation_id, 'review', operation.server_result, reason, conflict?.conflict_id);
+  if (conflict) announceConflictChange(operation.user_id);
+  announceSyncChange(operation.user_id);
+}
+
 async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncContext, allowedConflict?: SyncConflict): Promise<boolean> {
   let completed = 0;
   let total: number | null = null;
@@ -261,9 +284,13 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
       ? operations.find((row) => allowedConflict.operation_ids.includes(row.operation_id))
       : nextPushOperation(operations);
     if (!oldest) return operations.length === 0;
+    if (oldest.status === 'review') {
+      if (allowedConflict) await moveToReview(oldest, oldest.last_error ?? 'TT_OPERATION_LEGACY_REVIEW', ctx, allowedConflict);
+      return false;
+    }
     if (oldest.status === 'failed' || oldest.status === 'conflict') return false;
     updateSyncState(userId, { isSyncing: true }, ctx.ticket);
-    if ((oldest.protocol_version && oldest.protocol_version > 2)
+    if ((oldest.protocol_version && oldest.protocol_version > 3)
       || !['set_task_item_state', 'set_task_item_percentage', 'set_task_item_comment'].includes(oldest.type)) {
       await ctx.storage.markOperation(userId, oldest.operation_id, 'failed', undefined, 'Требуется новая версия приложения.');
       announceSyncChange(userId);
@@ -271,6 +298,13 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
     }
     if (oldest.status === 'synced_unreconciled') {
       try { await reconcile(client, oldest, ctx); completed += 1; } catch { return false; }
+      continue;
+    }
+    // A v1 receipt has no acknowledged CAS version. Do not reinterpret that
+    // old UUID as a v2/v3 write or guess a predecessor version from live data.
+    if ((oldest.protocol_version ?? 1) < 2) {
+      await moveToReview(oldest, 'TT_OPERATION_LEGACY_REVIEW', ctx, allowedConflict);
+      if (allowedConflict) return false;
       continue;
     }
     if (!ctx.confirmedAt || Date.now() - ctx.confirmedAt >= RUNTIME_CONFIG_TTL_MS || (completed > 0 && completed % 20 === 0)) {
@@ -296,6 +330,13 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
       try { result = await send(client, oldest, ctx); break; }
       catch (error) {
         if (!await ctx.wait(() => sameUser(userId))) return false;
+        const protocolCode = operationReview(error as { code?: string; details?: string })
+          ?? (error as { details?: string; code?: string })?.details ?? (error as { code?: string })?.code;
+        if (protocolCode?.startsWith('TT_OPERATION_')) {
+          await moveToReview(oldest, protocolCode, ctx, allowedConflict);
+          if (allowedConflict) return false;
+          continue pushLoop;
+        }
         if (deterministicRejection(error)) {
           await ctx.storage.markOperation(userId, oldest.operation_id, 'failed', undefined,
             (error as { message?: string }).message ?? 'Server rejected operation');
@@ -403,7 +444,7 @@ export function syncPendingOperations(userId: string, manual = false): Promise<S
         const conflicts = await ctx.wait(() => unresolvedConflicts(userId));
         const error = getOfflineRuntime(userId).syncError;
         result.outcome = usesLocalReads() ? 'waiting-network' : operations.some((row) => row.status === 'failed' || row.status === 'conflict')
-          || conflicts.length ? 'blocked' : error === 'disabled' ? 'disabled' : 'partial';
+          || operations.some(row => row.status === 'review') || conflicts.length ? 'blocked' : error === 'disabled' ? 'disabled' : 'partial';
         result.error = error === 'config-unavailable' ? 'Не удалось проверить доступность синхронизации.'
           : error === 'auth' ? 'Требуется авторизация.' : null;
         if (nextPushOperation(operations)
@@ -436,35 +477,41 @@ export function syncPendingOperations(userId: string, manual = false): Promise<S
 }
 
 export async function chooseMine(userId: string, conflictId: string): Promise<void> {
-  if (!offlineSyncEnabled() || !(await runtimeCapabilities(userId, true, { requireServer: true })).sync || !await sameUser(userId))
-    throw new Error('Синхронизация временно отключена. Ваш вариант сохранён на устройстве.');
-  const conflict = (await unresolvedConflicts(userId)).find((row) => row.conflict_id === conflictId);
-  if (!conflict) throw new Error('Конфликт недоступен.');
-  if (!validSyncVersion(conflict.server_version)) throw new Error('Серверный пункт удалён. Оставьте серверное состояние.');
-  const existing = inFlight.get(userId);
-  if (existing) await existing;
-  if (!(await listPendingOperations(userId)).some((row) => conflict.operation_ids.includes(row.operation_id))) {
-    await localCacheDriver.finishMineConflict(userId, conflictId);
-    announceConflictChange(userId);
-    return;
+  let released = false;
+  try {
+    await queueAction(userId, async ctx => {
+      if (!offlineSyncEnabled() || !(await ctx.wait(() => runtimeCapabilities(userId, true, { requireServer: true }))).sync)
+        throw new Error('Синхронизация временно отключена. Ваш вариант сохранён на устройстве.');
+      // Read again only after the existing sync/account/cross-tab fence is held.
+      const previous = (await ctx.wait(() => unresolvedConflicts(userId))).find(row => row.conflict_id === conflictId);
+      if (!previous) return; // Another queued action already completed it.
+      const chain = (await ctx.wait(() => listPendingOperations(userId))).filter(row => previous.operation_ids.includes(row.operation_id));
+      const first = chain.find(row => row.status !== 'synced_unreconciled');
+      if (first?.status === 'review') {
+        await moveToReview(first, first.last_error ?? 'TT_OPERATION_LEGACY_REVIEW', ctx, previous);
+        released = true; throw reviewError(first.last_error ?? 'TT_OPERATION_LEGACY_REVIEW');
+      }
+      if (first?.status === 'conflict') {
+        if (!validSyncVersion(previous.server_version)) throw new Error('Серверный пункт удалён. Оставьте серверное состояние.');
+        await ctx.storage.rebaseConflict(userId, conflictId, previous.server_version);
+      }
+      // Pending (possibly committed) and ACKed attempts resume unchanged.
+      const conflict = (await ctx.wait(() => unresolvedConflicts(userId))).find(row => row.conflict_id === conflictId);
+      if (!conflict) return;
+      await run(userId, ctx, conflict);
+      const remaining = (await ctx.wait(() => listPendingOperations(userId))).filter(row => conflict.operation_ids.includes(row.operation_id));
+      if (remaining.length) {
+        if (remaining.some(row => row.status === 'review')) {
+          released = true; throw reviewError(remaining.find(row => row.status === 'review')!.last_error ?? 'TT_OPERATION_LEGACY_REVIEW');
+        }
+        throw new Error('Не удалось применить ваш вариант. Проверьте подключение и повторите.');
+      }
+      await ctx.storage.finishMineConflict(userId, conflictId);
+      announceConflictChange(userId); announceSyncChange(userId); released = true;
+    });
+  } finally {
+    if (released) void syncPendingOperations(userId).catch(() => undefined);
   }
-  await localCacheDriver.rebaseConflict(userId, conflictId, conflict.server_version);
-  const ticket = startRuntimeOperation(userId, 'sync', 'synchronization', 5 * 60_000, true);
-  syncTickets.set(userId, ticket);
-  const task = boundedOperation(() => run(userId, syncContext(ticket), conflict), 5 * 60_000, ticket.signal)
-    .then((succeeded): SyncResult => ({ outcome: succeeded ? 'success' : 'blocked', error: null }));
-  inFlight.set(userId, task);
-  try { await task; } finally {
-    ticket.finish('partial');
-    if (inFlight.get(userId) === task) inFlight.delete(userId);
-    if (syncTickets.get(userId) === ticket) syncTickets.delete(userId);
-  }
-  const remaining = (await listPendingOperations(userId)).filter((row) => conflict.operation_ids.includes(row.operation_id));
-  if (remaining.length) throw new Error('Не удалось применить ваш вариант. Проверьте подключение и повторите.');
-  await localCacheDriver.finishMineConflict(userId, conflictId);
-  announceConflictChange(userId);
-  announceSyncChange(userId);
-  void syncPendingOperations(userId).catch(() => undefined);
 }
 
 // Recovery actions share the existing sync serialization and cross-tab lock.
@@ -529,17 +576,50 @@ export async function retryFailedOperation(userId: string, operationId: string):
   await syncPendingOperations(userId, true);
 }
 
+/** Read-only resolution; expiry never calls a mutation or allocates a new ID. */
+export async function inspectReviewOperation(userId: string, operationId: string) {
+  const snapshot: { value: { state: string; server: ReconciledItem | null } | null } = { value: null };
+  await queueAction(userId, async ctx => {
+    const operation = (await ctx.wait(() => listPendingOperations(userId))).find(row => row.operation_id === operationId && row.status === 'review');
+    if (!operation) throw new Error('Изменение уже согласовано. Обновите состояние.');
+    const client = await clientFor(userId, ctx);
+    if (!client) throw new Error('Требуется авторизация.');
+    const payload = operation.type === 'set_task_item_comment' ? { comment: (operation.payload as { comment: string | null }).comment ?? '' } : operation.payload;
+    const h = operation.operation_handle;
+    const response = await syncRead(h ? client.rpc('resolve_client_operation_v3', {
+      p_generation: h.generation, p_epoch: h.epoch, p_operation_id: operationId, p_type: operation.type,
+      p_target: operation.task_item_id, p_payload: { payload, expected_version: operation.expected_version },
+    }) : client.rpc('resolve_legacy_client_operation', { p_operation_id: operationId,
+      p_type: operation.type + ((operation.protocol_version ?? 1) >= 2 ? '_v2' : ''), p_target: operation.task_item_id, p_payload: payload }), ctx);
+    if (response.error) throw response.error;
+    const resolution = response.data as OperationResolution;
+    const server = await fetchServerItem(client, operation.task_item_id, ctx);
+    snapshot.value = { state: resolution.state, server };
+    // Only a real receipt can turn an unknown result into an ACK.
+    if (resolution.state === 'completed') {
+      const result = (h ? resolution.result?.value : resolution.result) as V2Result | undefined;
+      if (result?.status === 'applied' && validSyncVersion(result.version)) {
+        await ctx.storage.acknowledgeOperation(userId, operationId, result.version);
+        await reconcile(client, operation, ctx);
+      }
+    }
+    announceSyncChange(userId);
+  });
+  return snapshot.value;
+}
+
 export async function discardFailedOperation(userId: string, operationId: string): Promise<void> {
   await queueAction(userId, async (ctx) => {
     const operations = await ctx.wait(() => listPendingOperations(userId));
     const operation = operations.find((row) => row.operation_id === operationId);
     if (!operation) return; // Repeat cancellation, including after a restart.
-    if (operation.status !== 'failed') throw new Error('Изменение уже отправляется. Обновите состояние синхронизации.');
+    if (operation.status !== 'failed' && operation.status !== 'review') throw new Error('Изменение уже отправляется. Обновите состояние синхронизации.');
     const failed = operation;
     const chain = operations.filter((row) => row.task_id === failed.task_id && row.task_item_id === failed.task_item_id);
     const locallyBlocked = await ctx.wait(() => getCached<boolean>(userId, `blocked-task:${failed.task_id}`))
       || await ctx.wait(() => isTaskProjectBlocked(userId, failed.task_id, failed.project_id));
     const client = locallyBlocked ? null : await clientFor(userId, ctx);
+    if (failed.status === 'review' && !locallyBlocked && (!client || usesLocalReads())) throw new Error('Для согласования требуется получить актуальное состояние сервера.');
     let serverState: ReconciledItem | null = null;
     let useCachedSnapshot = !client && !locallyBlocked;
     if (client) {
@@ -556,7 +636,7 @@ export async function discardFailedOperation(userId: string, operationId: string
           await quarantineTask(userId, failed.task_id, ctx);
           serverState = null;
         } else {
-          if (!isTransportFailure(error)) throw error;
+          if (failed.status === 'review' || !isTransportFailure(error)) throw error;
           useCachedSnapshot = true;
         }
       }

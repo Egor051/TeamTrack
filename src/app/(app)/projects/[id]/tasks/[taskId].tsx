@@ -500,7 +500,7 @@ export default function TaskScreen() {
                 <Button size="sm" variant="ghost" disabled={busy} onPress={() => router.push(`/projects/${id}/tasks/${taskId}/progress` as never)}>Прогресс дня</Button>
               </View>
             </View>
-            {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => setHardDeleteConfirm(true)}>Удалить навсегда</Button></View> : null}
+            {canRestore ? <View style={styles.actions}><Button disabled={busy} loading={busyAction === "restore"} onPress={() => void run(() => restoreTask(taskId), "restore")}>Восстановить этап</Button><Button variant="destructive" disabled={busy} onPress={() => { setActionError(null); setHardDeleteConfirm(true); }}>Удалить навсегда</Button></View> : null}
             {!canUpdateChecklistProgress ? <View style={[styles.notice, { backgroundColor: theme.surfaceMuted }]}><ThemedText type="small">{project?.status === "archived" ? "Проект в архиве. Этап доступен для просмотра." : task.status === "archived" ? "Этап в архиве. Для продолжения работы восстановите его." : effectiveTaskRole === "viewer" ? "Для чек-листа этого этапа у вас доступ только для просмотра." : hasTaskAccess ? "Прогресс чек-листа сейчас недоступен." : "Нет доступа к этапу."}</ThemedText></View> : null}
             <Card muted>
               <View style={styles.sectionHead}><ThemedText type="h2">Обзор этапа</ThemedText><View style={styles.badges}>
@@ -640,7 +640,7 @@ export default function TaskScreen() {
                         </Button>
                       </View>
                     ) : item.is_archived && canEditChecklist ? (
-                      <View style={styles.actions}><Button size="sm" variant="destructive" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить навсегда</Button></View>
+                      <View style={styles.actions}><Button size="sm" variant="destructive" disabled={busy} onPress={() => { setActionError(null); setItemToDelete(item); }}>Удалить навсегда</Button></View>
                     ) : canUpdateChecklistProgress && !item.is_archived && commentEditing !== item.id ? (
                       <View style={styles.actions}>
                         {canEditChecklist ? <Button
@@ -752,8 +752,8 @@ export default function TaskScreen() {
         onCancel={() => setConfirm(null)}
         onConfirm={() => void confirmAction()}
       />
-      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить этап навсегда?" description="Архивный этап и его чек-лист будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
-      <ConfirmDialog visible={Boolean(itemToDelete)} title="Удалить пункт навсегда?" description="Архивный пункт чек-листа будет удалён без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setItemToDelete(null)} onConfirm={() => { const item = itemToDelete; if (item) void run(async () => { await hardDeleteTaskItem(item.id); setItemToDelete(null); }, item.id); }} />
+      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить этап навсегда?" description="Архивный этап и его чек-лист будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} error={actionError?.target === 'task' ? actionError.message : undefined} onCancel={() => { setHardDeleteConfirm(false); setActionError(null); }} onConfirm={() => void hardDelete()} />
+      <ConfirmDialog visible={Boolean(itemToDelete)} title="Удалить пункт навсегда?" description="Архивный пункт чек-листа будет удалён без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} error={actionError?.target === itemToDelete?.id ? actionError?.message : undefined} onCancel={() => { setItemToDelete(null); setActionError(null); }} onConfirm={() => { const item = itemToDelete; if (item) void run(async () => { await hardDeleteTaskItem(item.id); setItemToDelete(null); }, item.id); }} />
     </Screen>
   );
 }

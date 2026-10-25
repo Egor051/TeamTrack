@@ -41,7 +41,9 @@ beforeEach(async () => {
     return query;
   });
   f.rpc.mockImplementation(async (name, args) => {
-    if (name === 'execute_client_mutation') { name = args.p_name; args = args.p_args; }
+    if (name === 'get_client_operation_context') return { data: { protocol_version: 3, fingerprint_version: 1,
+      generation: '11111111-1111-4111-8111-111111111111', epoch: 1, admit_until: '2030-01-02', replay_until: '2030-04-02' }, error: null, status: 200 };
+    if (name === 'execute_client_mutation' || name === 'execute_client_mutation_v3') { name = args.p_name; args = args.p_args; }
     for (const row of f.rows) if (name === 'mark_all_notifications_read' || row.id === args.p_notification_id) row.is_read = true;
     return { data: null, error: null, status: 200 };
   });

@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { receiptTestPolicySql } from './receipt-test-policy.mjs';
+import { readFileSync } from 'node:fs';
 
 /** Verify the actual pg_cron worker in an entirely disposable Postgres server. */
 export async function verifyDeadlineCron(sourceContainer, base, upgrade) {
@@ -27,6 +29,7 @@ export async function verifyDeadlineCron(sourceContainer, base, upgrade) {
     // triggers. Never drop or alter those bundled schemas in the image's DB.
     sql(`create database ${database} owner postgres template template0;`, 'postgres');
     sql(`${base}\ngrant usage,create on schema public to postgres; create schema extensions authorization postgres; create extension pgcrypto with schema extensions; create publication supabase_realtime; grant usage on schema auth,realtime to authenticated,anon,postgres; grant execute on all functions in schema auth,realtime to authenticated,anon,postgres; grant all on all tables in schema auth,realtime to postgres; grant all on all sequences in schema auth,realtime to postgres;\n${upgrade}`);
+    sql(receiptTestPolicySql);
     sql(`do $$begin if not exists(select 1 from cron.job where jobname='tasktrace-checklist-deadlines' and schedule='* * * * *' and active and username='postgres' and command='select private.process_checklist_deadlines();') then raise exception 'Production Cron migration did not register the postgres job'; end if; end$$;
       select cron.alter_job((select jobid from cron.job where jobname='tasktrace-checklist-deadlines'),schedule:='1 second');
       insert into auth.users(id,email,raw_user_meta_data) values ('96000000-0000-4000-8000-000000000001','cron@test.local','{}');
@@ -45,5 +48,35 @@ export async function verifyDeadlineCron(sourceContainer, base, upgrade) {
     if (!delivered) throw new Error('Actual Cron worker did not create the overdue notification');
     sql(`select pg_sleep(2); do $$begin if (select count(*) from public.notifications where data->>'deadline_event'='overdue' and user_id='96000000-0000-4000-8000-000000000001')<>1 then raise exception 'Cron repeated notification'; end if; end$$;`);
     console.log('PASS actual pg_cron: production migration registers the job; background execution creates exactly one overdue notification with all apps closed');
+    // The new lifecycle job is verified independently of the deadline worker.
+    // Synthetic expired receipts use 100 accounts; no business records are
+    // removed, and only this owned server's schedule is accelerated.
+    sql(`do $$begin if not exists(select 1 from cron.job where jobname='tasktrace-operation-lifecycle' and schedule='*/5 * * * *'
+      and active and username='postgres' and command='set statement_timeout=''20s''; select private.run_client_operation_lifecycle(500)') then raise exception 'Lifecycle cron missing'; end if; end$$;
+      insert into auth.users(id,email,raw_user_meta_data) select md5('cron-gc-'||n)::uuid,'cron-gc-'||n||'@test.local','{}'::jsonb from generate_series(1,100) n;
+      update private.client_operation_history set current_epoch=current_epoch+1;
+      insert into private.client_operation_epochs(generation,epoch,admit_until,replay_until,state)
+       select generation,current_epoch,clock_timestamp()-interval '32 days',clock_timestamp()-interval '1 day','retired' from private.client_operation_history;
+      insert into private.client_operation_receipts_v3(generation,epoch,user_id,operation_id,operation_type,target_id,request_fingerprint,outcome,completed_at,result_limit,accounted_bytes)
+       select h.generation,h.current_epoch,md5('cron-gc-'||n)::uuid,gen_random_uuid(),'rpc:create_project',gen_random_uuid(),decode(repeat('00',32),'hex'),'{"value":true,"http_status":200}'::jsonb,clock_timestamp()-interval '31 days',1024,327
+       from private.client_operation_history h cross join generate_series(1,100) n;
+      insert into private.client_operation_live_budgets(scope,receipt_count,logical_bytes)
+       select 'user:'||user_id::text,count(*),sum(accounted_bytes) from private.client_operation_receipts_v3 group by user_id
+       union all select 'global',count(*),sum(accounted_bytes) from private.client_operation_receipts_v3;
+      select cron.alter_job((select jobid from cron.job where jobname='tasktrace-operation-lifecycle'),schedule:='1 second');`);
+    let cleaned=false;
+    for(let n=0;n<30;n++) {
+      const result=sql('select count(*) from private.client_operation_receipts_v3;');
+      if(/\n\s*0\s*\n/.test(result)){cleaned=true;break;}
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    if(!cleaned)throw Error('Actual lifecycle Cron did not clean the expired receipts');
+    sql(`do $$begin if exists(select 1 from private.client_operation_live_budgets where receipt_count<>0 or logical_bytes<>0)
+      then raise exception 'Cron accounting differs'; end if; end$$;
+      select cron.alter_job((select jobid from cron.job where jobname='tasktrace-operation-lifecycle'),schedule:='*/5 * * * *');
+      select private.set_release_maintenance(true);
+      update private.client_operation_window_policy set legacy_admit_until=clock_timestamp()+interval '30 days',legacy_replay_until=clock_timestamp()+interval '120 days';`);
+    sql(readFileSync(new URL('../docs/release/postconditions.sql',import.meta.url),'utf8'));
+    console.log('PASS actual lifecycle pg_cron: multi-account cleanup, exact budgets, restored five-minute schedule and read-only release postconditions');
   } finally { spawnSync('docker', ['rm', '-f', name], { encoding: 'utf8' }); }
 }

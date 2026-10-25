@@ -1,48 +1,206 @@
 {
   "policyVersion": 1,
+  "exceptionProfile": "expo57-unsigned-tooling-20261025",
   "decision": "owner-approved-temporary-risk",
-  "approvalReference": "Explicit project-owner decision, option B, task attachment e19b1a75-e347-4eb5-8e56-b4839d7fb609, 2026-10-18; scope and expiry preserved after Vite 8.3.3 security update under the all-audit-findings remediation request, 2026-10-21; mandatory Expo Doctor patch alignment (expo 57.0.31, router 57.0.29), same 18 findings and two GHSA roots, reviewed CLI node relocation only, 2026-10-21",
-  "expiresAt": "2026-10-25T20:59:00.000Z",
-  "lockSha256": "da18c63f547c5280ede145aec933e9727e70ba868b2c5bcbd315271afbeb5997",
-  "packageManifestSha256": "6bde2d5dfbe38379538c0343a712a533a4944487b82cdcf152db1c442b50d126",
+  "activated": true,
+  "approvalReference": "Explicit project-owner approval for only GHSA-86w9-cpqp-85rv and GHSA-mrhx-c7xc-m3w5 for 14 days in attachments 282cee6b-fd99-4fc2-b61a-a39ebe323c87 and 388a3e23-7ac1-4bfa-af74-7e4eb655173e, 2026-10-25; latter authorizes activation after compatible patches and verification. No publication or production authorization.",
+  "startsAt": "2026-10-25T10:32:09.000Z",
+  "expiresAt": "2026-11-08T10:32:09.000Z",
+  "durationDays": 14,
+  "lockSha256": "11dea78e22dc9fca39b5df454a2b580c4a983fbe160bdee4f4044742df006808",
+  "packageManifestSha256": "50a22385d9f0808baf27102019c5baae2b28530353387f3c43f4da5d8ba177a8",
+  "lockGraphSha256": "48d0673c48cc6584fa7a07e24dad8329ceb07a80b58bb40cbcedc8436d6cb885",
   "auditGraphNormalization": "arborist-derived-metadata-v2",
-  "auditGraphSha256": "615432ec9baa597a3c08f6eab06797e9b1c722d211cd70d22c93d69076fd63fe",
+  "auditGraphSha256": "090c1d76aa282ff1eb710412aa74f1b5a2c93d3d0cfb97bd1531d6b0340c18ed",
   "advisories": [
-    {
-      "id": "GHSA-vfj7-8cjw-p6xm",
-      "package": "braces",
-      "version": "3.0.3",
-      "advisoryUpdatedAt": "2026-10-02T22:36:34Z",
-      "npmSource": 1240992,
-      "range": "<=3.0.3"
-    },
     {
       "id": "GHSA-86w9-cpqp-85rv",
       "package": "node-forge",
       "version": "1.4.0",
-      "advisoryUpdatedAt": "2026-10-01T21:09:10Z",
+      "severity": "high",
       "npmSource": 1240912,
-      "range": "<=1.4.0"
+      "range": "<=1.4.0",
+      "advisoryUpdatedAt": "2026-10-01T21:09:10Z",
+      "firstPatchedVersion": null,
+      "compatibleMajor": 1,
+      "latestVersion": "1.4.0",
+      "rationale": "No official patched node-forge release. Certificate/RSA/CSR verification remains in tooling; unsigned export wrapper rejects configured signing inputs and known privileged credentials. Privileged signing is outside this exception."
+    },
+    {
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "version": "3.25.76",
+      "severity": "high",
+      "npmSource": 1243066,
+      "range": "<4.6.6",
+      "advisoryUpdatedAt": "2026-10-23T18:26:52Z",
+      "firstPatchedVersion": "4.6.6",
+      "compatibleMajor": 3,
+      "latestVersion": "4.6.7",
+      "rationale": "Patched 4.6.6 is outside Expo CLI ^3.25.76. Reviewed unsigned export does not start network DevTools; plugins/config come from frozen reviewed inputs. Any compatible backport or Expo 57 tooling release blocks for reassessment."
     }
   ],
   "reviewedFindingPackages": [
     "@expo/cli",
     "@expo/code-signing-certificates",
-    "@expo/metro",
-    "@expo/metro-config",
-    "@react-native/community-cli-plugin",
-    "@react-native/metro-config",
-    "@react-native/virtualized-lists",
-    "braces",
     "expo",
-    "metro",
-    "metro-config",
-    "metro-file-map",
-    "metro-transform-worker",
-    "micromatch",
     "node-forge",
-    "react-native",
-    "react-native-reanimated",
-    "react-native-worklets"
-  ]
+    "zod"
+  ],
+  "reviewedPackages": [
+    {
+      "package": "@expo/cli",
+      "paths": [
+        {
+          "path": "node_modules/expo/node_modules/@expo/cli",
+          "version": "57.0.32"
+        }
+      ]
+    },
+    {
+      "package": "@expo/code-signing-certificates",
+      "paths": [
+        {
+          "path": "node_modules/@expo/code-signing-certificates",
+          "version": "0.0.6"
+        }
+      ]
+    },
+    {
+      "package": "expo",
+      "paths": [
+        {
+          "path": "node_modules/expo",
+          "version": "57.0.31"
+        }
+      ]
+    },
+    {
+      "package": "node-forge",
+      "paths": [
+        {
+          "path": "node_modules/node-forge",
+          "version": "1.4.0"
+        }
+      ]
+    },
+    {
+      "package": "zod",
+      "paths": [
+        {
+          "path": "node_modules/zod",
+          "version": "3.25.76"
+        }
+      ]
+    },
+    {
+      "package": "fast-uri",
+      "paths": [
+        {
+          "path": "node_modules/fast-uri",
+          "version": "3.1.9"
+        }
+      ]
+    },
+    {
+      "package": "serialize-javascript",
+      "paths": [
+        {
+          "path": "node_modules/serialize-javascript",
+          "version": "7.1.4"
+        }
+      ]
+    }
+  ],
+  "toolingReleases": [
+    {
+      "package": "expo",
+      "version": "57.0.31",
+      "compatibleMajor": 57,
+      "compatibleMinor": 0
+    },
+    {
+      "package": "@expo/cli",
+      "version": "57.0.32",
+      "compatibleMajor": 57,
+      "compatibleMinor": null
+    }
+  ],
+  "controlHashNormalization": "utf8-lf-v1",
+  "controlFiles": {
+    "package.json": "50a22385d9f0808baf27102019c5baae2b28530353387f3c43f4da5d8ba177a8",
+    "app.json": "bd94a80282038d6538893d09d0115df651a2f767af3cc4ed70940da105278d45",
+    "eas.json": "4c0314793e167afb89ba62387ef9ae7231511db74ccdb5db0b6b192a6a3fbb13",
+    "metro.config.js": null,
+    "metro.config.cjs": null,
+    "metro.config.mjs": null,
+    "metro.config.ts": null,
+    "metro.config.json": null,
+    "babel.config.js": "57701f38f6286c8aa4a1e5e5d68d4a95804f649d1a602ee17582525e009c10c8",
+    "babel.config.cjs": null,
+    "babel.config.mjs": null,
+    "babel.config.json": null,
+    "babel.config.ts": null,
+    ".babelrc": null,
+    ".babelrc.json": null,
+    ".babelrc.js": null,
+    ".babelrc.cjs": null,
+    ".github/workflows/ci.yml": "83c2098000eeed7d2f5ea6cf38a3b47b166a141a72fc2bd6b9864c59f9caa845",
+    ".github/workflows/release-acceptance.yml": "678378c8175241bb8ab28e705e37101468961541af74f6feda4a6828ac2690ad",
+    "scripts/security-policy-gate.mjs": "6e795bd3b2c2ede42c8d953acfb9e8769e0f34938879a1af30c96b8fb251eb47",
+    "scripts/security-tooling-conditions.mjs": "6cba2cc4eefea9da9860e5ab2353feca25e8a2d814c5960c2049e284fbd7b6ff",
+    "scripts/security-export.mjs": "01ac423efec998aab7c6b43b80ed2b770ac02789a8e6efd5f2eea5c202204570",
+    "scripts/build-compatible-rollback.mjs": "55d582be93e83fd9c6790ddb0e5886d5c55db7e7deaeaaa39683324abf8b84b7",
+    "scripts/generate-service-worker.mjs": "c2b9fe00dbdd125fe2a7f3a7db925f9ab9272c8ec24e28f90a9ed80cefe83c0d",
+    "scripts/release-decision.mjs": "cc2a7f07900606720907b5ac2529d7a71edfa66e7ca3441131b93192966c6379",
+    "scripts/check-release-workflows.mjs": "5ae2e718a6cf5215b87e6013970024e400169deeb40cd7857efaee1cae2c37ca"
+  },
+  "controlsSha256": "f2f57ff988d3212e5c3b4610244eaa935c4605bb08eba2a4d41ce9b1172eb384",
+  "scope": "isolated-unsigned-static-export",
+  "compensatingMeasures": [
+    "Guarded Expo export only; EXPO_NO_DOTENV=1 is forced; signing/private-key arguments are not accepted",
+    "Configured code-signing and dynamic Expo config are rejected; known signing/cloud credentials and Node preload are rejected",
+    "Dev server defaults are localhost; networked DevTools and external privileged EAS/signing processes are outside approval",
+    "CI uses hosted isolated runners, read-only repository permission, pinned actions, no secret references, and checkout without persisted credentials",
+    "Control files, full lock, manifest, audit graph, exact installed versions/paths and all three bundle source maps are verified; build provenance binds current source/config/lock",
+    "Raw full npm audit is preserved with its true exit code; unknown advisory, missing metadata, drift, violated controls or expiry fail closed",
+    "Release decision preserves clean versus exception classification and rechecks hashes and expiry; F07 and production hold remain independent"
+  ],
+  "earlyTermination": [
+    "Absolute UTC expiry reached",
+    "New advisory, severity/scope/official metadata change",
+    "Lock/manifest/audit/installed graph or version drift",
+    "Compensating controls or source-map/provenance violation",
+    "Compatible upstream library or Expo 57 tooling release appears",
+    "Audit/advisory/registry evidence unavailable or malformed"
+  ],
+  "renewal": "Never renewed by CI, audit, build or lock update. A new explicit owner decision and reassessment are required.",
+  "releaseManifestSha256": "734f8a88143c924ae0f8f4e4e66e43c4bff9af4633576d4c7a9b86b5d1ddc4c9",
+  "reviewedBuildEvidence": {
+    "mode": "Per-build hashes plus current source/lock provenance; local map hashes are review evidence, not a cross-platform reproducibility assertion",
+    "inputsSha256": "15bfa98f970e490e3a15ada608d6c3bae3e04600c2eb8c41a30926b536940a40",
+    "maps": [
+      {
+        "platform": "android",
+        "sources": 1461,
+        "mapSha256": "ef89417e5bb019576aba1c7f3ab877855624c171a5bd52033a21998a37558356",
+        "bundleSha256": "792ca96d2c1ffb98f612058e0b562e90e807ea9e29d61ff8bfee99a202b03de4",
+        "map": "_expo/static/js/android/entry-504cbee9a6f691ca0ca576aa46bc68d4.hbc.map"
+      },
+      {
+        "platform": "ios",
+        "sources": 1326,
+        "mapSha256": "8303d2e0345baaa4cfb4e367a823c4298366a7ac00a333fdfafbb529a66c09d9",
+        "bundleSha256": "7095367b1acd09e5b05b3c812c79a3b989129d1c44ffb87e9fdcaea8034c72fb",
+        "map": "_expo/static/js/ios/entry-ef355fd9baee0fc31c68647c00c76232.hbc.map"
+      },
+      {
+        "platform": "web",
+        "sources": 974,
+        "mapSha256": "6f427f5eda207d0021c3a825eb4f51f712a76116043e462fe738cf618f781fc7",
+        "bundleSha256": "b07b31865496c7d6a28edec62a029eeeede3e7518e800ff3736e3b6a730ad1a7",
+        "map": "_expo/static/js/web/entry-cea316e659b51bfcda7887d5a14dfabc.js.map"
+      }
+    ]
+  }
 }

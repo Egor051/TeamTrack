@@ -12,6 +12,7 @@ import { usesLocalReads } from '@/lib/connectivity/state';
 import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
 import { uiRead } from '@/lib/supabase/ui-read';
 import { durableReadInvalidation, readAccountEpoch, readInvalidation } from './read-freshness';
+import { readSnapshotPages } from './snapshot-pages';
 
 export type ChecklistMode = 'active' | 'archived' | 'all';
 const key = (taskId: string, mode: ChecklistMode) => `items:${taskId}:${mode}`;
@@ -56,15 +57,9 @@ export const ChecklistLocalRepository = {
       const access = await uiRead(supabase.from('tasks').select('id').eq('id', taskId).maybeSingle());
       if (access.error) throw access.error;
       if (!access.data) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
-      const rows: TaskItem[] = [];
-      for (let from = 0; ; from += 500) {
-        let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').order('id').range(from, from + 499);
-        if (mode !== 'all') query = query.eq('is_archived', mode === 'archived');
-        const { data, error } = await uiRead(query);
-        if (error) throw error;
-        rows.push(...(data ?? []));
-        if (!data || data.length < 500) break;
-      }
+      const rows = await readSnapshotPages<TaskItem>((offset, revision) => uiRead(supabase.rpc('get_task_item_snapshot_page', {
+        p_task_id: taskId, p_mode: mode, p_offset: offset, p_limit: 500, p_revision: revision ?? undefined,
+      })));
       await ensureUser(userId);
       return rows;
     }, { taskId, clearTaskBlockOnSuccess: true, forceRefresh,

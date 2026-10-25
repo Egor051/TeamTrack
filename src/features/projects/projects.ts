@@ -18,6 +18,7 @@ import { confirmCacheAccess } from '@/lib/local-cache/access-state';
 import { isFutureDeadline, progressStatus } from './deadlines';
 import { readTemplatePages } from './template-pages';
 import { executeMutation, type MutationArgs } from '@/lib/supabase/mutation';
+import { readSnapshotPages } from '@/lib/local-cache/snapshot-pages';
 export { getUtcPlus3DayStart } from '@/lib/local-cache/day';
 
 export type ProjectRole = Database['public']['Enums']['project_role'];
@@ -51,7 +52,7 @@ type SupabaseResult<T> = { data: T | null; error: { message: string } | null };
 
 async function mutationRpc<Name extends keyof Database['public']['Functions']>(name: Name, args: MutationArgs<Name>) {
   const userId = await activeCacheUserId();
-  const result = await executeMutation(name, args);
+  const result = await executeMutation(name, args, { mode: 'new' });
   if (result.error) return result;
   if (!userId || await activeCacheUserId() !== userId) return result;
   try {
@@ -90,6 +91,12 @@ async function requireData<T>(result: SupabaseResult<T>): Promise<NonNullable<T>
 
 async function requireSuccess(result: { error: { message: string } | null }): Promise<void> {
   if (result.error) throw Object.assign(new Error(result.error.message), result.error);
+}
+async function requireMemberSuccess(result: { error: { message: string } | null; data: unknown }): Promise<void> {
+  await requireSuccess(result);
+  const denial = result.data as { code?: string; message?: string } | null;
+  if (denial && ['TT_MEMBER_LOOKUP', 'PT429'].includes(denial.code ?? ''))
+    throw Object.assign(new Error(denial.message || 'Не удалось добавить участника.'), denial);
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -329,12 +336,9 @@ export async function listTaskItems(taskId: string, mode: TaskItemListMode | boo
     }
     return ChecklistLocalRepository.refreshTaskItems(localUserId, taskId, normalizedMode);
   }
-  const confirmed = await readThroughCache(`items:${taskId}:${normalizedMode}`, () => fetchAll<TaskItem>((from, to) => {
-    let query = supabase.from('task_items').select('*').eq('task_id', taskId).order('position').range(from, to);
-    if (mode === 'archived') return query.eq('is_archived', true);
-    if (mode === 'all' || mode === true) return query;
-    return query.eq('is_archived', false);
-  }), { taskId });
+  const confirmed = await readThroughCache(`items:${taskId}:${normalizedMode}`, () => readSnapshotPages<TaskItem>((offset, revision) =>
+    uiRead(supabase.rpc('get_task_item_snapshot_page', { p_task_id: taskId, p_mode: normalizedMode,
+      p_offset: offset, p_limit: 500, p_revision: revision ?? undefined }))), { taskId });
   const userId = await activeCacheUserId();
   if (!userId) return [];
   const operations = await listPendingOperations(userId, taskId);
@@ -417,7 +421,7 @@ export async function listTaskParticipants(taskId: string): Promise<TaskParticip
 export async function addTaskMemberByIdentifier(taskId: string, identifier: string, role: TaskChecklistRole) {
   assertUuid(taskId, 'task id');
   if (!identifier.trim()) throw new Error('Укажите email или ник пользователя.');
-  return requireSuccess(await mutationRpc('add_task_member_by_identifier', { p_task_id: taskId, p_identifier: identifier.trim(), p_role: role }));
+  return requireMemberSuccess(await mutationRpc('add_task_member_by_identifier', { p_task_id: taskId, p_identifier: identifier.trim(), p_role: role }));
 }
 export async function removeTaskMember(taskId: string, userId: string) {
   assertUuid(taskId, 'task id'); assertUuid(userId, 'user id');
@@ -616,7 +620,7 @@ export async function addProjectMember(projectId: string, userId: string, role: 
 export async function addProjectMemberByIdentifier(projectId: string, identifier: string, role: ProjectRole) {
   assertUuid(projectId, 'project id');
   if (typeof identifier !== 'string' || !identifier.trim()) throw new Error('Укажите email или ник пользователя.');
-  return requireSuccess(await mutationRpc('add_project_member_by_identifier', { p_project_id: projectId, p_identifier: identifier.trim(), p_role: role }));
+  return requireMemberSuccess(await mutationRpc('add_project_member_by_identifier', { p_project_id: projectId, p_identifier: identifier.trim(), p_role: role }));
 }
 
 export async function changeMemberRole(projectId: string, userId: string, role: ProjectRole) {

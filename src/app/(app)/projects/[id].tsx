@@ -338,7 +338,7 @@ export default function ProjectScreen() {
             <Button variant="outline" disabled={busy} onPress={() => { begin(project); setEditing(true); }}>
               Редактировать
             </Button>
-            <Button variant="destructive" disabled={busy} onPress={() => setConfirm(true)}>
+            <Button variant="destructive" disabled={busy} onPress={() => { setActionError(''); setConfirm(true); }}>
               Архивировать проект
             </Button>
           </View>
@@ -346,7 +346,7 @@ export default function ProjectScreen() {
         {project &&
         (project.role === "owner" || project.role === "admin") &&
         project.status === "archived" ? (
-          <View style={styles.actions}><Button onPress={() => void restore()} loading={busy} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => setHardDeleteConfirm(true)} disabled={busy}>Удалить навсегда</Button> : null}</View>
+          <View style={styles.actions}><Button onPress={() => void restore()} loading={busy} disabled={busy}>Восстановить проект</Button>{project.role === 'owner' ? <Button variant="destructive" onPress={() => { setActionError(''); setHardDeleteConfirm(true); }} disabled={busy}>Удалить навсегда</Button> : null}</View>
         ) : null}
          {offline ? <Card><ThemedText type="small">Показаны сохранённые данные.</ThemedText></Card> : null}
          {loadError && project ? <View style={styles.feedback}><ErrorMessage message={loadError} type="generic" /><Button size="sm" variant="outline" onPress={() => void refreshFromServer()}>Обновить проект</Button></View> : null}
@@ -480,10 +480,11 @@ export default function ProjectScreen() {
         description="Проект исчезнет из активного списка. Действие можно выполнить только через доступные права проекта."
         confirmLabel="Архивировать"
         busy={busy}
+        error={actionError}
         onCancel={() => setConfirm(false)}
         onConfirm={() => void archive()}
       />
-      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить проект навсегда?" description="Проект, архивные этапы и связанные данные будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} onCancel={() => setHardDeleteConfirm(false)} onConfirm={() => void hardDelete()} />
+      <ConfirmDialog visible={hardDeleteConfirm} title="Удалить проект навсегда?" description="Проект, архивные этапы и связанные данные будут удалены без возможности восстановления." confirmLabel="Удалить навсегда" busy={busy} error={actionError} onCancel={() => { setHardDeleteConfirm(false); setActionError(''); }} onConfirm={() => void hardDelete()} />
     </Screen>
   );
 }

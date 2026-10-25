@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pg from 'pg';
 import { localDbBridge } from './local-db-bridge.mjs';
+import { receiptTestPolicySql } from './receipt-test-policy.mjs';
 export const root=resolve(import.meta.dirname,'..');
 export function docker(args,input){
  const r=spawnSync('docker',args,{cwd:root,input,encoding:'utf8',maxBuffer:30*1024*1024});
@@ -38,6 +39,7 @@ export async function createSecurityDatabase({baselineOnly=false,beforeVersion=n
   sql('grant usage,create on schema public to postgres; create schema extensions authorization postgres; create extension pgcrypto with schema extensions; create publication supabase_realtime; grant usage on schema auth,realtime to authenticated,anon,postgres; grant execute on all functions in schema auth,realtime to authenticated,anon,postgres; grant all on all tables in schema auth,realtime to postgres; grant all on all sequences in schema auth,realtime to postgres;');
   const migrations=readdirSync(resolve(root,'supabase/migrations')).filter(n=>n.endsWith('.sql')&&(!baselineOnly||n<'20261016191158_')&&(!beforeVersion||n.slice(0,14)<beforeVersion)).sort();
   for(const file of migrations)sql('set role postgres; set search_path=public,extensions;\n'+readFileSync(resolve(root,'supabase/migrations',file),'utf8'));
+  sql(receiptTestPolicySql);
   bridge=localDbBridge(container);
   const db=connect(bridge.port,database);await db.connect();
   const close=async()=>{await db.end().catch(()=>undefined);bridge?.close();if(created){sql('drop database '+database+' with(force);','postgres');created=false;}};

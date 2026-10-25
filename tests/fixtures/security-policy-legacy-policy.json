@@ -1,0 +1,48 @@
+{
+  "policyVersion": 1,
+  "decision": "owner-approved-temporary-risk",
+  "approvalReference": "Explicit project-owner decision, option B, task attachment e19b1a75-e347-4eb5-8e56-b4839d7fb609, 2026-10-18; scope and expiry preserved after Vite 8.3.3 security update under the all-audit-findings remediation request, 2026-10-21; mandatory Expo Doctor patch alignment (expo 57.0.31, router 57.0.29), same 18 findings and two GHSA roots, reviewed CLI node relocation only, 2026-10-21",
+  "expiresAt": "2026-10-25T20:59:00.000Z",
+  "lockSha256": "da18c63f547c5280ede145aec933e9727e70ba868b2c5bcbd315271afbeb5997",
+  "packageManifestSha256": "6bde2d5dfbe38379538c0343a712a533a4944487b82cdcf152db1c442b50d126",
+  "auditGraphNormalization": "arborist-derived-metadata-v2",
+  "auditGraphSha256": "615432ec9baa597a3c08f6eab06797e9b1c722d211cd70d22c93d69076fd63fe",
+  "advisories": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "version": "3.0.3",
+      "advisoryUpdatedAt": "2026-10-02T22:36:34Z",
+      "npmSource": 1240992,
+      "range": "<=3.0.3"
+    },
+    {
+      "id": "GHSA-86w9-cpqp-85rv",
+      "package": "node-forge",
+      "version": "1.4.0",
+      "advisoryUpdatedAt": "2026-10-01T21:09:10Z",
+      "npmSource": 1240912,
+      "range": "<=1.4.0"
+    }
+  ],
+  "reviewedFindingPackages": [
+    "@expo/cli",
+    "@expo/code-signing-certificates",
+    "@expo/metro",
+    "@expo/metro-config",
+    "@react-native/community-cli-plugin",
+    "@react-native/metro-config",
+    "@react-native/virtualized-lists",
+    "braces",
+    "expo",
+    "metro",
+    "metro-config",
+    "metro-file-map",
+    "metro-transform-worker",
+    "micromatch",
+    "node-forge",
+    "react-native",
+    "react-native-reanimated",
+    "react-native-worklets"
+  ]
+}

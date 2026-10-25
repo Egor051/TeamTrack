@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   missingItem: false, noSession: false, revoked: false, revokeDuringSend: false, removed: [] as string[],
   taskGate: null as Promise<void> | null, taskReads: 0,
   taskError: null as null | { code: string; message: string },
+  admissionError: null as null | { code: string; message: string; details: string },
   updates: [] as { isSyncing?: boolean }[],
 }));
 
@@ -76,6 +77,7 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: (_url: string, _key: str
       return { data: null, error: { code: '42501', message: 'Access denied' } };
     }
     if (state.receipts.has(args.p_operation_id!)) return { data: state.receipts.get(args.p_operation_id!), error: null };
+    if (state.admissionError) return { data: null, error: state.admissionError };
     if (args.p_expected_version !== state.server.sync_version)
       return { data: { status: 'conflict', version: state.server.sync_version, item: { ...state.server } }, error: null };
     if (name.includes('percentage')) {
@@ -187,7 +189,7 @@ vi.mock('@/lib/local-cache/outbox', async (importOriginal) => ({
 
 
 function operation(sequence: number, type: OfflineOperation['type'], payload: OfflineOperation['payload']): OfflineOperation {
-  return { sequence, operation_id: `operation-${sequence}`, user_id: 'user-a', project_id: 'project', task_id: 'task',
+  return { sequence, protocol_version: 2, operation_id: `operation-${sequence}`, user_id: 'user-a', project_id: 'project', task_id: 'task',
     task_item_id: 'item', type, payload, created_at: '2026-09-29T00:00:00Z', status: 'pending',
     expected_version: sequence === 1 ? 10 : null, depends_on_operation_id: sequence === 1 ? null : `operation-${sequence - 1}` };
 }
@@ -204,6 +206,7 @@ it.each(['archived', 'deleted'])('AUD-08: an ACKed %s item releases the queue', 
 beforeEach(() => {
   state.revoked = false; state.revokeDuringSend = false;
   state.taskGate = null; state.taskReads = 0; state.taskError = null;
+  state.admissionError = null;
   state.noSession = false; state.removed = [];
   state.userId = 'user-a'; state.operations = []; state.conflicts = []; state.updates = [];
   state.missingItem = false;
@@ -217,6 +220,17 @@ beforeEach(() => {
 });
 
 describe('Phase 5 offline replay', () => {
+  it.each(['PT507', 'PT429', 'PT503', 'PT413'])('P02: %s preserves a pending chain and UUID without immediate retry', async (code) => {
+    state.operations = [operation(1, 'set_task_item_percentage', { percentage: 40 }), operation(2, 'set_task_item_comment', { comment: 'dependent' })];
+    state.admissionError = { code, message: 'Receipt admission refused', details: code === 'PT429' ? 'TT_RECEIPT_RATE' : 'TT_RECEIPT_LIMIT' };
+    await expect(syncPendingOperations('user-a', true)).rejects.toMatchObject({ code });
+    expect(state.operations.map(row => [row.operation_id, row.status])).toEqual([['operation-1', 'pending'], ['operation-2', 'pending']]);
+    expect(state.calls).toHaveLength(1); expect(state.sideEffects).toBe(0);
+    state.admissionError = null;
+    await syncPendingOperations('user-a', true);
+    expect(state.calls.map(row => row.id)).toEqual(['operation-1', 'operation-1', 'operation-2']);
+    expect(state.sideEffects).toBe(2); expect(state.operations).toEqual([]);
+  });
   it('B02: a 42501 from the access read still permits local cancellation and retains quarantine', async () => {
     state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'retained' }), status: 'failed' }];
     state.taskError = { code: '42501', message: 'permission denied' };
@@ -468,6 +482,15 @@ describe('Phase 5 offline replay', () => {
     await syncPendingOperations('user-a');
     expect(state.calls).toEqual([]);
     expect(state.conflicts[0].conflicting_fields).toEqual(['comment']);
+  });
+
+  it('preserves pre-v2 identities for review instead of upgrading their namespace on retry', async () => {
+    state.operations = [{ ...operation(1, 'set_task_item_comment', { comment: 'Legacy draft' }), protocol_version: undefined }];
+    await syncPendingOperations('user-a');
+    expect(state.calls).toEqual([]);
+    expect(state.sideEffects).toBe(0);
+    expect(state.conflicts).toEqual([]);
+    expect(state.operations[0]).toMatchObject({ operation_id: 'operation-1', status: 'review', last_error: expect.stringContaining('TT_OPERATION_LEGACY_REVIEW') });
   });
 
   it('keeps a retryable row if durable ACK fails', async () => {

@@ -38,20 +38,26 @@
     "playwright": "1.58.0",
     "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3",
-    "vitest": "^5.0.2",
+    "vitest": "5.0.3",
     "workbox-build": "7.4.1"
   },
   "overrides": {
     "decode-uri-component": "0.5.0",
     "uuid": "11.1.1",
-    "vite": "8.3.3"
+    "vite": {
+      ".": "8.3.3",
+      "rolldown": {
+        ".": "1.2.11",
+        "magic-string": "1.4.2"
+      }
+    }
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "build:web": "expo export --platform web --clear && node scripts/generate-service-worker.mjs",
+    "start": "expo start --localhost",
+    "android": "expo start --localhost --android",
+    "ios": "expo start --localhost --ios",
+    "web": "expo start --localhost --web",
+    "build:web": "node scripts/security-export.mjs --platform web --clear --output-dir dist && node scripts/generate-service-worker.mjs",
     "serve:web": "node scripts/serve-web.mjs",
     "smoke:phase6:browser": "node scripts/phase6-browser-smoke.mjs",
     "smoke:offline:browser": "node scripts/account-offline-browser-smoke.mjs",

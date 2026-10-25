@@ -4,6 +4,7 @@ import type { LocalCacheDriver, OfflineOperation, SyncConflict } from './types';
 import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
 import { assertDiscardableChain } from './failed-chain';
+import { assertConflictDiscardable, bindAttempt, rebaseAttempts } from './operation-attempt';
 
 const pending: OfflineOperation[] = [];
 const entries = new Map<string, import('./types').CacheEntry>();
@@ -11,6 +12,11 @@ const conflicts = new Map<string, SyncConflict>();
 const entryKey = (userId: string, key: string) => `${userId}:${key}`;
 
 export const localCacheDriver: LocalCacheDriver = {
+  async bindOperationHandle(userId, operationId, handle) {
+    const row = pending.find(row => row.user_id === userId && row.operation_id === operationId);
+    if (!row) throw new Error('Операция недоступна.');
+    Object.assign(row, bindAttempt(row, handle)); return row;
+  },
   async commitCacheBatch(userId, batch, removeKeys = [], guards = []) {
     if (batch.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
     if (guards.some((guard) => (entries.get(entryKey(userId, guard.key))?.data ?? null) !== guard.data)) return false;
@@ -48,9 +54,15 @@ export const localCacheDriver: LocalCacheDriver = {
   async listPending(userId, taskId) {
     return pending.filter((operation) => operation.user_id === userId && (!taskId || operation.task_id === taskId));
   },
-  async markOperation(userId, operationId, status, result, error) {
+  async markOperation(userId, operationId, status, result, error, reviewConflictId) {
     const operation = pending.find((row) => row.user_id === userId && row.operation_id === operationId);
     if (operation) Object.assign(operation, { status, server_result: result, last_error: error ?? null });
+    const conflict = reviewConflictId ? conflicts.get(reviewConflictId) : undefined;
+    if (operation && status === 'review' && conflict?.user_id === userId && conflict.operation_ids.includes(operationId)) {
+      for (const row of pending) if (row.user_id === userId && row.operation_id !== operationId
+        && row.status === 'conflict' && conflict.operation_ids.includes(row.operation_id)) row.status = 'pending';
+      conflicts.delete(reviewConflictId!);
+    }
   },
   async acknowledgeOperation(userId, operationId, version, conflictId, item) {
     const operation = pending.find((row) => row.user_id === userId && row.operation_id === operationId);
@@ -75,17 +87,20 @@ export const localCacheDriver: LocalCacheDriver = {
   async rebaseConflict(userId, conflictId, version) {
     const conflict = conflicts.get(conflictId);
     if (!conflict || conflict.user_id !== userId) throw new Error('Conflict unavailable');
-    const first = pending.filter((row) => row.user_id === userId && conflict.operation_ids.includes(row.operation_id))
-      .sort((a, b) => a.sequence - b.sequence).find((row) => row.status !== 'synced_unreconciled');
-    for (const row of pending) if (row.user_id === userId && conflict.operation_ids.includes(row.operation_id)
-      && row.status !== 'synced_unreconciled') {
-      row.status = 'pending';
-      if (row.operation_id === first?.operation_id) row.expected_version = version;
+    const chain = pending.filter(row => row.user_id === userId && conflict.operation_ids.includes(row.operation_id)).sort((a,b) => a.sequence-b.sequence);
+    const rebased = rebaseAttempts(chain, version);
+    if (rebased.operations === chain) return;
+    for (const row of pending) if (row.user_id === userId) {
+      const replacement = rebased.operations.find(other => other.sequence === row.sequence);
+      if (replacement) Object.assign(row, replacement);
+      else if (rebased.ids.has(row.depends_on_operation_id ?? '')) row.depends_on_operation_id = rebased.ids.get(row.depends_on_operation_id!);
     }
+    conflict.operation_ids = conflict.operation_ids.map(id => rebased.ids.get(id) ?? id);
   },
   async resolveServerConflict(userId, conflictId) {
     const conflict = conflicts.get(conflictId);
     if (!conflict || conflict.user_id !== userId) throw new Error('Conflict unavailable');
+    assertConflictDiscardable(pending.filter(row => row.user_id === userId && conflict.operation_ids.includes(row.operation_id)));
     const before = [...entries.values()].filter((entry) => entry.user_id === userId);
     const after = applyPullToEntries(before, [{ cursor: 0, task_id: conflict.task_id, task_item_id: conflict.task_item_id,
       change_type: conflict.server_state ? 'upsert' : 'delete', item: conflict.server_state }], conflict.project_id);

@@ -24,7 +24,7 @@ describe('P01 mandatory CI coverage', () => {
       'node scripts/run-audit-remediation-tests.mjs','npm run test:security',
       'node scripts/verify-audit-regressions.mjs','npx playwright install --with-deps chromium webkit',
       'node scripts/run-security-integrations.mjs scripts/audit-remediation-browser.mjs scripts/template-realtime-browser.mjs',
-      'node scripts/pwa-mobile-browser-smoke.mjs','npx expo export --platform web --platform android --platform ios --source-maps --output-dir .expo/security-export',
+      'node scripts/pwa-mobile-browser-smoke.mjs','node scripts/security-export.mjs --platform web --platform android --platform ios --source-maps --output-dir .expo/security-export',
       'node scripts/security-policy-gate.mjs --bundles .expo/security-export']) expect(workflow).toContain(`run: ${command}`);
     expect(workflow).not.toMatch(/continue-on-error|\|\| true/);
     expect(readFileSync(join(root,'scripts/run-security-integrations.mjs'),'utf8')).toContain('run-concurrency-tests.mjs');
@@ -33,7 +33,10 @@ describe('P01 mandatory CI coverage', () => {
     expect(workflow).toContain('supabase@2.116.0 stop --no-backup');
     expect(JSON.parse(readFileSync(join(root,'package.json'),'utf8')).devDependencies.playwright).toBe('1.58.0');
     expect(workflow).toContain("if: always() && steps.dependencies.outcome == 'success'");
-    expect(workflow).toContain('uses: actions/upload-artifact@v4');
+    expect(workflow).toContain('uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
+    const exporter=readFileSync(join(root,'scripts/security-export.mjs'),'utf8');
+    expect(exporter).toContain('verifyToolingConditions({ directory: root, environment })');
+    expect(exporter).toContain('node_modules/expo/bin/cli');
     expect(workflow).toContain('path: .expo/security-policy/');
     expect(workflow).toContain('include-hidden-files: true');
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(2);

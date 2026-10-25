@@ -1,6 +1,11 @@
 \set ON_ERROR_STOP on
 begin;
 
+-- The JWT fixture represents an existing active account, as the real Auth API
+-- does. A bare arbitrary subject is no longer accepted by require_auth.
+insert into auth.users(id,email,raw_user_meta_data) values
+ ('93000000-0000-4000-8000-000000000001','runtime-fixture@test.local','{}');
+
 do $$
 begin
   if has_table_privilege('authenticated','private.offline_runtime_config','SELECT')

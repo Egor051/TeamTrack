@@ -2,6 +2,7 @@
 // engines. Device descriptors emulate browsers; they are not physical devices.
 // All HTTP traffic outside this temporary loopback server is blocked.
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createServer } from 'node:http';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -12,12 +13,13 @@ const require = createRequire(import.meta.url);
 const { chromium, webkit, devices } = require(process.env.TASKTRACE_PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve('dist');
 await stat(resolve(root, 'sw.js'));
-const evidence = resolve('.expo/mobile-diagnostics');
+const evidence = resolve(process.env.TASKTRACE_PWA_EVIDENCE ?? '.expo/mobile-diagnostics');
 await mkdir(evidence, { recursive: true });
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png',
   '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 const held = new Set();
 let stallNavigation = false, stallBody = false, failNavigation = false, version = 1;
+let navigationStatus = 0;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const appRoute = isAppNavigation({ request: { mode: 'navigate' }, url: new URL(req.url, origin) });
@@ -27,6 +29,7 @@ const server = createServer(async (req, res) => {
     held.add(res); res.on('close', () => held.delete(res)); return;
   }
   if (appRoute && failNavigation) { req.socket.destroy(); return; }
+  if (appRoute && navigationStatus) { res.writeHead(navigationStatus, { 'Content-Type': 'text/html' }); res.end('Navigation HTTP '+navigationStatus); return; }
   const path = resolve(root, `.${url.pathname}`);
   if (path !== root && !path.startsWith(root + sep)) { res.writeHead(403).end(); return; }
   let file = path;
@@ -48,7 +51,7 @@ try {
     ['android-chromium', chromium, devices['Pixel 7']],
     ['ios-webkit', webkit, devices['iPhone 13']],
   ]) {
-    let browser;
+    let browser, page, step = 'initial login';
     const errors = [];
     try {
       version = 1; stallNavigation = false; stallBody = false; failNavigation = false;
@@ -57,20 +60,37 @@ try {
       await context.route('**/*', (route) => new URL(route.request().url()).origin === origin
         ? route.continue() : route.abort('internetdisconnected'));
       context.on('page', (page) => page.on('pageerror', (e) => errors.push(e.message)));
-      let page = await context.newPage();
+      page = await context.newPage();
       const login = () => page.getByRole('button', { name: 'Войти', exact: true });
       await page.goto(origin);
       await login().waitFor();
       await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+      step = 'controller reload';
       await page.reload();
       await login().waitFor();
       assert.equal(await page.evaluate(() => navigator.serviceWorker.controller?.state), 'activated');
+      step = 'explicit recovery route';
+      await page.goto(`${origin}/forgot-password`);
+      await page.getByText('Восстановление пароля', { exact: true }).waitFor();
+      await page.goto(`${origin}/login`); await login().waitFor();
+      step = 'deep link login';
       await page.goto(`${origin}/projects/fixture/tasks/fixture`);
       await login().waitFor();
+
+      for (const status of [502, 503, 401, 403, 404]) {
+        step = 'navigation status '+status;
+        navigationStatus = status;
+        const response = await page.reload();
+        if ([502, 503].includes(status)) { await login().waitFor(); assert.equal(response.status(), 200); }
+        else { assert.equal(response.status(), status); assert.equal(await page.locator('body').innerText(), 'Navigation HTTP '+status); }
+        navigationStatus = 0; await page.reload(); await login().waitFor();
+      }
+      console.log('PASS '+name+': generated worker gateway fallback and 401/403/404 boundaries');
 
       // Actual connection failure at the server, avoiding OS/browser-specific
       // offline emulation. The API remains isolated by the route above.
       failNavigation = true;
+      step = 'connection failure';
       await page.reload({ timeout: 8000 });
       await login().waitFor();
       failNavigation = false;
@@ -78,6 +98,7 @@ try {
       // Cold PWA/tab open with Wi-Fi still reporting online but no HTML reply.
       await page.close(); stallNavigation = true;
       page = await context.newPage();
+      step = 'cold stalled navigation';
       const started = Date.now();
       await page.goto(`${origin}/projects/fixture/tasks/fixture`, { waitUntil: 'load', timeout: 8000 });
       await login().waitFor({ timeout: 1000 });
@@ -88,6 +109,7 @@ try {
       stallNavigation = false;
       // BUG-06: headers and a partial body are not a usable app document.
       stallBody = true;
+      step = 'partial HTML body';
       const bodyStarted = Date.now();
       await page.reload({ waitUntil: 'load', timeout: 8000 }); await login().waitFor({ timeout: 1000 });
       const bodyRecoveryMs = Date.now() - bodyStarted;
@@ -103,6 +125,7 @@ try {
         if (request.isNavigationRequest() && request.frame() === page.mainFrame()) navigations++;
       });
       version = 2;
+      step = 'waiting worker update';
       await page.evaluate(async () => { const registration = await navigator.serviceWorker.ready; await registration.update(); });
       await page.getByText('Доступна новая версия TaskTrace.', { exact: true }).waitFor({ timeout: 8000 });
       assert.equal(navigations, 0, 'An update reloaded before user approval');
@@ -112,12 +135,22 @@ try {
       assert.equal(navigations, 1, 'Applying a waiting update must reload once');
       assert.equal(await page.evaluate(async () => !!(await navigator.serviceWorker.ready).waiting), false);
       assert.deepEqual(errors, []);
+      await page.evaluate(async () => {
+        for (const name of await caches.keys()) { const cache = await caches.open(name);
+          for (const request of await cache.keys()) if (new URL(request.url).pathname === '/offline-shell.html') await cache.delete(request);
+        }
+      });
+      navigationStatus = 503;
+      const missing = await page.reload(); assert.equal(missing.status(), 503);
+      assert.equal(await page.locator('body').innerText(), 'Navigation HTTP 503'); navigationStatus = 0;
       await page.screenshot({ path: resolve(evidence, `${name}-pwa.png`), fullPage: true });
       const result = { name, pass: true, navigationRecoveryMs, bodyRecoveryMs, updateReloads: navigations, errors };
       results.push(result); console.log(JSON.stringify(result));
       await context.close();
     } catch (error) {
-      const result = { name, pass: false, error: error.message, errors };
+      const result = { name, pass: false, step, error: error.message, errors,
+        url:page?.url(),body:await page?.locator('body').innerText().catch(()=>''), };
+      await page?.screenshot({path:resolve(evidence,name+'-failure.png'),fullPage:true}).catch(()=>undefined);
       results.push(result); console.error(JSON.stringify(result));
     } finally { for (const response of held) response.destroy(); await browser?.close(); }
   }

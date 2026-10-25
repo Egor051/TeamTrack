@@ -77,13 +77,14 @@ async function readNotificationWindow(): Promise<NotificationWindow> {
     return { rows: [...byId.values()].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)), read_limit: 100 };
   });
 }
-async function notificationRead<T>(online: () => Promise<T>, cached: (window: NotificationWindow) => T): Promise<T> {
+async function notificationRead<T>(online: () => Promise<T>, cached: (window: NotificationWindow) => T, requireServer = false): Promise<T> {
   const userId = await activeCacheUserId();
   const accountEpoch = readAccountEpoch();
   const invalidation = userId ? readInvalidation(userId, 'notifications:window').version : 0;
   const durable = userId ? await durableReadInvalidation(userId, 'notifications:window') : null;
   const baseline = cacheAccessEpoch(); const key = 'cache:notifications:window';
   const local = async (error: unknown): Promise<T> => {
+    if (requireServer) throw error;
     if (!userId || await activeCacheUserId() !== userId) throw error;
     const window = await getCached<NotificationWindow>(userId, 'notifications:window');
     if (!window || await activeCacheUserId() !== userId || deniedSince(userId, key, baseline)) throw error;
@@ -108,9 +109,9 @@ async function notificationRead<T>(online: () => Promise<T>, cached: (window: No
     return local(error);
   }
 }
-export async function fetchNotificationPage(limit = 100, offset = 0, filters: NotificationFilters = {}): Promise<NotificationPage> {
+export async function fetchNotificationPage(limit = 100, offset = 0, filters: NotificationFilters = {}, options: { requireServer?: boolean } = {}): Promise<NotificationPage> {
   const filtered = hasNotificationFilters(filters);
-  if (!filtered && offset === 0 && limit <= 100) {
+  if (!options.requireServer && !filtered && offset === 0 && limit <= 100) {
     const window = await readNotificationWindow();
     const offline = isCachedResult(window);
     return { rows: inheritCachedResult(window, window.rows.slice(0, limit)), offline, hasMore: offline ? window.rows.length > limit : window.rows.length >= limit, limited: offline };
@@ -136,7 +137,7 @@ export async function fetchNotificationPage(limit = 100, offset = 0, filters: No
     const rows = window.rows.filter((row) => matchesNotification(row, filters));
     return { rows: inheritCachedResult(window, rows.slice(offset, offset + limit)), offline: true,
       hasMore: offset + limit < rows.length, limited: true };
-  });
+  }, options.requireServer);
 }
 export async function fetchNotifications(limit = 100, offset = 0) {
   return (await fetchNotificationPage(limit, offset)).rows;
@@ -179,20 +180,20 @@ export async function fetchUnreadCount() {
 }
 export async function markAsRead(id: string) {
   const userId = await activeCacheUserId();
-  const { error } = await executeMutation('mark_notification_read', { p_notification_id: id });
+  const { error } = await executeMutation('mark_notification_read', { p_notification_id: id }, { mode: 'new' });
   if (error) throw error;
   if (userId && await activeCacheUserId() === userId) await invalidateReadModels(userId, ['notifications:'])
     .catch((error) => console.warn('[TaskTrace] notification cache invalidation deferred', error));
 }
 export async function markAllAsRead() {
   const userId = await activeCacheUserId();
-  const { error } = await executeMutation('mark_all_notifications_read', {});
+  const { error } = await executeMutation('mark_all_notifications_read', {}, { mode: 'new' });
   if (error) throw error;
   if (userId && await activeCacheUserId() === userId) await invalidateReadModels(userId, ['notifications:'])
     .catch((error) => console.warn('[TaskTrace] notification cache invalidation deferred', error));
 }
-export function subscribeToNotifications(userId: string, onChange: () => void, onStatus?: (status: RealtimeStatus) => void) {
-  const refresh = createReadRefreshScheduler(async () => { onChange(); });
+export function subscribeToNotifications(userId: string, onChange: () => void | Promise<unknown>, onStatus?: (status: RealtimeStatus) => void) {
+  const refresh = createReadRefreshScheduler(async () => { await onChange(); });
   let connected = false;
   const realtime = subscribeTable('notifications', { userId, onEvent: () => refresh.request(), onStatus: (next) => {
     if (next === 'connected' && !connected) { connected = true; refresh.request(); }

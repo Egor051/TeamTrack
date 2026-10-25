@@ -60,7 +60,7 @@ describe('pending operations', () => {
     await enqueueOperation('user-a', 'project-1', 'task-1', 'item-1', percentage(70));
     const operations = await listPendingOperations('user-a', 'task-1');
     expect(operations.map((op) => op.sequence)).toEqual([1, 2]);
-    expect(operations.every((op) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab]/i.test(op.operation_id))).toBe(true);
+    expect(operations.every((op) => /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab]/i.test(op.operation_id))).toBe(true);
     expect(applyPendingOperations(base, operations, 'user-a', 'task-1')[0].percentage).toBe(70);
     expect(base[0].percentage).toBe(20);
   });

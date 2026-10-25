@@ -19,3 +19,18 @@ it('events during a refresh request one subsequent refresh without overlapping w
   for (let i = 0; i < 5; i++) s.request(); await vi.advanceTimersByTimeAsync(150); expect(load).toHaveBeenCalledOnce();
   finish(); await vi.advanceTimersByTimeAsync(150); expect(load).toHaveBeenCalledTimes(2); s.dispose(); finish();
 });
+it('B07 starts reads during a continuous stream instead of waiting for silence', async () => {
+  const load = vi.fn(async () => {}); const s = createReadRefreshScheduler(load);
+  for (let n = 0; n < 300; n++) { s.request(); await vi.advanceTimersByTimeAsync(100); }
+  expect(load.mock.calls.length).toBeGreaterThanOrEqual(100);
+  s.dispose();
+});
+it('recovers after a synchronous throw and never restarts after disposal in flight', async () => {
+  const load = vi.fn<() => Promise<void>>().mockImplementationOnce(() => { throw Error('sync'); }).mockResolvedValue(undefined);
+  const s = createReadRefreshScheduler(load); s.request(); await vi.advanceTimersByTimeAsync(150);
+  s.request(); await vi.advanceTimersByTimeAsync(150); expect(load).toHaveBeenCalledTimes(2); s.dispose();
+  let finish!: () => void; const next = vi.fn(() => new Promise<void>(r => { finish = r; }));
+  const pending = createReadRefreshScheduler(next); pending.request(true); await vi.advanceTimersByTimeAsync(0);
+  pending.request(); pending.dispose(); finish(); await vi.advanceTimersByTimeAsync(500);
+  expect(next).toHaveBeenCalledOnce();
+});

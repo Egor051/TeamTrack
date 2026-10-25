@@ -1,6 +1,6 @@
 import { useReadModelUpdates } from '@/lib/local-cache/use-read-model-updates';
 import { useOnlineRecovery } from '@/lib/connectivity/use-online-recovery';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Screen } from '@/components/ui/screen';
@@ -19,6 +19,7 @@ import { isExplicitAccessError } from '@/lib/local-cache/cache';
 import { userMessage } from '@/lib/errors/user-message';
 import { layout, spacing } from '@/components/ui/theme';
 import { useTheme } from '@/components/ui/theme-provider';
+import { readAccountEpoch } from '@/lib/local-cache/read-freshness';
 
 const PAGE_SIZE = 100;
 
@@ -27,6 +28,11 @@ function notificationText(item: Notification, value: string): string {
 }
 
 export default function NotificationsScreen() {
+  const user = useUser();
+  return <NotificationsContent key={user?.id ?? 'signed-out'} />;
+}
+
+function NotificationsContent() {
   const { colors: theme } = useTheme();
   const user = useUser();
   const [items, setItems] = useState<Notification[]>([]);
@@ -51,7 +57,7 @@ export default function NotificationsScreen() {
   const markingIdsRef = useRef(new Set<string>());
   const markingAllRef = useRef(false);
 
-  const load = useCallback(async (reset = true) => {
+  const load = useCallback(async (reset = true, requireServer = false) => {
     const request = ++requestRef.current;
     if (filters.from && filters.to && filters.from > filters.to) {
       setLoadError('Начало периода должно быть раньше конца.'); setLoading(false); setLoadingMore(false); setHasMore(false); setItems([]); itemsRef.current = []; return;
@@ -68,9 +74,9 @@ export default function NotificationsScreen() {
     }
     try {
       const offset = reset ? 0 : pageOffset.current;
-      const result = await fetchNotificationPage(PAGE_SIZE, offset, filters);
+      const result = await fetchNotificationPage(PAGE_SIZE, offset, filters, { requireServer });
+      if (request !== requestRef.current) return false;
       const page = readState.current.accept(result.rows);
-      if (request !== requestRef.current) return;
       pageOffset.current = offset + result.rows.length;
       if (reset) {
         itemsRef.current = page;
@@ -86,11 +92,13 @@ export default function NotificationsScreen() {
       setHasMore(result.hasMore);
       setOffline(result.offline);
       setLoadError('');
+      return !result.offline;
     } catch (e) {
       if (request === requestRef.current) {
         setLoadError(userMessage(e, 'Не удалось загрузить уведомления.'));
         if (isExplicitAccessError(e)) { setItems([]); itemsRef.current = []; setOffline(false); }
       }
+      return false;
     } finally {
       if (request === requestRef.current) {
         if (reset) setLoading(false);
@@ -101,6 +109,8 @@ export default function NotificationsScreen() {
       }
     }
   }, [filters]);
+  const latestLoad = useRef(load);
+  useLayoutEffect(() => { latestLoad.current = load; }, [load]);
 
   const { scheduleRefresh, refreshFromServer } = useReadModelUpdates(load, { view: 'notifications', userId: user?.id });
   useOnlineRecovery(load);
@@ -116,9 +126,9 @@ export default function NotificationsScreen() {
   }, [load, user, scheduleRefresh]));
   useFocusEffect(useCallback(() => {
     let active = true;
-    const fetchOptions = () => { void fetchNotificationFilterOptions().then((next) => { if (active) { setFilterOptions(next); setFilterError(''); } })
-      .catch((error) => { if (active) setFilterError(userMessage(error, 'Не удалось загрузить варианты фильтров.')); }); };
-    fetchOptions();
+    const fetchOptions = () => fetchNotificationFilterOptions().then((next) => { if (active) { setFilterOptions(next); setFilterError(''); } })
+      .catch((error) => { if (active) setFilterError(userMessage(error, 'Не удалось загрузить варианты фильтров.')); });
+    void fetchOptions();
     const cleanup = user ? subscribeToNotifications(user.id, fetchOptions) : () => {};
     return () => { active = false; cleanup(); };
   }, [user]));
@@ -162,19 +172,17 @@ export default function NotificationsScreen() {
 
   async function allRead() {
     if (markingAllRef.current || markingIdsRef.current.size) return;
+    const account = readAccountEpoch();
     markingAllRef.current = true;
     setMarkingAll(true);
     setActionError('');
-    const ids = readState.current.begin(itemsRef.current);
-    itemsRef.current = readState.current.apply(itemsRef.current); setItems(itemsRef.current);
     try {
       await markAllAsRead();
-      readState.current.confirm(ids);
-      itemsRef.current = readState.current.apply(itemsRef.current); setItems(itemsRef.current);
-      scheduleRefresh();
+      if (account !== readAccountEpoch()) return;
+      // A replay acknowledges the original server set, never the current UI set.
+      if (!await latestLoad.current(true, true) && account === readAccountEpoch()) setActionError('Действие завершено. Не удалось получить актуальный список; обновите уведомления.');
     } catch (e) {
-      itemsRef.current = readState.current.rollback(ids, itemsRef.current); setItems(itemsRef.current);
-      setActionError(userMessage(e, 'Не удалось обновить уведомления.'));
+      if (account === readAccountEpoch()) setActionError(userMessage(e, 'Не удалось обновить уведомления.'));
     } finally {
       markingAllRef.current = false;
       setMarkingAll(false);

@@ -1,0 +1,621 @@
+{
+  "scope": "Observed production pg_get_functiondef tokens; fixture portability only. Production preflight uses raw hashes.",
+  "functions": [
+    {
+      "signature": "private.private.apply_task_item_operation_v2(uuid,uuid,bigint,text,jsonb)",
+      "sha256": "e3a4d76ad61cd12f438a06b3f86d3452f02b27046cb034a58994009437f6f883"
+    },
+    {
+      "signature": "private.private.audit_log_visible(uuid,text,uuid,jsonb,jsonb)",
+      "sha256": "8ebc1c00abfb2ec45794e1ed44da7ab9323524af4b023263f2c41f4becd20e84"
+    },
+    {
+      "signature": "private.private.audit_to_notification()",
+      "sha256": "92d7a462a86e8a5592c96da01498063ef6ec09a6ee27bc166ca77ae9f1b8546f"
+    },
+    {
+      "signature": "private.private.broadcast_application_invalidation()",
+      "sha256": "6b8739724686c45a846f1c3739012033f97cda0ba0337fa2d1e1251320ac5df0"
+    },
+    {
+      "signature": "private.private.bump_task_item_sync_version()",
+      "sha256": "8ca68116e0a935c3a0d9004224f795382422009e2b1635925d285dcff11d0046"
+    },
+    {
+      "signature": "private.private.can_edit_task(uuid,uuid)",
+      "sha256": "83ed666733e7e60dc33331c1c22c5ca41cf104d0c1b0ea8c67f3e8a04d09db23"
+    },
+    {
+      "signature": "private.private.can_manage_task_checklist(uuid,uuid)",
+      "sha256": "12714c35f0113ab44b0b461c957c29f416310b2eab084f4cb020007d8f03abde"
+    },
+    {
+      "signature": "private.private.can_receive_realtime_topic(text)",
+      "sha256": "01a420075e70c8fa985d21e013a6a80a71b4fecfa21eecf326ae65895f00a6ae"
+    },
+    {
+      "signature": "private.private.can_view_profile(uuid)",
+      "sha256": "90faaaef0d1afa68053ed4d2e3f5157efc35c5a1e8cf6f4f654e3909dd488bf3"
+    },
+    {
+      "signature": "private.private.checklist_deadline_changed()",
+      "sha256": "734a077ae99c7d4345b571962cc6950b42cdd5dd5be971bd66e6f94fd96cff38"
+    },
+    {
+      "signature": "private.private.checklist_deadline_status(timestamp with time zone,integer,boolean,timestamp with time zone)",
+      "sha256": "b923596cde68d913a05a8b32d440a8ca4a272386f217baf04804915f617ddef2"
+    },
+    {
+      "signature": "private.private.claim_client_operation(uuid,text,uuid,jsonb)",
+      "sha256": "52c8681b2fe5a1218c38da59cf59357f8ec78775d2c7f11133b24606163addff"
+    },
+    {
+      "signature": "private.private.cleanup_task_item_sync_changes()",
+      "sha256": "cc9aeb62657b04bf68ab6c186137a1fc80c74e84f5f306217d2cb2a7aa572b44"
+    },
+    {
+      "signature": "private.private.create_notification(uuid,uuid,uuid,public.notification_type,text,text,jsonb,text)",
+      "sha256": "3f94631712bc4e5bb4bfc0cd0c2719b1ab36c1bc657ba73081277642fe40f0f7"
+    },
+    {
+      "signature": "private.private.current_has_task_access(uuid)",
+      "sha256": "97043a8f8e2bf55a071c33d34770537b1cedb1980e864ed536547b9196de7564"
+    },
+    {
+      "signature": "private.private.current_is_project_admin(uuid)",
+      "sha256": "69a3ab0e5e755b0d8ee4ef9e8387560d48f556d5521371a933a54c97ca92715b"
+    },
+    {
+      "signature": "private.private.current_is_project_member(uuid)",
+      "sha256": "90b48ec01e00285e0581e9259ea604e008bce54c4be6f2ea9053f8360b9de845"
+    },
+    {
+      "signature": "private.private.current_is_task_project_admin(uuid)",
+      "sha256": "70e2ed537d6bcd2705bada2c60e04668991c3545aead8e358ca2eb8606293333"
+    },
+    {
+      "signature": "private.private.emit_checklist_deadline_event(uuid,text,timestamp with time zone,uuid)",
+      "sha256": "df104fe35b99f54012921448a261c6d0fb24dcceddbb582d54ae26454004ed01"
+    },
+    {
+      "signature": "private.private.ensure_profile(uuid)",
+      "sha256": "df7bb8e3f4dd9acb705f6e81d1666ca8e8e53f6003e72e6c22ac1c34055a1d28"
+    },
+    {
+      "signature": "private.private.guard_draft_write_protocol()",
+      "sha256": "af6fa74a1a2bdd2168943cba43f14044078af88462f030fabc8dc3871334dbc7"
+    },
+    {
+      "signature": "private.private.handle_new_user()",
+      "sha256": "5c6312051587b25a5cf611d26be400b6d16b7a435709304a9bee6bd868c4e457"
+    },
+    {
+      "signature": "private.private.has_project_view_of_task(uuid,uuid)",
+      "sha256": "457baa9244568bc8d462397f7240c30dffbe33d8f0cddf4462b87eb68937767c"
+    },
+    {
+      "signature": "private.private.has_task_access(uuid,uuid)",
+      "sha256": "761ec738d7cfc23a496778333c7618c15eac7d4d2462d2b41545440f4bdb0ad7"
+    },
+    {
+      "signature": "private.private.initial_profile_name(uuid,jsonb,text)",
+      "sha256": "960e0afec6d538ced08d87eaa43403357bcf8c62cf0bf5f2d01adf1d3b0bd6ac"
+    },
+    {
+      "signature": "private.private.is_project_admin(uuid,uuid)",
+      "sha256": "a640852fc3b036620bb15f9042f43f09f623782a2dcc496cfb9236aa2042327c"
+    },
+    {
+      "signature": "private.private.is_project_member(uuid,uuid)",
+      "sha256": "2e683ceabcbbf537b847990a189ddcd3fde1aafc1b412f10f6e47b34a71d91f1"
+    },
+    {
+      "signature": "private.private.is_project_owner(uuid,uuid)",
+      "sha256": "97919d0449d9782d10a9b781843fedbbd40bff3c77599682e89d6fedcd0e29f7"
+    },
+    {
+      "signature": "private.private.is_task_project_admin(uuid,uuid)",
+      "sha256": "3e76a5606004bca7f6370f09373e1b08ce3d8034eabfd17f7cc71bdbc7043504"
+    },
+    {
+      "signature": "private.private.link_task_item_audit()",
+      "sha256": "c7aff121fddd61a3a1cced425e044f618bd20b0a6427fcd5669a5be2fabae152"
+    },
+    {
+      "signature": "private.private.lock_project_role(uuid,uuid)",
+      "sha256": "304ae4d73cf0e4be4527181a5b502c12a4c80dc18d1c8277b7ac33676022ebdb"
+    },
+    {
+      "signature": "private.private.lock_project_state(uuid)",
+      "sha256": "d5bf41011d8bfd1f7fa5215ecf62c38c80a930daad2ee001006cf29f3ffbecf8"
+    },
+    {
+      "signature": "private.private.lock_project(uuid)",
+      "sha256": "965c3e2d902ed0d10be65f964e118602fcb3b99acb88b14a09ebdabb0639830f"
+    },
+    {
+      "signature": "private.private.lock_task_item_version(uuid,bigint)",
+      "sha256": "27fb72a480de7734d41cb546ccf86204d7a4e06d1b70c86a749188a2a9875e48"
+    },
+    {
+      "signature": "private.private.lock_task_membership_management(uuid,uuid)",
+      "sha256": "61129d6b7e49d6a9d88f3b00482d23f8b729fd0a2c3eb45d6482c404d683d173"
+    },
+    {
+      "signature": "private.private.lock_task_role(uuid,uuid,uuid)",
+      "sha256": "a4040321273e48e11d0ea417bbdb9bd8319a3f5f092ef8af88784de40a0421ec"
+    },
+    {
+      "signature": "private.private.lock_task(uuid)",
+      "sha256": "4fcf23681616162b2ed3d1a19d5f7a34a75fdbde05157a3afefb2f01da42deb7"
+    },
+    {
+      "signature": "private.private.normalize_stage_notification_terminology()",
+      "sha256": "471a7c231b2b48e1ceb34ca5d9984a10461c3f4dff0f0d642b22e2d77ed7fe99"
+    },
+    {
+      "signature": "private.private.offline_account_rows(text,timestamp with time zone)",
+      "sha256": "cfcf437b98eed6f86e66502e9ddc895adfa2dd1a0ddf8d3a0d93aa0900c76bb3"
+    },
+    {
+      "signature": "private.private.offline_account_rows(text)",
+      "sha256": "560aaa7bf414afdd776bdbb047b3f8b1afc1f7abce324aee6031532cf46cbadd"
+    },
+    {
+      "signature": "private.private.offline_dataset_revision(text,text,timestamp with time zone)",
+      "sha256": "ab44759741f7225f32d376d7d1bd0583fb3a03e0a82f13beb237860e3c360011"
+    },
+    {
+      "signature": "private.private.offline_dataset_revision(text,text)",
+      "sha256": "8a5c0040be2d358ff87eeb36b10cbc319ebd5379b3516c40370beac0956aca03"
+    },
+    {
+      "signature": "private.private.process_checklist_deadlines(integer)",
+      "sha256": "524df35e46ac57f1fc78fcbce381edb42c6c49eb22bbdf2793a59ec932d41146"
+    },
+    {
+      "signature": "private.private.profile_name_is_valid(text)",
+      "sha256": "c2a659177f9631db5c84904d20d85e401f6ec0b6eded4f5b9f38ec50745314a3"
+    },
+    {
+      "signature": "private.private.project_is_active(uuid)",
+      "sha256": "04b684898c335de2a52511c9039fa89cf8121cfbb1d19dcc8d7413f50924c836"
+    },
+    {
+      "signature": "private.private.project_role_of(uuid,uuid)",
+      "sha256": "1a3d4f444b54834c9820d1a8a78ace6e8fa4056b3e1581eee902f2cffaeeb649"
+    },
+    {
+      "signature": "private.private.recalculate_task_status_statement()",
+      "sha256": "f03ab89446ee53274964f2e9ef903f6b07ff5effec16c8973a11beea93eec442"
+    },
+    {
+      "signature": "private.private.recalculate_task_status_trigger()",
+      "sha256": "fd8407237dcc420c853be6da77cdce387477d7e55015a3b5ba960b3ef9b3f3a8"
+    },
+    {
+      "signature": "private.private.recalculate_task_status(uuid)",
+      "sha256": "17ae207cbbbbbc3c78089e5355b9ccf6d5c8582f806a3af67491add65d3f5eca"
+    },
+    {
+      "signature": "private.private.record_task_item_sync_change()",
+      "sha256": "262a6b6734068bbbadccbaf0c823dc841f6bee36530640919a0f851076bf4ed8"
+    },
+    {
+      "signature": "private.private.refresh_checklist_deadline(uuid,timestamp with time zone,uuid)",
+      "sha256": "230ece7ddbe60be6c9d07d772b3fc0a135da3dd5097dc819ff69c3179f6ee9b1"
+    },
+    {
+      "signature": "private.private.refresh_parent_checklist_deadlines()",
+      "sha256": "609d47d2326ebd05c8a5f88dfbeacc430150e4d697469249d7f812ed0981c9ab"
+    },
+    {
+      "signature": "private.private.require_auth()",
+      "sha256": "6676e34d84d87c8e6638fa155161431bbb604e76a5c310eb88b962e2053f50fd"
+    },
+    {
+      "signature": "private.private.require_write_protocol()",
+      "sha256": "8d2a03538ea1c5af4c5ac42753fa06a316d79cd9c481e7cd89e72918e9694ef0"
+    },
+    {
+      "signature": "private.private.serialize_task_item_sync()",
+      "sha256": "69eea6aa8798cfe61dc3fe0856f176d584869e218e48c5c89ae6288415b89e10"
+    },
+    {
+      "signature": "private.private.set_task_item_comment_unchecked(uuid,text)",
+      "sha256": "c9cf29770c8b332c5c0e8f8ce1b43734f8e86a4ba9387142ef3f0e75024a2978"
+    },
+    {
+      "signature": "private.private.set_task_item_percentage_unchecked(uuid,integer)",
+      "sha256": "87647f9d97a05574c7a5482c5d64a1f45026efaa5ef93963215230fa6e5d98de"
+    },
+    {
+      "signature": "private.private.set_task_item_state_unchecked(uuid,boolean)",
+      "sha256": "5aebe61614bd6073c9206df6f120814c3826bbdf5f34b73affb7139c551c9840"
+    },
+    {
+      "signature": "private.private.sync_task_item_completion()",
+      "sha256": "7f5983a32352ff9b9146ef88deea2f0d66583cdfd20b421d4f1982aac040a551"
+    },
+    {
+      "signature": "private.private.task_is_editable(uuid)",
+      "sha256": "2d496e27bb4e7d056dd5059626e63d49b42c275f279fa44e5c1e67166f981600"
+    },
+    {
+      "signature": "private.private.task_project_id(uuid)",
+      "sha256": "a2be244b0151f1b9d3188e3524e4b0f1fbd8a7b749f0d77623e0b605837121c5"
+    },
+    {
+      "signature": "private.private.task_role_of(uuid,uuid)",
+      "sha256": "5563fc7e7b399d5507978f8024ff3d0b984722e074ad131c68a84ded469acbc4"
+    },
+    {
+      "signature": "private.private.task_status_from_items(uuid)",
+      "sha256": "37fe67722a1c7cd4af1cfb1920d30f47031378e332a710c2d338e3de3dc6992b"
+    },
+    {
+      "signature": "private.private.touch_task_template_updated_at()",
+      "sha256": "93f07cbb9639d09492b79c6347c33144572237e4b196e38cfb06c153ed31b110"
+    },
+    {
+      "signature": "private.private.track_template_read_state()",
+      "sha256": "0e8957f6124ca26fd86a0f1281909b0ed2acebc2c25b4205ef179aec4cf45a62"
+    },
+    {
+      "signature": "private.private.update_my_profile_unchecked(text)",
+      "sha256": "2dc55fa927aac6a19c84201d62a740c1936fabca8ea7432aadf20319d37663a8"
+    },
+    {
+      "signature": "private.private.update_project_unchecked(uuid,text,text)",
+      "sha256": "fa0ab9fd998506cd79fb42451fa915af53e66680f789632f302900c953d20623"
+    },
+    {
+      "signature": "private.private.update_task_item_unchecked(uuid,text,text,numeric)",
+      "sha256": "ed31e5a9969fb9743981668682461fa33d9fed6880572aa2feb867d2a8f3a425"
+    },
+    {
+      "signature": "private.private.update_task_template_item_unchecked(uuid,text,text,numeric)",
+      "sha256": "d1458a82827a093c8a6fd2a9de7f385a916cc5ec62d2ec8a24a47dee9de25d2b"
+    },
+    {
+      "signature": "private.private.update_task_template_unchecked(uuid,text,text)",
+      "sha256": "e7f22272d5111d7e6fb0dcca1f75441329d91ea7f6dc5259d0539d195f0a8522"
+    },
+    {
+      "signature": "private.private.update_task_unchecked(uuid,text,text)",
+      "sha256": "97fd69e9cf43ec2d6d35a6295d85b51ce71afbdbe37645c9b72038b4eb7bb789"
+    },
+    {
+      "signature": "private.private.validate_item_action_context()",
+      "sha256": "857caf200fa4a1abd74d925b7ff0845cce0a3168c808304fcf812e016d92a012"
+    },
+    {
+      "signature": "public.public.add_project_member_by_identifier(uuid,text,public.project_role)",
+      "sha256": "6a163f1ec9d7f4cac13639ea2e803c7c2ca184002d5c13d11ce1afa1b10dbbc0"
+    },
+    {
+      "signature": "public.public.add_project_member(uuid,uuid,public.project_role)",
+      "sha256": "f330f3479d69e828ba62d9552dac17bf364fe784050d350f457886748aa434bc"
+    },
+    {
+      "signature": "public.public.add_task_assignee(uuid,uuid)",
+      "sha256": "741e73f44fa87c7904fe10f6c6a6197dd7167a9cd5d2fd735b211a3cdb3b9847"
+    },
+    {
+      "signature": "public.public.add_task_member_by_identifier(uuid,text,public.project_role)",
+      "sha256": "1877eb8614652340b3780d417c1ffbcace8d92b7fcd5cbf155fd3dfee17204e1"
+    },
+    {
+      "signature": "public.public.apply_task_item_comment_operation_v2(uuid,uuid,bigint,text)",
+      "sha256": "07d55067d8d5ff97230f5f7e03366c3046719c436e2881c7ce4e2e86b89bcfa9"
+    },
+    {
+      "signature": "public.public.apply_task_item_comment_operation(uuid,uuid,text)",
+      "sha256": "e7a8499f7da4dd2dea2928542f0e1e15a6b652a3495c697d3272d367cc8a8dd8"
+    },
+    {
+      "signature": "public.public.apply_task_item_percentage_operation_v2(uuid,uuid,bigint,integer)",
+      "sha256": "f34d5f9d0c72c7fbf1e91b29c17d0c341629948fddbc5c5df093ffd09ccb7f89"
+    },
+    {
+      "signature": "public.public.apply_task_item_percentage_operation(uuid,uuid,integer)",
+      "sha256": "7dedcea00361eb2863bcbd19b511b2f5e54e31e43df8bbe236a4d1170a8e1a1c"
+    },
+    {
+      "signature": "public.public.apply_task_item_state_operation_v2(uuid,uuid,bigint,boolean)",
+      "sha256": "90541fe9d637e9b5b641220a4d855955b13e58ed393f02b8d08dae70a446d0a3"
+    },
+    {
+      "signature": "public.public.apply_task_item_state_operation(uuid,uuid,boolean)",
+      "sha256": "8257cd46459b4bf08abf74c6039306b73135b8664541a4ce370d01fad7cd7164"
+    },
+    {
+      "signature": "public.public.archive_project(uuid)",
+      "sha256": "b4618df10416635c0e386fe07a8f8adf72bebd2d26e248b9a1acfb83c893c831"
+    },
+    {
+      "signature": "public.public.archive_task_item(uuid)",
+      "sha256": "a86462c7cfa6248b81bb4fcb76a3390a0782bb530def901d3711dd89e3d8080f"
+    },
+    {
+      "signature": "public.public.archive_task_template(uuid)",
+      "sha256": "2a830c993be0db0429798b3517b5b8013bdd622fbfd3a0a842ac72b755eed233"
+    },
+    {
+      "signature": "public.public.archive_task(uuid)",
+      "sha256": "95f7f403635a4ad23310634223d95bca89c9bdf74b3e45c60e937ecddee8809c"
+    },
+    {
+      "signature": "public.public.change_member_role(uuid,uuid,public.project_role)",
+      "sha256": "134fc5b871914e800e488fdd72a8fd66ee7c7cdfdf2511f07c2024bef7b1ae86"
+    },
+    {
+      "signature": "public.public.clear_task_member_override(uuid,uuid)",
+      "sha256": "e87f5ae8afc6568293a35c451527121e69f0b2b5bdb68eb295a27dcd7350781d"
+    },
+    {
+      "signature": "public.public.create_project(text,text)",
+      "sha256": "e78838adef17c81c4655c8b28e986505858c3d3d7e0b87ffb28aaf5e9edc9a48"
+    },
+    {
+      "signature": "public.public.create_task_from_template(uuid,uuid,text,text)",
+      "sha256": "55cd9ec6e7911019650eaa9ab5bbf6f73f4f06ac2d222dcc69d979027ad6029b"
+    },
+    {
+      "signature": "public.public.create_task_item(uuid,text,text,numeric)",
+      "sha256": "f5c3b52d3c8b2bb3148ac498b4215eac1db45f7453a7f0fabe030bf1f360d734"
+    },
+    {
+      "signature": "public.public.create_task_template_item(uuid,text,text,numeric)",
+      "sha256": "8c30cb7b3945b1ae3dad1557487a81f782f18694610a0053403f6b81e3fe4fc7"
+    },
+    {
+      "signature": "public.public.create_task_template(text,text)",
+      "sha256": "e736a79e273df50c7e4e58ef02f8403316a294d1ade5b194bece4bb377d00869"
+    },
+    {
+      "signature": "public.public.create_task(uuid,text,text)",
+      "sha256": "f041942f57ec8dd96a46b96c4e22aae9e9cff5338368b1dffbf5203d5fa4743e"
+    },
+    {
+      "signature": "public.public.delete_task_template_item(uuid)",
+      "sha256": "df8f9cfc4c3d35225f5f12939fdd2c4da57364e89a048e7014ad67e9e5928b71"
+    },
+    {
+      "signature": "public.public.execute_client_mutation(uuid,text,jsonb)",
+      "sha256": "153e49875807b04a1de67ef0de78edc362f494cb6552bdeb7aced114d02ed167"
+    },
+    {
+      "signature": "public.public.get_my_profile()",
+      "sha256": "5f25d7f7f3e2b23ca0fc305961915453b568115f142fba36ee87c770ceed8dd1"
+    },
+    {
+      "signature": "public.public.get_my_task_role(uuid)",
+      "sha256": "74a5782dc84c4da9b53121284d67e09770613457878ee819afcf2b143c037d8a"
+    },
+    {
+      "signature": "public.public.get_offline_account_manifest(text,timestamp with time zone)",
+      "sha256": "152c80783a6d5c8588905285285995a80ed299fd8d8d7c29fcc0630b0025f6e5"
+    },
+    {
+      "signature": "public.public.get_offline_account_manifest(text)",
+      "sha256": "face9fd4d0aed77d0e4a890f9b97aea9f07ddd668152d4dbf9a3d362187d71ad"
+    },
+    {
+      "signature": "public.public.get_offline_account_page(text,text,integer,integer)",
+      "sha256": "2a7a312a6e0c91acfdf4ce6b329ddd50760c7627a5e6a470e9d1f8d63cadd0f8"
+    },
+    {
+      "signature": "public.public.get_offline_account_page(text,text,timestamp with time zone,integer,integer)",
+      "sha256": "67e53ff045667000702c2a39c49058b85c1865a92a63aba07d697e75bd447abd"
+    },
+    {
+      "signature": "public.public.get_offline_runtime_config()",
+      "sha256": "c11b5faf13c5c7a225036e264a2b4db218d2e4234f2ea774a017002221cb55d9"
+    },
+    {
+      "signature": "public.public.get_task_item_snapshot_page(uuid,text,integer,integer,bigint)",
+      "sha256": "212454e6324915695ab49ca6ea37b4b6fa959f0c40ba2e2a8e2e6dc9d4f6168e"
+    },
+    {
+      "signature": "public.public.get_task_item_sync_cursor()",
+      "sha256": "88dcd07640231f7e11ea1256595aa31c37b6ce87aaf0aee53b8c8526b12e1974"
+    },
+    {
+      "signature": "public.public.get_task_project_context(uuid)",
+      "sha256": "68b2d2348c939bb40c10d237581eb6c9b5e6934ce34a21e67294571e7f95fbb6"
+    },
+    {
+      "signature": "public.public.get_task_template_page_v2(uuid,integer,integer,text,jsonb)",
+      "sha256": "3b29e3d8903f1d131304e8ed9d81fe0c13c920e78d4292c99ea6ee5516c50b79"
+    },
+    {
+      "signature": "public.public.get_task_template_page(uuid,integer,integer,text)",
+      "sha256": "63f73aefdbbe3b039043a008ee38d7ce26beddd016bf189e5f69b380aac74a23"
+    },
+    {
+      "signature": "public.public.get_task_template(uuid)",
+      "sha256": "edaa13251f328abc23f54f9d0434c893cf327a9f1e009d7de1d21250961747d5"
+    },
+    {
+      "signature": "public.public.hard_delete_project(uuid)",
+      "sha256": "eb04c4ef646f38dd21175945897ef27c2fd5b2b8ecba9d7bac51bb3e77c6d90b"
+    },
+    {
+      "signature": "public.public.hard_delete_task_item(uuid)",
+      "sha256": "d876f40d8d3f502d47470fbfe22baafdcc36cffabe1715437789d5ff7825b743"
+    },
+    {
+      "signature": "public.public.hard_delete_task(uuid)",
+      "sha256": "a4e8b3fdffc5c52122864b2a4bb897f87dfdc9c2f2d489648a2e6e0cebd711fa"
+    },
+    {
+      "signature": "public.public.list_task_item_last_editors(uuid)",
+      "sha256": "16294e48023be41dc7c958f5f57da3d9f4a32e623334492b804fe55da0d958d5"
+    },
+    {
+      "signature": "public.public.list_task_member_overrides(uuid)",
+      "sha256": "950785a9d043d1a6631f8019b33d265ae4e1e72b259b1dadf756ab05e3e2911b"
+    },
+    {
+      "signature": "public.public.list_task_participants(uuid)",
+      "sha256": "f654616808b51663380e0864a8d39e862b21bf8ea667d9304c840fbf9ba4cc74"
+    },
+    {
+      "signature": "public.public.list_task_template_items(uuid)",
+      "sha256": "e682f4c50c65dc921252e655dd0767e89b16167cc97b965fbed1643ef4269776"
+    },
+    {
+      "signature": "public.public.list_task_templates()",
+      "sha256": "7919b9185cd15628307ad59c3f9926cf3f89fccb15fb4d6f2b5a3f479fc42b7e"
+    },
+    {
+      "signature": "public.public.mark_all_notifications_read()",
+      "sha256": "512c58df67b1be2616167510b452b1749029de8c306e8507013bab817c4f7beb"
+    },
+    {
+      "signature": "public.public.mark_notification_read(uuid)",
+      "sha256": "4fbc4a440afb08e37ad6af934e956992f71e5583a919c05303566fa34f9d2ec0"
+    },
+    {
+      "signature": "public.public.move_task_template_item(uuid,integer)",
+      "sha256": "b64fdc533f469c2874aa8611e03432526c28bf1b08ac3716cbd3f81906b148e1"
+    },
+    {
+      "signature": "public.public.move_task(uuid,integer)",
+      "sha256": "55b8937ef8aea7c2ba93e1bd4874831e130e58441d026f93bb732628a61c069f"
+    },
+    {
+      "signature": "public.public.notification_filter_options()",
+      "sha256": "bfc15afa0f5a125d558588878f7cbcea2973f4da638009ff57c47a592e2a7546"
+    },
+    {
+      "signature": "public.public.prevent_history_mutation()",
+      "sha256": "82024c3812580d53588234f190d2d478f80b1b4502c68fce0d7fb47d307a01af"
+    },
+    {
+      "signature": "public.public.pull_task_item_changes_v2(bigint,integer)",
+      "sha256": "b9249e01b410bd087e61e2ddaed99462277d4add82c5d99a3f5981fa28ea639d"
+    },
+    {
+      "signature": "public.public.pull_task_item_changes(bigint,integer)",
+      "sha256": "c9a0514c8b0a8a850bb634346145888a18b83f583a3550436aa12b7ddef868dd"
+    },
+    {
+      "signature": "public.public.remove_project_member(uuid,uuid)",
+      "sha256": "8ba653a75724843c7a1b7890cdc42b16be314c772f3d8b0ac618491034aaffbb"
+    },
+    {
+      "signature": "public.public.remove_task_assignee(uuid,uuid)",
+      "sha256": "003636cca348d25c179c16d6faf4816e6f3bb14215053d833d3a34345bc255e9"
+    },
+    {
+      "signature": "public.public.remove_task_member(uuid,uuid)",
+      "sha256": "9687e0baf9d22aa043ed81b09c6b943e9e32411583d3186a58c8772664cd7b3e"
+    },
+    {
+      "signature": "public.public.restore_project(uuid)",
+      "sha256": "a68f5fa807850c25e5fe6f8f25fc36a4700ee5a62f051d3b6bf4d4d790cab16d"
+    },
+    {
+      "signature": "public.public.restore_task(uuid)",
+      "sha256": "050eaed0cd2df28b396bd14613663e98e297c93b349da965b2f3ce10d4f9e26c"
+    },
+    {
+      "signature": "public.public.set_task_item_comment(uuid,text,bigint)",
+      "sha256": "5ac1a3c71ec77372b1cbc48d00254ef5fcfda11db136a0d39c345a259d630260"
+    },
+    {
+      "signature": "public.public.set_task_item_comment(uuid,text)",
+      "sha256": "ef16b537660b35712cbf5464bcf8c16024d992df4abee8d815050e9745bfc130"
+    },
+    {
+      "signature": "public.public.set_task_item_deadline(uuid,timestamp with time zone,bigint)",
+      "sha256": "611c364fb0f281d137d956cca8fd79ddabfdaf28c47703f641aa8ee7bde4323b"
+    },
+    {
+      "signature": "public.public.set_task_item_percentage(uuid,integer,bigint)",
+      "sha256": "74de598cad55d7abae1ce67e33180dc6be575ae013f7c8d59e7b4c6075e58828"
+    },
+    {
+      "signature": "public.public.set_task_item_percentage(uuid,integer)",
+      "sha256": "c08fcbf0e859ca4b17a1fdc4b9cd85ac5596c24d225de88a0943b24ce1640008"
+    },
+    {
+      "signature": "public.public.set_task_item_progress(uuid,integer)",
+      "sha256": "132ba23210ba5942b7dd38409d9d2352d6cfe763a914299a9483cf3b876e0a92"
+    },
+    {
+      "signature": "public.public.set_task_item_state(uuid,boolean,bigint)",
+      "sha256": "911ce657ae9e4ca9f0f47aca803d74d50dd8e99dd38dee9ac5c3f19930809b82"
+    },
+    {
+      "signature": "public.public.set_task_item_state(uuid,boolean)",
+      "sha256": "84671ec255681c278e5d59155b99c7ec2dac8d5a3117c72442c17e6d712e184b"
+    },
+    {
+      "signature": "public.public.set_task_member_override(uuid,uuid,public.project_role)",
+      "sha256": "e73755f3788bdf6b40ad23ddf29c21041cf472e94648917462af75c1178bc0d5"
+    },
+    {
+      "signature": "public.public.set_updated_at()",
+      "sha256": "1f017b404bf607777937272652f1e6f823602fad96c9191a80f55c52693a6963"
+    },
+    {
+      "signature": "public.public.transfer_project_ownership(uuid,uuid)",
+      "sha256": "c8f62a55e55519ed59017b7dc72154a40d22a53c71feda3935b3dcb560826200"
+    },
+    {
+      "signature": "public.public.update_my_profile(text,text)",
+      "sha256": "3eea0a3fa73790b33ca10c1f829d99084265625f3a6b63d983f5460bc561797d"
+    },
+    {
+      "signature": "public.public.update_my_profile(text)",
+      "sha256": "f9723c19194a06040171e5a061c2fefe0cc346a265c1eeb1d3816a06c89d8e7e"
+    },
+    {
+      "signature": "public.public.update_project(uuid,text,text,text,text)",
+      "sha256": "4f83b19a50952a33f54205a16f21cc3a00ec465f06e811756af6e61993298e42"
+    },
+    {
+      "signature": "public.public.update_project(uuid,text,text)",
+      "sha256": "5d337649250a41667cd67cae3bd30411a87f9b72f0d45860a111ec4e6b195a61"
+    },
+    {
+      "signature": "public.public.update_task_item(uuid,text,bigint)",
+      "sha256": "da494e0f845b5a420b5a0795797c4d5f64997e9e5b87ad28f597451d97ebbeac"
+    },
+    {
+      "signature": "public.public.update_task_item(uuid,text,text,numeric,bigint)",
+      "sha256": "9dfffcfea9f1c509e52f3e0be805d15f95cd1c95fce7c8b715cf69557b65d17e"
+    },
+    {
+      "signature": "public.public.update_task_item(uuid,text,text,numeric)",
+      "sha256": "1fec8f6c673f8ff6f288531ecd0440417b434f96d13a7597062a5f61c4f56599"
+    },
+    {
+      "signature": "public.public.update_task_template_item(uuid,text,text,numeric)",
+      "sha256": "8148c50cbec2f9149ccd63d260dcae368c59a0b9d36917602be47d2a989559ac"
+    },
+    {
+      "signature": "public.public.update_task_template_item(uuid,text,text,text,text,numeric)",
+      "sha256": "698335a898bcfbd4a7b0b633858c41047b1f2b4cb7d72f1fcf5be50eaa6dc005"
+    },
+    {
+      "signature": "public.public.update_task_template(uuid,text,text,text,text)",
+      "sha256": "ca71bb16ba619d8a6289cc050ff3681cb66081fce2c094a8ed1c3d823d34de62"
+    },
+    {
+      "signature": "public.public.update_task_template(uuid,text,text)",
+      "sha256": "7aa30207dfad3e5cb9db8ae792d0ca6217a1472898654aa621c26c0d7c24b0a7"
+    },
+    {
+      "signature": "public.public.update_task(uuid,text,text,text,text)",
+      "sha256": "66bf3d0e7b95a15300c6889667cfc8d74d73bbaf2dfd62282007450301e689d4"
+    },
+    {
+      "signature": "public.public.update_task(uuid,text,text)",
+      "sha256": "d24d55b1af30e1f4ac81702a0db4fa55820d85c667df4ce8f8058de40a06dd4c"
+    }
+  ]
+}

@@ -24,10 +24,10 @@ jobs:
       EXPO_PUBLIC_SUPABASE_URL: https://ci.invalid.supabase.co
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-public-anon-key
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -39,14 +39,14 @@ jobs:
       - run: npm run test:unit
       - run: npm run build:web
       # Maps are isolated CI evidence, not part of the deployable dist artifact.
-      - run: npx expo export --platform web --platform android --platform ios --source-maps --output-dir .expo/security-export
-      - run: npx expo-doctor
+      - run: node scripts/security-export.mjs --platform web --platform android --platform ios --source-maps --output-dir .expo/security-export
+      - run: npx --yes expo-doctor@1.21.5
       - name: Full audit and approved security policy gate
         if: always() && steps.dependencies.outcome == 'success'
         run: node scripts/security-policy-gate.mjs --bundles .expo/security-export
       - name: Preserve raw audit and policy decision
         if: always() && steps.dependencies.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: security-policy-${{ github.run_attempt }}
           path: .expo/security-policy/
@@ -57,10 +57,10 @@ jobs:
   database:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm

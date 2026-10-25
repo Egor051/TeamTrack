@@ -33,7 +33,7 @@ export function clearRuntimeConfig(userId?: string): void {
 function validate(value: unknown): RemoteConfig {
   const row = value as Partial<RemoteConfig> | null;
   if (!row || typeof row.write_enabled !== 'boolean' || typeof row.sync_enabled !== 'boolean'
-    || row.protocol_version !== 2 || typeof row.updated_at !== 'string' || !Number.isFinite(Date.parse(row.updated_at)))
+    || (row.protocol_version !== 2 && row.protocol_version !== 3) || typeof row.updated_at !== 'string' || !Number.isFinite(Date.parse(row.updated_at)))
     throw new Error('Некорректная конфигурация синхронизации.');
   return { write_enabled: row.write_enabled, sync_enabled: row.sync_enabled,
     protocol_version: row.protocol_version, updated_at: row.updated_at };

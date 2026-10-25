@@ -1,9 +1,9 @@
 import { copyFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import workboxBuild from 'workbox-build';
 import { isAppNavigation } from './pwa-navigation.mjs';
 
-const dist = join(process.cwd(), 'dist');
+const dist = resolve(process.argv[2] ?? join(process.cwd(), 'dist'));
 const required = [
   'index.html',
   'manifest.webmanifest',
@@ -21,6 +21,9 @@ await copyFile(join(dist, 'index.html'), join(dist, 'offline-shell.html'));
 
 const { count, size, warnings } = await workboxBuild.generateSW({
   globDirectory: dist,
+  // A combined compatible rollback export also carries native bundles/maps.
+  // The web worker precaches only assets its web client can execute.
+  globIgnores: ['_expo/static/js/android/**', '_expo/static/js/ios/**'],
   globPatterns: [
     'offline-shell.html',
     '_expo/static/**/*.{js,css,woff,woff2,ttf,otf,png,jpg,jpeg,svg,webp}',
@@ -41,6 +44,8 @@ const { count, size, warnings } = await workboxBuild.generateSW({
     // A mobile connection can stay "online" while its HTML request stalls.
     // Release the existing precached shell without waiting for a TCP failure.
     options: {
+      // Run the cached fallback before the final original-response handler.
+      precacheFallback: { fallbackURL: '/offline-shell.html' },
       // Workbox 7's generateSW rejects NetworkOnly.networkTimeoutSeconds,
       // although the runtime strategy supports it. Abort via its fetch plugin
       // so the existing PrecacheFallbackPlugin handles the same error path.
@@ -64,16 +69,20 @@ const { count, size, warnings } = await workboxBuild.generateSW({
         fetchDidSucceed: async ({ response, state }) => {
           try {
             await Promise.race([response.clone().arrayBuffer(), state.expired]);
+            if ([502, 503].includes(response.status)) {
+              state.httpErrorResponse = response;
+              throw new Error('Navigation gateway unavailable');
+            }
             return response;
           } finally { state.dispose?.(); }
         },
         fetchDidFail: async ({ state }) => { state.dispose?.(); },
+        handlerDidError: async ({ state }) => state.httpErrorResponse,
       }],
-      precacheFallback: { fallbackURL: '/offline-shell.html' },
     },
   }],
 });
 
 if (warnings.length) throw new Error(`Workbox warnings:\n${warnings.join('\n')}`);
 if (count < 5) throw new Error(`Incomplete precache: only ${count} files`);
-console.log(`Generated dist/sw.js with ${count} precached files (${size} bytes).`);
+console.log(`Generated ${join(dist, 'sw.js')} with ${count} precached files (${size} bytes).`);

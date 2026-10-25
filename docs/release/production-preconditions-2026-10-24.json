@@ -1,0 +1,4205 @@
+{
+  "tables": [
+    {
+      "acl": "{postgres=arwdDxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "private.audit_item_parents",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "private.checklist_deadline_state",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "private.client_operation_receipts",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "private.member_identifier_limits",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "private.offline_runtime_config",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "private.task_item_sync_changes",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "private.task_item_sync_retention",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "private.template_read_state",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.audit_log",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": false,
+      "kind": "v",
+      "name": "public.checklist_overview",
+      "view": " SELECT i.id,\n    i.task_id,\n    t.project_id,\n    i.percentage,\n    i.is_completed,\n    i.comment,\n    i.deadline_at,\n    i.sync_version\n   FROM (public.task_items i\n     JOIN public.tasks t ON ((t.id = i.task_id)))\n  WHERE ((NOT i.is_archived) AND (t.status <> 'archived'::public.task_status) AND ((public.get_task_project_context(t.id) ->> 'status'::text) = 'active'::text));",
+      "owner": "postgres",
+      "options": [
+        "security_invoker=true"
+      ],
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.item_actions",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.notifications",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.profiles",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.project_members",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.projects",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.task_assignees",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.task_items",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.task_members",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "public.task_template_items",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": null,
+      "rls": true,
+      "kind": "r",
+      "name": "public.task_templates",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "public.tasks",
+      "view": null,
+      "owner": "postgres",
+      "options": null,
+      "forceRls": false
+    }
+  ],
+  "columns": [
+    {
+      "type": "uuid",
+      "table": "audit_item_parents",
+      "column": "item_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "audit_item_parents",
+      "column": "task_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "audit_item_parents",
+      "column": "project_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "checklist_deadline_state",
+      "column": "item_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "checklist_deadline_state",
+      "column": "state",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "int8",
+      "table": "checklist_deadline_state",
+      "column": "event_number",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "checklist_deadline_state",
+      "column": "next_transition_at",
+      "schema": "private",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "client_operation_receipts",
+      "column": "user_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "client_operation_receipts",
+      "column": "operation_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "client_operation_receipts",
+      "column": "operation_type",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "client_operation_receipts",
+      "column": "task_item_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "jsonb",
+      "table": "client_operation_receipts",
+      "column": "request_payload",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "jsonb",
+      "table": "client_operation_receipts",
+      "column": "result_payload",
+      "schema": "private",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "client_operation_receipts",
+      "column": "created_at",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "client_operation_receipts",
+      "column": "completed_at",
+      "schema": "private",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "member_identifier_limits",
+      "column": "user_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "member_identifier_limits",
+      "column": "window_start",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "int4",
+      "table": "member_identifier_limits",
+      "column": "attempts",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "offline_runtime_config",
+      "column": "singleton",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "offline_runtime_config",
+      "column": "write_enabled",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "offline_runtime_config",
+      "column": "sync_enabled",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "offline_runtime_config",
+      "column": "updated_at",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "int8",
+      "table": "task_item_sync_changes",
+      "column": "cursor",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_item_sync_changes",
+      "column": "project_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_item_sync_changes",
+      "column": "task_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_item_sync_changes",
+      "column": "task_item_id",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "task_item_sync_changes",
+      "column": "change_type",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "jsonb",
+      "table": "task_item_sync_changes",
+      "column": "item",
+      "schema": "private",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_item_sync_changes",
+      "column": "created_at",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "task_item_sync_retention",
+      "column": "singleton",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "int8",
+      "table": "task_item_sync_retention",
+      "column": "retained_after_cursor",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_item_sync_retention",
+      "column": "updated_at",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "template_read_state",
+      "column": "scope",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "int8",
+      "table": "template_read_state",
+      "column": "revision",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "int8",
+      "table": "template_read_state",
+      "column": "total",
+      "schema": "private",
+      "nullable": "NO"
+    },
+    {
+      "type": "int8",
+      "table": "audit_log",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "audit_log",
+      "column": "project_id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "audit_log",
+      "column": "user_id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "audit_action",
+      "table": "audit_log",
+      "column": "action",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "audit_log",
+      "column": "entity_type",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "audit_log",
+      "column": "entity_id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "audit_log",
+      "column": "old_data",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "audit_log",
+      "column": "new_data",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "audit_log",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "checklist_overview",
+      "column": "id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "checklist_overview",
+      "column": "task_id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "checklist_overview",
+      "column": "project_id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "checklist_overview",
+      "column": "percentage",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "checklist_overview",
+      "column": "is_completed",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "checklist_overview",
+      "column": "comment",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "checklist_overview",
+      "column": "deadline_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "int8",
+      "table": "checklist_overview",
+      "column": "sync_version",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "int8",
+      "table": "item_actions",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "item_actions",
+      "column": "project_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "item_actions",
+      "column": "task_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "item_actions",
+      "column": "task_item_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "item_actions",
+      "column": "user_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "item_action_type",
+      "table": "item_actions",
+      "column": "action",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "item_actions",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "notifications",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "notifications",
+      "column": "user_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "notifications",
+      "column": "project_id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "notifications",
+      "column": "task_id",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "notification_type",
+      "table": "notifications",
+      "column": "type",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "notifications",
+      "column": "title",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "notifications",
+      "column": "body",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "jsonb",
+      "table": "notifications",
+      "column": "data",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "notifications",
+      "column": "is_read",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "notifications",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "notifications",
+      "column": "read_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "notifications",
+      "column": "dedupe_key",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "profiles",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "profiles",
+      "column": "display_name",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "profiles",
+      "column": "avatar_url",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "profiles",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "profiles",
+      "column": "updated_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "project_members",
+      "column": "project_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "project_members",
+      "column": "user_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "project_role",
+      "table": "project_members",
+      "column": "role",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "project_members",
+      "column": "joined_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "projects",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "projects",
+      "column": "name",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "projects",
+      "column": "description",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "projects",
+      "column": "created_by",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "project_status",
+      "table": "projects",
+      "column": "status",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "projects",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "projects",
+      "column": "updated_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "projects",
+      "column": "archived_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "task_assignees",
+      "column": "task_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_assignees",
+      "column": "user_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_assignees",
+      "column": "assigned_by",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_assignees",
+      "column": "assigned_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_items",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_items",
+      "column": "task_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "task_items",
+      "column": "title",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "task_items",
+      "column": "description",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "task_items",
+      "column": "position",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "task_items",
+      "column": "is_completed",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "task_items",
+      "column": "is_archived",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_items",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_items",
+      "column": "updated_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_items",
+      "column": "archived_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "task_items",
+      "column": "comment",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "task_items",
+      "column": "percentage",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "int8",
+      "table": "task_items",
+      "column": "sync_version",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_items",
+      "column": "deadline_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "task_members",
+      "column": "task_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_members",
+      "column": "user_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_members",
+      "column": "set_by",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_members",
+      "column": "set_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_members",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "project_role",
+      "table": "task_members",
+      "column": "role_override",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "task_members",
+      "column": "is_direct",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_template_items",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_template_items",
+      "column": "template_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "task_template_items",
+      "column": "title",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "task_template_items",
+      "column": "description",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "task_template_items",
+      "column": "position",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_template_items",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_template_items",
+      "column": "updated_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "task_templates",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "task_templates",
+      "column": "name",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "task_templates",
+      "column": "description",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "task_templates",
+      "column": "created_by",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_templates",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_templates",
+      "column": "updated_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "task_templates",
+      "column": "archived_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "tasks",
+      "column": "id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "tasks",
+      "column": "project_id",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "tasks",
+      "column": "title",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "tasks",
+      "column": "description",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "task_status",
+      "table": "tasks",
+      "column": "status",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "tasks",
+      "column": "created_by",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "tasks",
+      "column": "created_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "tasks",
+      "column": "updated_at",
+      "schema": "public",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "tasks",
+      "column": "archived_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "tasks",
+      "column": "archived_by_project_at",
+      "schema": "public",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "tasks",
+      "column": "position",
+      "schema": "public",
+      "nullable": "NO"
+    }
+  ],
+  "history": [
+    {
+      "name": "initial_schema",
+      "version": "20260901000000"
+    },
+    {
+      "name": "initial_schema",
+      "version": "20260901203058"
+    },
+    {
+      "name": "rls_authorization",
+      "version": "20260901203100"
+    },
+    {
+      "name": "profile_provisioning",
+      "version": "20260901203102"
+    },
+    {
+      "name": "enable_tasktrace_realtime",
+      "version": "20260901210712"
+    },
+    {
+      "name": "enable_tasktrace_realtime",
+      "version": "20260901210737"
+    },
+    {
+      "name": "enable_tasktrace_realtime_after_provisioning",
+      "version": "20260901211502"
+    },
+    {
+      "name": "rls_authorization",
+      "version": "20260902000000"
+    },
+    {
+      "name": "profile_provisioning",
+      "version": "20260903000000"
+    },
+    {
+      "name": "hosted_reconciliation_phase_a",
+      "version": "20260903224258"
+    },
+    {
+      "name": "hosted_reconciliation_phase_b",
+      "version": "20260903224414"
+    },
+    {
+      "name": "hosted_reconciliation_phase_c",
+      "version": "20260903224523"
+    },
+    {
+      "name": "enable_tasktrace_realtime_after_provisioning",
+      "version": "20260904000000"
+    },
+    {
+      "name": "add_project_member_by_identifier",
+      "version": "20260904142023"
+    },
+    {
+      "name": "add_project_member_by_identifier",
+      "version": "20260904201318"
+    },
+    {
+      "name": "restore_and_update_project",
+      "version": "20260904204217"
+    },
+    {
+      "name": "restore_and_update_project",
+      "version": "20260904204514"
+    },
+    {
+      "name": "notifications",
+      "version": "20260905000000"
+    },
+    {
+      "name": "contextual_notifications",
+      "version": "20260905120000"
+    },
+    {
+      "name": "contextual_notifications",
+      "version": "20260905172931"
+    },
+    {
+      "name": "production_hardening_fixes",
+      "version": "20260905203929"
+    },
+    {
+      "name": "harden_authenticated_table_grants",
+      "version": "20260906000000"
+    },
+    {
+      "name": "immutable_history_hard_delete_fix",
+      "version": "20260906184242"
+    },
+    {
+      "name": "projects_comment_cleanup",
+      "version": "20260906185345"
+    },
+    {
+      "name": "lock_notification_helpers",
+      "version": "20260907000000"
+    },
+    {
+      "name": "security_hardening",
+      "version": "20260908000000"
+    },
+    {
+      "name": "restrict_private_function_grants",
+      "version": "20260909000000"
+    },
+    {
+      "name": "task_enhancements",
+      "version": "20260909221947"
+    },
+    {
+      "name": "reconcile_task_edit_comments_progress_templates",
+      "version": "20260909222310"
+    },
+    {
+      "name": "fix_task_status_delete_trigger",
+      "version": "20260909222314"
+    },
+    {
+      "name": "recreate_create_task_from_template_percentage",
+      "version": "20260909231213"
+    },
+    {
+      "name": "lock_create_task_from_template_execute",
+      "version": "20260909231225"
+    },
+    {
+      "name": "concurrency_and_input_hardening",
+      "version": "20260910000000"
+    },
+    {
+      "name": "schema_acl_hardening",
+      "version": "20260911000000"
+    },
+    {
+      "name": "task_item_audit_and_template_cleanup",
+      "version": "20260911203043"
+    },
+    {
+      "name": "reconcile_task_item_audit_and_templates",
+      "version": "20260911210124"
+    },
+    {
+      "name": "private_function_acl_hardening",
+      "version": "20260912000000"
+    },
+    {
+      "name": "profile_column_acl",
+      "version": "20260913000000"
+    },
+    {
+      "name": "hosted_reconciliation_phase_a",
+      "version": "20260914000000"
+    },
+    {
+      "name": "hosted_reconciliation_phase_b",
+      "version": "20260915000000"
+    },
+    {
+      "name": "production_hardening_fixes",
+      "version": "20260916000000"
+    },
+    {
+      "name": "improve_pass",
+      "version": "20260917000000"
+    },
+    {
+      "name": "add_update_my_profile",
+      "version": "20260918000000"
+    },
+    {
+      "name": "project_member_task_visibility",
+      "version": "20260918000917"
+    },
+    {
+      "name": "checklist_permissions_stage_order_and_ui_support",
+      "version": "20260918001643"
+    },
+    {
+      "name": "disallow_member_task_item_text_edits",
+      "version": "20260918013357"
+    },
+    {
+      "name": "reconcile_task_item_audit_and_templates",
+      "version": "20260919000001"
+    },
+    {
+      "name": "last_editor_empty_state",
+      "version": "20260920000000"
+    },
+    {
+      "name": "inherit_project_member_task_access",
+      "version": "20260920130249"
+    },
+    {
+      "name": "rename_task_ui_to_stages",
+      "version": "20260921000000"
+    },
+    {
+      "name": "canonical_task_role",
+      "version": "20260921112916"
+    },
+    {
+      "name": "daily_progress_audit",
+      "version": "20260922000000"
+    },
+    {
+      "name": "backend_security_correctness_remediation",
+      "version": "20260928135023"
+    },
+    {
+      "name": "reconcile_hosted_task_enhancements_for_remediation",
+      "version": "20260928135405"
+    },
+    {
+      "name": "implement_backend_remediation",
+      "version": "20260928135413"
+    },
+    {
+      "name": "offline_operation_receipts",
+      "version": "20260929060607"
+    },
+    {
+      "name": "offline_pull_conflicts",
+      "version": "20260929065857"
+    },
+    {
+      "name": "offline_phase6_runtime_retention",
+      "version": "20260929205347"
+    },
+    {
+      "name": "account_offline_bootstrap",
+      "version": "20261001162836"
+    },
+    {
+      "name": "offline_bootstrap_stable_snapshots",
+      "version": "20261001214834"
+    },
+    {
+      "name": "audit_template_ordering",
+      "version": "20261005084257"
+    },
+    {
+      "name": "checklist_deadlines",
+      "version": "20261015205014"
+    },
+    {
+      "name": "schedule_checklist_deadlines",
+      "version": "20261015205434"
+    },
+    {
+      "name": "prevent_self_role_changes",
+      "version": "20261016174131"
+    },
+    {
+      "name": "notification_filter_options",
+      "version": "20261016174144"
+    },
+    {
+      "name": "reconcile_security_schema",
+      "version": "20261017000443"
+    },
+    {
+      "name": "secure_application_default_privileges",
+      "version": "20261017000449"
+    },
+    {
+      "name": "pin_history_timestamp_search_paths",
+      "version": "20261017000458"
+    },
+    {
+      "name": "restrict_service_rpc_execution",
+      "version": "20261017000504"
+    },
+    {
+      "name": "progress_alias_security_invoker",
+      "version": "20261017000511"
+    },
+    {
+      "name": "member_identifier_abuse_protection",
+      "version": "20261017000517"
+    },
+    {
+      "name": "minimize_client_table_privileges",
+      "version": "20261017000523"
+    },
+    {
+      "name": "independent_stage_membership",
+      "version": "20261017012113"
+    },
+    {
+      "name": "audit_reliability_remediation",
+      "version": "20261017203226"
+    },
+    {
+      "name": "template_realtime_invalidation",
+      "version": "20261018103053"
+    },
+    {
+      "name": "audit_followup_integrity_and_scaling",
+      "version": "20261020194125"
+    },
+    {
+      "name": "regression_write_protocol",
+      "version": "20261021144300"
+    }
+  ],
+  "indexes": [
+    {
+      "indexdef": "CREATE UNIQUE INDEX audit_item_parents_pkey ON private.audit_item_parents USING btree (item_id)",
+      "indexname": "audit_item_parents_pkey",
+      "tablename": "audit_item_parents",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX checklist_deadline_next_transition ON private.checklist_deadline_state USING btree (next_transition_at, item_id) WHERE (next_transition_at IS NOT NULL)",
+      "indexname": "checklist_deadline_next_transition",
+      "tablename": "checklist_deadline_state",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX checklist_deadline_state_pkey ON private.checklist_deadline_state USING btree (item_id)",
+      "indexname": "checklist_deadline_state_pkey",
+      "tablename": "checklist_deadline_state",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX client_operation_receipts_pkey ON private.client_operation_receipts USING btree (user_id, operation_id)",
+      "indexname": "client_operation_receipts_pkey",
+      "tablename": "client_operation_receipts",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX member_identifier_limits_pkey ON private.member_identifier_limits USING btree (user_id)",
+      "indexname": "member_identifier_limits_pkey",
+      "tablename": "member_identifier_limits",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX offline_runtime_config_pkey ON private.offline_runtime_config USING btree (singleton)",
+      "indexname": "offline_runtime_config_pkey",
+      "tablename": "offline_runtime_config",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_item_sync_changes_pkey ON private.task_item_sync_changes USING btree (cursor)",
+      "indexname": "task_item_sync_changes_pkey",
+      "tablename": "task_item_sync_changes",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_item_sync_changes_task_cursor ON private.task_item_sync_changes USING btree (task_id, cursor)",
+      "indexname": "task_item_sync_changes_task_cursor",
+      "tablename": "task_item_sync_changes",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_item_sync_retention_pkey ON private.task_item_sync_retention USING btree (singleton)",
+      "indexname": "task_item_sync_retention_pkey",
+      "tablename": "task_item_sync_retention",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX template_read_state_pkey ON private.template_read_state USING btree (scope)",
+      "indexname": "template_read_state_pkey",
+      "tablename": "template_read_state",
+      "schemaname": "private",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)",
+      "indexname": "audit_log_pkey",
+      "tablename": "audit_log",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_audit_log_entity ON public.audit_log USING btree (entity_type, entity_id, created_at DESC)",
+      "indexname": "idx_audit_log_entity",
+      "tablename": "audit_log",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_audit_log_project_created ON public.audit_log USING btree (project_id, created_at DESC)",
+      "indexname": "idx_audit_log_project_created",
+      "tablename": "audit_log",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_audit_log_user_created ON public.audit_log USING btree (user_id, created_at DESC)",
+      "indexname": "idx_audit_log_user_created",
+      "tablename": "audit_log",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_item_actions_item_task ON public.item_actions USING btree (task_item_id, task_id)",
+      "indexname": "idx_item_actions_item_task",
+      "tablename": "item_actions",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_item_actions_project_created ON public.item_actions USING btree (project_id, created_at DESC)",
+      "indexname": "idx_item_actions_project_created",
+      "tablename": "item_actions",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_item_actions_task_created ON public.item_actions USING btree (task_id, created_at DESC)",
+      "indexname": "idx_item_actions_task_created",
+      "tablename": "item_actions",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_item_actions_task_item_created ON public.item_actions USING btree (task_item_id, created_at DESC)",
+      "indexname": "idx_item_actions_task_item_created",
+      "tablename": "item_actions",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_item_actions_task_project ON public.item_actions USING btree (task_id, project_id)",
+      "indexname": "idx_item_actions_task_project",
+      "tablename": "item_actions",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_item_actions_user_created ON public.item_actions USING btree (user_id, created_at DESC)",
+      "indexname": "idx_item_actions_user_created",
+      "tablename": "item_actions",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX item_actions_pkey ON public.item_actions USING btree (id)",
+      "indexname": "item_actions_pkey",
+      "tablename": "item_actions",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_notifications_project ON public.notifications USING btree (project_id)",
+      "indexname": "idx_notifications_project",
+      "tablename": "notifications",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_notifications_task ON public.notifications USING btree (task_id)",
+      "indexname": "idx_notifications_task",
+      "tablename": "notifications",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_notifications_user_created ON public.notifications USING btree (user_id, created_at DESC)",
+      "indexname": "idx_notifications_user_created",
+      "tablename": "notifications",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_notifications_user_read_created ON public.notifications USING btree (user_id, is_read, created_at DESC)",
+      "indexname": "idx_notifications_user_read_created",
+      "tablename": "notifications",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX notifications_pkey ON public.notifications USING btree (id)",
+      "indexname": "notifications_pkey",
+      "tablename": "notifications",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX ux_notifications_dedupe ON public.notifications USING btree (user_id, dedupe_key)",
+      "indexname": "ux_notifications_dedupe",
+      "tablename": "notifications",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX profiles_pkey ON public.profiles USING btree (id)",
+      "indexname": "profiles_pkey",
+      "tablename": "profiles",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_project_members_project_role ON public.project_members USING btree (project_id, role)",
+      "indexname": "idx_project_members_project_role",
+      "tablename": "project_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_project_members_user ON public.project_members USING btree (user_id)",
+      "indexname": "idx_project_members_user",
+      "tablename": "project_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX project_members_pkey ON public.project_members USING btree (project_id, user_id)",
+      "indexname": "project_members_pkey",
+      "tablename": "project_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX ux_project_members_single_owner ON public.project_members USING btree (project_id) WHERE (role = 'owner'::public.project_role)",
+      "indexname": "ux_project_members_single_owner",
+      "tablename": "project_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_projects_created_by ON public.projects USING btree (created_by)",
+      "indexname": "idx_projects_created_by",
+      "tablename": "projects",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX projects_pkey ON public.projects USING btree (id)",
+      "indexname": "projects_pkey",
+      "tablename": "projects",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_task_assignees_assigned_by ON public.task_assignees USING btree (assigned_by)",
+      "indexname": "idx_task_assignees_assigned_by",
+      "tablename": "task_assignees",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_task_assignees_user ON public.task_assignees USING btree (user_id)",
+      "indexname": "idx_task_assignees_user",
+      "tablename": "task_assignees",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_assignees_pkey ON public.task_assignees USING btree (task_id, user_id)",
+      "indexname": "task_assignees_pkey",
+      "tablename": "task_assignees",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_items_active_deadline ON public.task_items USING btree (deadline_at, id) WHERE ((deadline_at IS NOT NULL) AND (NOT is_archived) AND (percentage < 100))",
+      "indexname": "task_items_active_deadline",
+      "tablename": "task_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_items_pkey ON public.task_items USING btree (id)",
+      "indexname": "task_items_pkey",
+      "tablename": "task_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX ux_task_items_id_task ON public.task_items USING btree (id, task_id)",
+      "indexname": "ux_task_items_id_task",
+      "tablename": "task_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX ux_task_items_task_position ON public.task_items USING btree (task_id, \"position\")",
+      "indexname": "ux_task_items_task_position",
+      "tablename": "task_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_task_members_approved_by ON public.task_members USING btree (set_by)",
+      "indexname": "idx_task_members_approved_by",
+      "tablename": "task_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_task_members_user ON public.task_members USING btree (user_id)",
+      "indexname": "idx_task_members_user",
+      "tablename": "task_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_members_pkey ON public.task_members USING btree (task_id, user_id)",
+      "indexname": "task_members_pkey",
+      "tablename": "task_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_members_user_id_idx ON public.task_members USING btree (user_id)",
+      "indexname": "task_members_user_id_idx",
+      "tablename": "task_members",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_task_template_items_template_position ON public.task_template_items USING btree (template_id, \"position\", created_at)",
+      "indexname": "idx_task_template_items_template_position",
+      "tablename": "task_template_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_template_items_pkey ON public.task_template_items USING btree (id)",
+      "indexname": "task_template_items_pkey",
+      "tablename": "task_template_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_template_items_read_page ON public.task_template_items USING btree (template_id, \"position\", created_at, id)",
+      "indexname": "task_template_items_read_page",
+      "tablename": "task_template_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_template_items_template_position_idx ON public.task_template_items USING btree (template_id, \"position\")",
+      "indexname": "task_template_items_template_position_idx",
+      "tablename": "task_template_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_template_items_template_position_key ON public.task_template_items USING btree (template_id, \"position\")",
+      "indexname": "task_template_items_template_position_key",
+      "tablename": "task_template_items",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_task_templates_created_at ON public.task_templates USING btree (created_at DESC)",
+      "indexname": "idx_task_templates_created_at",
+      "tablename": "task_templates",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_templates_active_idx ON public.task_templates USING btree (created_at DESC) WHERE (archived_at IS NULL)",
+      "indexname": "task_templates_active_idx",
+      "tablename": "task_templates",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_templates_created_by_idx ON public.task_templates USING btree (created_by)",
+      "indexname": "task_templates_created_by_idx",
+      "tablename": "task_templates",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX task_templates_pkey ON public.task_templates USING btree (id)",
+      "indexname": "task_templates_pkey",
+      "tablename": "task_templates",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX task_templates_read_page ON public.task_templates USING btree (created_at DESC, id) WHERE (archived_at IS NULL)",
+      "indexname": "task_templates_read_page",
+      "tablename": "task_templates",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_tasks_created_by ON public.tasks USING btree (created_by)",
+      "indexname": "idx_tasks_created_by",
+      "tablename": "tasks",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_tasks_project ON public.tasks USING btree (project_id)",
+      "indexname": "idx_tasks_project",
+      "tablename": "tasks",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE INDEX idx_tasks_project_position ON public.tasks USING btree (project_id, \"position\", created_at, id)",
+      "indexname": "idx_tasks_project_position",
+      "tablename": "tasks",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX tasks_pkey ON public.tasks USING btree (id)",
+      "indexname": "tasks_pkey",
+      "tablename": "tasks",
+      "schemaname": "public",
+      "tablespace": null
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX ux_tasks_id_project ON public.tasks USING btree (id, project_id)",
+      "indexname": "ux_tasks_id_project",
+      "tablename": "tasks",
+      "schemaname": "public",
+      "tablespace": null
+    }
+  ],
+  "project": "diapmbqdjunlgvivwrtp",
+  "schemas": [
+    {
+      "acl": "{postgres=UC/postgres,authenticated=U/postgres}",
+      "name": "private",
+      "owner": "postgres"
+    },
+    {
+      "acl": "{pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,postgres=U/pg_database_owner,anon=U/pg_database_owner,authenticated=U/pg_database_owner,service_role=U/pg_database_owner}",
+      "name": "public",
+      "owner": "pg_database_owner"
+    }
+  ],
+  "policies": [
+    {
+      "cmd": "SELECT",
+      "qual": "private.audit_log_visible(project_id, entity_type, entity_id, old_data, new_data)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "audit_log",
+      "permissive": "PERMISSIVE",
+      "policyname": "audit_log_select_scoped",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "private.current_has_task_access(task_id)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "item_actions",
+      "permissive": "PERMISSIVE",
+      "policyname": "item_actions_select_task_member",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "notifications",
+      "permissive": "PERMISSIVE",
+      "policyname": "notifications_select_own",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((id = ( SELECT auth.uid() AS uid)) OR private.can_view_profile(id))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "profiles",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_select_related",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "private.current_is_project_member(project_id)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "project_members",
+      "permissive": "PERMISSIVE",
+      "policyname": "project_members_select_project_member",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "private.current_is_project_member(id)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "projects",
+      "permissive": "PERMISSIVE",
+      "policyname": "projects_select_member",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "private.current_has_task_access(task_id)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "task_assignees",
+      "permissive": "PERMISSIVE",
+      "policyname": "task_assignees_select_task_member",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "private.current_has_task_access(task_id)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "task_items",
+      "permissive": "PERMISSIVE",
+      "policyname": "task_items_select_task_member",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((user_id = auth.uid()) OR private.current_is_task_project_admin(task_id))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "task_members",
+      "permissive": "PERMISSIVE",
+      "policyname": "task_members_select_task_member_or_admin",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "private.current_has_task_access(id)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "tasks",
+      "permissive": "PERMISSIVE",
+      "policyname": "tasks_select_project_member",
+      "schemaname": "public",
+      "with_check": null
+    }
+  ],
+  "triggers": [
+    {
+      "name": "trg_audit_item_parent",
+      "table": "public.audit_log",
+      "definition": "CREATE TRIGGER trg_audit_item_parent BEFORE INSERT ON public.audit_log FOR EACH ROW EXECUTE FUNCTION private.link_task_item_audit()"
+    },
+    {
+      "name": "trg_audit_log_no_delete",
+      "table": "public.audit_log",
+      "definition": "CREATE TRIGGER trg_audit_log_no_delete BEFORE DELETE ON public.audit_log FOR EACH ROW EXECUTE FUNCTION public.prevent_history_mutation()"
+    },
+    {
+      "name": "trg_audit_log_no_truncate",
+      "table": "public.audit_log",
+      "definition": "CREATE TRIGGER trg_audit_log_no_truncate BEFORE TRUNCATE ON public.audit_log FOR EACH STATEMENT EXECUTE FUNCTION public.prevent_history_mutation()"
+    },
+    {
+      "name": "trg_audit_log_no_update",
+      "table": "public.audit_log",
+      "definition": "CREATE TRIGGER trg_audit_log_no_update BEFORE UPDATE ON public.audit_log FOR EACH ROW EXECUTE FUNCTION public.prevent_history_mutation()"
+    },
+    {
+      "name": "trg_audit_log_notifications",
+      "table": "public.audit_log",
+      "definition": "CREATE TRIGGER trg_audit_log_notifications AFTER INSERT ON public.audit_log FOR EACH ROW EXECUTE FUNCTION private.audit_to_notification()"
+    },
+    {
+      "name": "trg_item_actions_no_delete",
+      "table": "public.item_actions",
+      "definition": "CREATE TRIGGER trg_item_actions_no_delete BEFORE DELETE ON public.item_actions FOR EACH ROW EXECUTE FUNCTION public.prevent_history_mutation()"
+    },
+    {
+      "name": "trg_item_actions_no_truncate",
+      "table": "public.item_actions",
+      "definition": "CREATE TRIGGER trg_item_actions_no_truncate BEFORE TRUNCATE ON public.item_actions FOR EACH STATEMENT EXECUTE FUNCTION public.prevent_history_mutation()"
+    },
+    {
+      "name": "trg_item_actions_no_update",
+      "table": "public.item_actions",
+      "definition": "CREATE TRIGGER trg_item_actions_no_update BEFORE UPDATE ON public.item_actions FOR EACH ROW EXECUTE FUNCTION public.prevent_history_mutation()"
+    },
+    {
+      "name": "trg_item_actions_validate_context",
+      "table": "public.item_actions",
+      "definition": "CREATE TRIGGER trg_item_actions_validate_context BEFORE INSERT ON public.item_actions FOR EACH ROW EXECUTE FUNCTION private.validate_item_action_context()"
+    },
+    {
+      "name": "trg_normalize_stage_notification_terminology",
+      "table": "public.notifications",
+      "definition": "CREATE TRIGGER trg_normalize_stage_notification_terminology BEFORE INSERT OR UPDATE OF title, body, task_id ON public.notifications FOR EACH ROW EXECUTE FUNCTION private.normalize_stage_notification_terminology()"
+    },
+    {
+      "name": "trg_notifications_broadcast_invalidation",
+      "table": "public.notifications",
+      "definition": "CREATE TRIGGER trg_notifications_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.notifications FOR EACH ROW EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_draft_write_protocol",
+      "table": "public.profiles",
+      "definition": "CREATE TRIGGER trg_draft_write_protocol BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION private.guard_draft_write_protocol('display_name')"
+    },
+    {
+      "name": "trg_profiles_updated_at",
+      "table": "public.profiles",
+      "definition": "CREATE TRIGGER trg_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+    },
+    {
+      "name": "trg_project_members_broadcast_invalidation",
+      "table": "public.project_members",
+      "definition": "CREATE TRIGGER trg_project_members_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.project_members FOR EACH ROW EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_draft_write_protocol",
+      "table": "public.projects",
+      "definition": "CREATE TRIGGER trg_draft_write_protocol BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION private.guard_draft_write_protocol('name', 'description')"
+    },
+    {
+      "name": "trg_project_parent_deadlines",
+      "table": "public.projects",
+      "definition": "CREATE TRIGGER trg_project_parent_deadlines AFTER UPDATE OF status ON public.projects FOR EACH ROW EXECUTE FUNCTION private.refresh_parent_checklist_deadlines()"
+    },
+    {
+      "name": "trg_projects_broadcast_invalidation",
+      "table": "public.projects",
+      "definition": "CREATE TRIGGER trg_projects_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_projects_updated_at",
+      "table": "public.projects",
+      "definition": "CREATE TRIGGER trg_projects_updated_at BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+    },
+    {
+      "name": "trg_task_assignees_broadcast_invalidation",
+      "table": "public.task_assignees",
+      "definition": "CREATE TRIGGER trg_task_assignees_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.task_assignees FOR EACH ROW EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_00_task_item_sync_order",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_00_task_item_sync_order BEFORE INSERT OR DELETE OR UPDATE ON public.task_items FOR EACH STATEMENT EXECUTE FUNCTION private.serialize_task_item_sync()"
+    },
+    {
+      "name": "trg_draft_write_protocol",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_draft_write_protocol BEFORE UPDATE ON public.task_items FOR EACH ROW EXECUTE FUNCTION private.guard_draft_write_protocol('title', 'description', 'position', 'percentage', 'is_completed', 'comment')"
+    },
+    {
+      "name": "trg_sync_task_item_completion",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_sync_task_item_completion BEFORE INSERT OR UPDATE OF percentage, is_completed ON public.task_items FOR EACH ROW EXECUTE FUNCTION private.sync_task_item_completion()"
+    },
+    {
+      "name": "trg_task_item_deadline_changed",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_item_deadline_changed AFTER INSERT OR UPDATE OF deadline_at, percentage, is_archived ON public.task_items FOR EACH ROW EXECUTE FUNCTION private.checklist_deadline_changed()"
+    },
+    {
+      "name": "trg_task_item_sync_change",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_item_sync_change AFTER INSERT OR DELETE OR UPDATE ON public.task_items FOR EACH ROW EXECUTE FUNCTION private.record_task_item_sync_change()"
+    },
+    {
+      "name": "trg_task_item_sync_version",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_item_sync_version BEFORE UPDATE ON public.task_items FOR EACH ROW EXECUTE FUNCTION private.bump_task_item_sync_version()"
+    },
+    {
+      "name": "trg_task_items_broadcast_invalidation",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_items_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.task_items FOR EACH ROW EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_task_items_status_delete",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_items_status_delete AFTER DELETE ON public.task_items REFERENCING OLD TABLE AS old_items FOR EACH STATEMENT EXECUTE FUNCTION private.recalculate_task_status_statement()"
+    },
+    {
+      "name": "trg_task_items_status_insert",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_items_status_insert AFTER INSERT ON public.task_items REFERENCING NEW TABLE AS new_items FOR EACH STATEMENT EXECUTE FUNCTION private.recalculate_task_status_statement()"
+    },
+    {
+      "name": "trg_task_items_status_update",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_items_status_update AFTER UPDATE ON public.task_items REFERENCING OLD TABLE AS old_items NEW TABLE AS new_items FOR EACH STATEMENT EXECUTE FUNCTION private.recalculate_task_status_statement()"
+    },
+    {
+      "name": "trg_task_items_updated_at",
+      "table": "public.task_items",
+      "definition": "CREATE TRIGGER trg_task_items_updated_at BEFORE UPDATE ON public.task_items FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+    },
+    {
+      "name": "trg_task_members_broadcast_invalidation",
+      "table": "public.task_members",
+      "definition": "CREATE TRIGGER trg_task_members_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.task_members FOR EACH ROW EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_draft_write_protocol",
+      "table": "public.task_template_items",
+      "definition": "CREATE TRIGGER trg_draft_write_protocol BEFORE UPDATE ON public.task_template_items FOR EACH ROW EXECUTE FUNCTION private.guard_draft_write_protocol('title', 'description', 'position')"
+    },
+    {
+      "name": "trg_task_template_items_broadcast_invalidation",
+      "table": "public.task_template_items",
+      "definition": "CREATE TRIGGER trg_task_template_items_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.task_template_items FOR EACH STATEMENT EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_task_template_items_updated_at",
+      "table": "public.task_template_items",
+      "definition": "CREATE TRIGGER trg_task_template_items_updated_at BEFORE UPDATE ON public.task_template_items FOR EACH ROW EXECUTE FUNCTION private.touch_task_template_updated_at()"
+    },
+    {
+      "name": "trg_template_item_read_state",
+      "table": "public.task_template_items",
+      "definition": "CREATE TRIGGER trg_template_item_read_state AFTER INSERT OR DELETE OR UPDATE ON public.task_template_items FOR EACH ROW EXECUTE FUNCTION private.track_template_read_state()"
+    },
+    {
+      "name": "trg_draft_write_protocol",
+      "table": "public.task_templates",
+      "definition": "CREATE TRIGGER trg_draft_write_protocol BEFORE UPDATE ON public.task_templates FOR EACH ROW EXECUTE FUNCTION private.guard_draft_write_protocol('name', 'description')"
+    },
+    {
+      "name": "trg_task_templates_broadcast_invalidation",
+      "table": "public.task_templates",
+      "definition": "CREATE TRIGGER trg_task_templates_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.task_templates FOR EACH STATEMENT EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_task_templates_updated_at",
+      "table": "public.task_templates",
+      "definition": "CREATE TRIGGER trg_task_templates_updated_at BEFORE UPDATE ON public.task_templates FOR EACH ROW EXECUTE FUNCTION private.touch_task_template_updated_at()"
+    },
+    {
+      "name": "trg_template_read_state",
+      "table": "public.task_templates",
+      "definition": "CREATE TRIGGER trg_template_read_state AFTER INSERT OR DELETE OR UPDATE ON public.task_templates FOR EACH ROW EXECUTE FUNCTION private.track_template_read_state()"
+    },
+    {
+      "name": "trg_draft_write_protocol",
+      "table": "public.tasks",
+      "definition": "CREATE TRIGGER trg_draft_write_protocol BEFORE UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION private.guard_draft_write_protocol('title', 'description')"
+    },
+    {
+      "name": "trg_task_parent_deadlines",
+      "table": "public.tasks",
+      "definition": "CREATE TRIGGER trg_task_parent_deadlines AFTER UPDATE OF status ON public.tasks FOR EACH ROW EXECUTE FUNCTION private.refresh_parent_checklist_deadlines()"
+    },
+    {
+      "name": "trg_tasks_broadcast_invalidation",
+      "table": "public.tasks",
+      "definition": "CREATE TRIGGER trg_tasks_broadcast_invalidation AFTER INSERT OR DELETE OR UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION private.broadcast_application_invalidation()"
+    },
+    {
+      "name": "trg_tasks_updated_at",
+      "table": "public.tasks",
+      "definition": "CREATE TRIGGER trg_tasks_updated_at BEFORE UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+    }
+  ],
+  "functions": [
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "f9de80409057aea647598d9256db4844d4feb469de5a6d8139fefaa1950aa61d",
+      "definer": true,
+      "signature": "private.private.apply_task_item_operation_v2(uuid,uuid,bigint,text,jsonb)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "760b938c8b5f01627c32ae04456577969caf33e7c7f05110e62c607fe708b361",
+      "definer": true,
+      "signature": "private.private.audit_log_visible(uuid,text,uuid,jsonb,jsonb)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "39fd351933a9ad25b51ea711f35574aad9028c940e59affae3ade8dd32b896de",
+      "definer": true,
+      "signature": "private.private.audit_to_notification()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "f8d6d4887ca38ba103259daed566a501576942ba483fee225be000651628c0aa",
+      "definer": true,
+      "signature": "private.private.broadcast_application_invalidation()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "3b7181173d6d16f0c831bb0602a5bfae4c2577d6d99430f862c53810f4fee280",
+      "definer": true,
+      "signature": "private.private.bump_task_item_sync_version()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "734eae8e32caa4b57b89919f6c958ea41bfccbe1267bea9cacdcb3c8d3febe5d",
+      "definer": true,
+      "signature": "private.private.can_edit_task(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "e47a0e7f1bd3e24f2ae496079c0ddd13b7adeb15c7197772eb0cf24805629b0a",
+      "definer": true,
+      "signature": "private.private.can_manage_task_checklist(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "6f0390dca13d004648ac2a163bd491fdee264566ca04f1e636b73a14da180daf",
+      "definer": true,
+      "signature": "private.private.can_receive_realtime_topic(text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "b5b7e2b1206a0669cb2b5cdb9e043ddd5843d698ab312a04bcd28b49a64b1173",
+      "definer": true,
+      "signature": "private.private.can_view_profile(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "1e6f540aa1541bd56a705dad1279d52abc23be259a28e0914c78667942a89458",
+      "definer": true,
+      "signature": "private.private.checklist_deadline_changed()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "5be6f41fc4ee550e7cb5e28c383f05f65633e1815214c8eba6956ee46b07961f",
+      "definer": false,
+      "signature": "private.private.checklist_deadline_status(timestamp with time zone,integer,boolean,timestamp with time zone)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "d428a37d4a5b2e4f3bdc1b1114bd6f171563ab5d3baa33e493c2657679188dc3",
+      "definer": true,
+      "signature": "private.private.claim_client_operation(uuid,text,uuid,jsonb)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "8e13cfa6f9d8b7465cc843c49767d490b5ecb947fd8d82627fe606ba12bad30f",
+      "definer": true,
+      "signature": "private.private.cleanup_task_item_sync_changes()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "c448163cdf90044b7f224ab2cb4d87bca27c67d7662b5250b5abd9abd124ad17",
+      "definer": true,
+      "signature": "private.private.create_notification(uuid,uuid,uuid,public.notification_type,text,text,jsonb,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "95cc4ff8d0d08c4ca03524fd4bf3d4b00403c5f7a2eb7f29bc897614ce7bc095",
+      "definer": true,
+      "signature": "private.private.current_has_task_access(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "b063626a45306bbf5523c7d2c159fa43003b5ae5b057736798d626ca6b94134e",
+      "definer": true,
+      "signature": "private.private.current_is_project_admin(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "0cbeda7febd0cbf3d54f13cf70bc0549b1b3b2feecb1ea61cd74027967f4dfe9",
+      "definer": true,
+      "signature": "private.private.current_is_project_member(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "3c759852d0792f49a393d7239ab59f3ef021b4b634be7d11c44e252b706eacbe",
+      "definer": true,
+      "signature": "private.private.current_is_task_project_admin(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "ab4d2d4786069f5d3bb6ef27c880ea6de3b0661a06c3b0ec5812c4fe893cad33",
+      "definer": true,
+      "signature": "private.private.emit_checklist_deadline_event(uuid,text,timestamp with time zone,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public, auth"
+      ],
+      "sha256": "018759c6efe43569fe76ff6839ea14cb6281a03e25ad3bc8551aabeec121ee21",
+      "definer": true,
+      "signature": "private.private.ensure_profile(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "d30ecd0f3bbf3e0bc11ab1fb45716c7cc8ddfa6878773a0c08c7043e60ce431c",
+      "definer": true,
+      "signature": "private.private.guard_draft_write_protocol()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "371d9ec72bc3328d21432481f1e60e302c0c0f07327441d47ada9dd4a679fbd1",
+      "definer": true,
+      "signature": "private.private.handle_new_user()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "6a2b345ff2d7748a64d8b05e0471161dbfb1435b10737ee0e34bd2a7a2f7ed98",
+      "definer": true,
+      "signature": "private.private.has_project_view_of_task(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "3dca4ebe4d3da197854902e2b678f1e1f3545a85d9b6a82d2fc822e66801e5e0",
+      "definer": true,
+      "signature": "private.private.has_task_access(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private"
+      ],
+      "sha256": "b5f96133cc14eddab25074f6846db13bb901ad827c31e44d234938f9e451c6ca",
+      "definer": false,
+      "signature": "private.private.initial_profile_name(uuid,jsonb,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "a99756bd4a65deb92b7806fd1cacbd48766a4284972024c1c82fcc55684c2e0f",
+      "definer": true,
+      "signature": "private.private.is_project_admin(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "6d64c126323e7d81f43ffbfb63f8392d0ca2196f508c6cbc41a2f8cdf5e797a3",
+      "definer": true,
+      "signature": "private.private.is_project_member(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "3bcc9c25b3e6c32f7e14db060a2a857cd566ce262c4466ce22cd95d1f00bf517",
+      "definer": true,
+      "signature": "private.private.is_project_owner(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "7f99aee28c0673b1fe3da6f9732f104a40255a157ae2f5a803e25df9be190e8c",
+      "definer": true,
+      "signature": "private.private.is_task_project_admin(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "7eb5792ef51e08a2b8ab04cc7a144ae39179587b1cdccae77c40b3a53d0ad448",
+      "definer": true,
+      "signature": "private.private.link_task_item_audit()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "9737e2faa0ca67f89f75847f26d9d25c40b8b7058f4b5907867f8b43a0fd9bf6",
+      "definer": true,
+      "signature": "private.private.lock_project_role(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "f2f1ca4c4069c9756898f07d2c3f22559bbab7bc075f0b4304cc52320287daad",
+      "definer": true,
+      "signature": "private.private.lock_project_state(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "70f0d2f0f38620b73cf13d1088df1efe73f749d97985579b89a9517b291b56b2",
+      "definer": true,
+      "signature": "private.private.lock_project(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "18dc615ee4392c9ec60476cb550e3acfaab3517af3a7142d6cd5698ba6a09ad4",
+      "definer": true,
+      "signature": "private.private.lock_task_item_version(uuid,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "243724589025d50b4278c0a4d049e715b3334944d85da743116f92f9f39fff9b",
+      "definer": true,
+      "signature": "private.private.lock_task_membership_management(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "7dc798c8d9421a3493968a76879b9f45effa5dac86033155527f9bf4f79c55ce",
+      "definer": true,
+      "signature": "private.private.lock_task_role(uuid,uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "45f7ebb9888f771d2f3392b57629fb0eb633574591e90b89779a5fa13c0b56aa",
+      "definer": true,
+      "signature": "private.private.lock_task(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=public, private"
+      ],
+      "sha256": "ee1072a2908e8f1e6f0bce0c561d1d2eddd13d02d515a7cd15712c11e90f4ef4",
+      "definer": false,
+      "signature": "private.private.normalize_stage_notification_terminology()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\"",
+        "TimeZone=UTC"
+      ],
+      "sha256": "b2f49b5b5045abd2deac174d2c224aebf79a241f2454885605b0c76fb221c2bd",
+      "definer": false,
+      "signature": "private.private.offline_account_rows(text,timestamp with time zone)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "dedb9965c19948aea6c52fdeac122a1eeb81faabce5f9bb654a052239d214223",
+      "definer": false,
+      "signature": "private.private.offline_account_rows(text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "25c478583f36670708a880a13564a4476e449946a59baad246085bcfbf353bf5",
+      "definer": false,
+      "signature": "private.private.offline_dataset_revision(text,text,timestamp with time zone)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "776abc4b7c37bbb3ec8dd0d81f3193c0b06355fa738739d9a78199c37bf916c1",
+      "definer": false,
+      "signature": "private.private.offline_dataset_revision(text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "30cbc448e7cdf0d58cc05503f3362b166785db1a1e22d40ac7d68503692aff42",
+      "definer": true,
+      "signature": "private.private.process_checklist_deadlines(integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "9670de131b5b738ff3c114c239ecb9f36341202156554e989bb8741081ee5794",
+      "definer": false,
+      "signature": "private.private.profile_name_is_valid(text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "d286af3d42efca104a17caf1488d402382ae649ab0cc7a3f524ffd5f127bab67",
+      "definer": true,
+      "signature": "private.private.project_is_active(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "541b09de970eff22dd97c9fa0079f3897e6dc397fb64a3871f6ae2664893d34a",
+      "definer": true,
+      "signature": "private.private.project_role_of(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "d048388a971d476970c813e7380421e330f096e22fea91f9ea6fbad3dca8e160",
+      "definer": true,
+      "signature": "private.private.recalculate_task_status_statement()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "513a3dc743497d1227c37b3369f7a47df4608ad66ee8c440375c59ebbe16785f",
+      "definer": true,
+      "signature": "private.private.recalculate_task_status_trigger()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "3ed071a136c1bda89009c7013759b145394ff351b2004b7689ff9a650a65e7a9",
+      "definer": true,
+      "signature": "private.private.recalculate_task_status(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "932d0ea20b65de84e603a82d3b4e7963751edcee20bd66ef5a4245d292420e29",
+      "definer": true,
+      "signature": "private.private.record_task_item_sync_change()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "f083372f22db912e5fd88c0623b78c8260f62483131ac93d6487223f16281517",
+      "definer": true,
+      "signature": "private.private.refresh_checklist_deadline(uuid,timestamp with time zone,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "f90672d97da0a4c94bd1c295962ac307d027d7532f2b89af513f33e99c4bf76c",
+      "definer": true,
+      "signature": "private.private.refresh_parent_checklist_deadlines()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "3bcf240e6e7b63c722e12f8dd95fd3fc7b85df08914656f30dc6ae85c9bacf62",
+      "definer": true,
+      "signature": "private.private.require_auth()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "25583f7da4c5213dc8003a819c12a87ecf0e4dffd654316c993d862e6e3661f8",
+      "definer": false,
+      "signature": "private.private.require_write_protocol()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "aa13099d5917bc866eceecf03aae33fbd18e1fe04e0617a7fbd5358bd77986c1",
+      "definer": true,
+      "signature": "private.private.serialize_task_item_sync()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "96fcf11e8996d7ae2c602cbfb3d054fbf4b99251d9806dcc5dfc8e56c0b1e1d8",
+      "definer": true,
+      "signature": "private.private.set_task_item_comment_unchecked(uuid,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "6d3bfe8dc3ba6df28b27d41d7a50dcec1e26798f629357938d6815885cb016ca",
+      "definer": true,
+      "signature": "private.private.set_task_item_percentage_unchecked(uuid,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "aadc500ebfae2e837ec5b97010a373834c80324da0eef2e5e69c202701013e0a",
+      "definer": true,
+      "signature": "private.private.set_task_item_state_unchecked(uuid,boolean)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=pg_catalog, public"
+      ],
+      "sha256": "104397ea8a933e8ddfe75ae5c88bc06fcee5fafda4ade99fc2e924b05091d753",
+      "definer": false,
+      "signature": "private.private.sync_task_item_completion()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "9004c18f8c4c707465795139205ece6a14f5580894169b4fb1df597d39590cbe",
+      "definer": true,
+      "signature": "private.private.task_is_editable(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "a40b624a52f83a51a2ad388383dd29e5995078a2d807fd2128f907aaa3dec42b",
+      "definer": true,
+      "signature": "private.private.task_project_id(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "7a9fd36118f8709bc2c95742cf1c0b10e705acc4cf70c194fc9741297263e261",
+      "definer": true,
+      "signature": "private.private.task_role_of(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "1857a24e992ff192f95bc3da98a799525753103c141f3975ecc564acca6a22a6",
+      "definer": true,
+      "signature": "private.private.task_status_from_items(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=pg_catalog, public"
+      ],
+      "sha256": "08992b18c639e65c5bdea4323247a646a266da9302514ebc0acb8ad4ca576689",
+      "definer": false,
+      "signature": "private.private.touch_task_template_updated_at()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "e04f76b147ddbe9cf306cdfe3cb5664083ba2e1eaef3d38e2aa465ed7c3f9eea",
+      "definer": true,
+      "signature": "private.private.track_template_read_state()"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "e052b2772b64443ecfab9a7f4fc6db2a2bb59fda1bfd16d5519c8b5c5403c7a6",
+      "definer": true,
+      "signature": "private.private.update_my_profile_unchecked(text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "b6057d4020a371839bd395d31e4bce7d54b62512476d4a864fcdee80ddb2b371",
+      "definer": true,
+      "signature": "private.private.update_project_unchecked(uuid,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "500a7478e318aca593eb0f832d68b6e0ed33d09c94eb0de5bcb04c96551adfc7",
+      "definer": true,
+      "signature": "private.private.update_task_item_unchecked(uuid,text,text,numeric)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "172b0c8d522a40870e8df3e59790d0e55f100777cb7783ad701070e61e423026",
+      "definer": true,
+      "signature": "private.private.update_task_template_item_unchecked(uuid,text,text,numeric)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "d87ab3d5175d005ee910c5766d3688b257b4b077dab58365d7105778bb88d1ab",
+      "definer": true,
+      "signature": "private.private.update_task_template_unchecked(uuid,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "eae363c9ef70eb2a8e5ac3f509e2ede3f85a5286157a7a93d008233823d3a8a1",
+      "definer": true,
+      "signature": "private.private.update_task_unchecked(uuid,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "290cae6d2512a6b0c8d4b6ec5dcdf2dd77e6779ee2ab9499370b7a2765052445",
+      "definer": true,
+      "signature": "private.private.validate_item_action_context()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "b10b26fbd0aaac0c77fddc28a9339daaeb094c51149fb83cb287ee273ad19f11",
+      "definer": true,
+      "signature": "public.public.add_project_member_by_identifier(uuid,text,public.project_role)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "d9f078769f8df622dd03e3c9c7132ca8d5163eb60cb37acd99c5d661f1c5d5eb",
+      "definer": true,
+      "signature": "public.public.add_project_member(uuid,uuid,public.project_role)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "ee9f339801eeb89ee315897a387b7c4d7507355a098daf879a542a5097f57296",
+      "definer": true,
+      "signature": "public.public.add_task_assignee(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "dd7a6d194ee1c9cff09b2246ffe6a041d7c08d8ab284c521a98aa167f7109c34",
+      "definer": true,
+      "signature": "public.public.add_task_member_by_identifier(uuid,text,public.project_role)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "520de85407a42077323f926233b58b6b676f05ceaa76ce2d2ccaf18442ea1424",
+      "definer": true,
+      "signature": "public.public.apply_task_item_comment_operation_v2(uuid,uuid,bigint,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "02bfa4589f294ed59a07b177faf069084b5a00c85a72fce2c1983156ceeca860",
+      "definer": true,
+      "signature": "public.public.apply_task_item_comment_operation(uuid,uuid,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "1e2b59e1d6ce523a9d7be330c5c9b47440a9b15c0cfd183b49253f8334ba177a",
+      "definer": true,
+      "signature": "public.public.apply_task_item_percentage_operation_v2(uuid,uuid,bigint,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "9756c46642ffdf58024626b4465cd18cd8111709c5e827fcd1ee75efc55b4374",
+      "definer": true,
+      "signature": "public.public.apply_task_item_percentage_operation(uuid,uuid,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "336c0b2b5327dfbaecdf386da51a5720856839e64f7c0296a1b8ac7a07c0cd55",
+      "definer": true,
+      "signature": "public.public.apply_task_item_state_operation_v2(uuid,uuid,bigint,boolean)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "7399a7cb1d5d498bbe727479470b2b29a01226ee06f6b42bdf78ff92826d8151",
+      "definer": true,
+      "signature": "public.public.apply_task_item_state_operation(uuid,uuid,boolean)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "4701f772943551ef2ee4a55e585d9bf12b6f01bd3eab65af6f2d96392097de62",
+      "definer": true,
+      "signature": "public.public.archive_project(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "5c9d7ee7fdd3de62cb9f7cfc20f9ea993179c203375fa618c4e9a1f13e5bf513",
+      "definer": true,
+      "signature": "public.public.archive_task_item(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "8f9c0def1513466c7cddffecfd690c3af9d5f1629094ee411ad6c3b89ece1dc2",
+      "definer": true,
+      "signature": "public.public.archive_task_template(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "c685075554b2d1d38d374f414bbe2a64140ac2a23935845c486f0980962aefae",
+      "definer": true,
+      "signature": "public.public.archive_task(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "03c3bc2ec94caa36580688e267d56619ae694b17596914f5e9a42bd1c1407f10",
+      "definer": true,
+      "signature": "public.public.change_member_role(uuid,uuid,public.project_role)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "775cf4403fb0e36294611528b56d0013680745527dfcbb9872bca2763e3e46f2",
+      "definer": true,
+      "signature": "public.public.clear_task_member_override(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "ac4253be79e7ce311e8d0b7f927109f63db428743b73d0a1b731477c4b70db22",
+      "definer": true,
+      "signature": "public.public.create_project(text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "8369fc1910a56fe805e680c9b8c27aeb029f18721fb71a69bf0d6469fc414e32",
+      "definer": true,
+      "signature": "public.public.create_task_from_template(uuid,uuid,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "3233990f36648fcf0795eefe0796b7f351ee51a986df736dd6425a8606ce2f02",
+      "definer": true,
+      "signature": "public.public.create_task_item(uuid,text,text,numeric)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "ca73ed955e4b635cd29f3b8a71699a62da4ba154db087c87473b3eb236855c9e",
+      "definer": true,
+      "signature": "public.public.create_task_template_item(uuid,text,text,numeric)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "8aae5681e6ebd1a80726a1f3febc8518f2380fe98c29f9f22dfab6aac981b364",
+      "definer": true,
+      "signature": "public.public.create_task_template(text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "1b15201fd6c5ad32d6cfc7918e74dbc7721982bad03fded1ff43b7bfa0cb3b5d",
+      "definer": true,
+      "signature": "public.public.create_task(uuid,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "0c8bf557dabfb0318fac82034d9db2f423100803ae0160730aee21ea1750268f",
+      "definer": true,
+      "signature": "public.public.delete_task_template_item(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "a49272fc32118085c44a6a0481c46408daf5414c7b17bd819563e5d9e00fdd57",
+      "definer": true,
+      "signature": "public.public.execute_client_mutation(uuid,text,jsonb)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "faad9191657e1c007995aa6773724b8fda9e9f41421de254ccb85dca827bd323",
+      "definer": true,
+      "signature": "public.public.get_my_profile()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "c76fccbe050a3b805d0d64da41d83657a3096c898316d324a8846084f70147b9",
+      "definer": true,
+      "signature": "public.public.get_my_task_role(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\"",
+        "TimeZone=UTC"
+      ],
+      "sha256": "b94914003a2e65c406dcb260c6900e42478a9c9f233aba87ca8bb75de5c864ca",
+      "definer": false,
+      "signature": "public.public.get_offline_account_manifest(text,timestamp with time zone)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "f89b1230f6a33e829284088aabb1d8468d76c68120265b4cc75937608f6a4b7f",
+      "definer": false,
+      "signature": "public.public.get_offline_account_manifest(text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "04daf2cbe35b554d059fe8f5443aaa1cdd797fd7eeb816941721ad5675a1cdbb",
+      "definer": false,
+      "signature": "public.public.get_offline_account_page(text,text,integer,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\"",
+        "TimeZone=UTC"
+      ],
+      "sha256": "5038c44d795eda0728c8c4e2447c30da53434b6dd4e52b6dc2eb5b15d8d098c6",
+      "definer": false,
+      "signature": "public.public.get_offline_account_page(text,text,timestamp with time zone,integer,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "3f6650de7853ca096561dd1254e9630c724d65372b306df15fb7fd8589cc49c8",
+      "definer": true,
+      "signature": "public.public.get_offline_runtime_config()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "e1e73adcd7e62a05eed92369100fbec57fa5cf35bb7046e30ced39b41d6842d0",
+      "definer": true,
+      "signature": "public.public.get_task_item_snapshot_page(uuid,text,integer,integer,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "d03dafb6dc4ce6d5cd1c21d55e52aab25f63b5c4102893ce9c87054108b448e4",
+      "definer": true,
+      "signature": "public.public.get_task_item_sync_cursor()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "46310cf4f66ee1f840ed0cc2cc26be20ca461969aff35dc17a6c41943573edd6",
+      "definer": true,
+      "signature": "public.public.get_task_project_context(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "53eefbf6bba4ca6b7ca7bb092cc859f3c861d71258697d6f4bf04b915112b187",
+      "definer": true,
+      "signature": "public.public.get_task_template_page_v2(uuid,integer,integer,text,jsonb)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "b084276a1e1fa06c0335033552ade2f8e74262abb8803bdf594304c20f519c79",
+      "definer": true,
+      "signature": "public.public.get_task_template_page(uuid,integer,integer,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "3d63326ee895331fc7bb25d26c52b6301b3c5437f0e776af1d7314ef85094455",
+      "definer": true,
+      "signature": "public.public.get_task_template(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "39760d5c7cd55e0aed99e89942b674d224b6f128537dbc39f31d4a77e47511fc",
+      "definer": true,
+      "signature": "public.public.hard_delete_project(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "506b7320f55c0e4f78a8d0dad476507522e6ea8076f7afbd98e98b2ae0e8dae0",
+      "definer": true,
+      "signature": "public.public.hard_delete_task_item(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "0b334270212c0f573d0c444be303d8bf016b89ed081fa18d9e83f3f1bec29f1d",
+      "definer": true,
+      "signature": "public.public.hard_delete_task(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "16762991f57f39987606fc09666b2e3ec2adbfa41a4bb08c4ab2ddc2ff1cd39c",
+      "definer": true,
+      "signature": "public.public.list_task_item_last_editors(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "4e75b99ff31ae3fe1d91d2225455cfa72929a5b8502485619700c069d5867e24",
+      "definer": true,
+      "signature": "public.public.list_task_member_overrides(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "b51bc98cb873341dc8635cc5aae0941650c7e5a7670c00dd9b612122a5bb39e5",
+      "definer": true,
+      "signature": "public.public.list_task_participants(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "c4f6ac23c3944d4c0f6b293f461c05649ce246a282c9edf595da56a7a3f0924b",
+      "definer": true,
+      "signature": "public.public.list_task_template_items(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "7926480502ef5c002b1f56dc078a055171e131e5344e1aee479c592d6591e3cc",
+      "definer": true,
+      "signature": "public.public.list_task_templates()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "a2802eac580330f129c1383bf48bc1f0d7f71417d2794973178861a5d03e8866",
+      "definer": true,
+      "signature": "public.public.mark_all_notifications_read()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "6b884feeec4020b0f7513ee532f29c5fb2c1efa56a274bfbb24c06bf67a1c8a2",
+      "definer": true,
+      "signature": "public.public.mark_notification_read(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "752cba3d56bb331fd0d95ec765aba3e7e1c437107758819bee05d62b77d247a3",
+      "definer": true,
+      "signature": "public.public.move_task_template_item(uuid,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "069af9ce48c4bf29a333a6115726bd372ca1d10bb9303bbf8d8ddc82e292006f",
+      "definer": true,
+      "signature": "public.public.move_task(uuid,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "16b0f0a45d958fba34b9b6827655361437ec56c51c33bd08643dceee1d133c25",
+      "definer": false,
+      "signature": "public.public.notification_filter_options()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "sha256": "2a4d50edd584be861b349cd5afbd999f480104ba239f7a58ab55737536b85ad0",
+      "definer": false,
+      "signature": "public.public.prevent_history_mutation()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "405f680a4f06ea55e85e94c75441b36a90490e174cc350bd98df01ac46071d1c",
+      "definer": true,
+      "signature": "public.public.pull_task_item_changes_v2(bigint,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "6aab75770b2fc0b766e1e85b0471a1f4f755d47f3d8df04b564da43ca36b7876",
+      "definer": true,
+      "signature": "public.public.pull_task_item_changes(bigint,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "bdc2095c12f7f11f48f090cf9cda852c6082198d5905b63c72ff5bad75d90674",
+      "definer": true,
+      "signature": "public.public.remove_project_member(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "fe5d0c5f9c978320195b92b762a331951b8643f74f3b4649e7d14b68d617a3c1",
+      "definer": true,
+      "signature": "public.public.remove_task_assignee(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "5e152454249c9b2bf71ee4ae46c9134f25fff1a67ae1809f26ff25e4d3a1e20d",
+      "definer": true,
+      "signature": "public.public.remove_task_member(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "0fc4cbc1407f54bf581377daf801bd38569c2f859a982fe875a579174b1faf29",
+      "definer": true,
+      "signature": "public.public.restore_project(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "d00accc2022fff13909eb057a88c3e1848f70302fb83ab5f21ba412a67b0b3f4",
+      "definer": true,
+      "signature": "public.public.restore_task(uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "fcd94b3d6b90e1114145056a048087c28a55bfac40bda8da6b6f281e37a37a5c",
+      "definer": true,
+      "signature": "public.public.set_task_item_comment(uuid,text,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "21bc524da38fdb18442cbe8d9c62ede6f4db4280c7ff8ef9fbc8bb73f4094d29",
+      "definer": true,
+      "signature": "public.public.set_task_item_comment(uuid,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "e0319c4bfe30f35e3decc84e849224f64e2041538520299470ec6c0a43675520",
+      "definer": true,
+      "signature": "public.public.set_task_item_deadline(uuid,timestamp with time zone,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "64bc54a8efac4cd9eb65b4613bfa1196b66ec015e310cefed58ea38cb234d2f8",
+      "definer": true,
+      "signature": "public.public.set_task_item_percentage(uuid,integer,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "c12ac8db5617ef02b68d18147652f6afcd98c9687a27012e9529d8a8f0163a09",
+      "definer": true,
+      "signature": "public.public.set_task_item_percentage(uuid,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "f403521a533a96a1cba93fcfc5bbb90d4606cd5b41498fc26971237f0f3e31bc",
+      "definer": false,
+      "signature": "public.public.set_task_item_progress(uuid,integer)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "b55da2a1d58d7d8f3260716afb626bff1621ab6ca4c7a38ce50ef2762ef4d0e6",
+      "definer": true,
+      "signature": "public.public.set_task_item_state(uuid,boolean,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "a136dee57e08060fbd4cbe9c36d711f7d30c3efbf4c3d96a44868bb7f831aa7f",
+      "definer": true,
+      "signature": "public.public.set_task_item_state(uuid,boolean)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "5844bacab9cd7e3911a666a8747e837bb72b60e70e5e929508aca0e7361835f0",
+      "definer": true,
+      "signature": "public.public.set_task_member_override(uuid,uuid,public.project_role)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "sha256": "31fc65cf35c4fc3479cce5d0beafde03514bfe121768000f055b42b0d8b6780a",
+      "definer": false,
+      "signature": "public.public.set_updated_at()"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "8496d99001832f746fdb6aa9d2db924a024f48048f474c6965e599e91a71372c",
+      "definer": true,
+      "signature": "public.public.transfer_project_ownership(uuid,uuid)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "14958e19530aaa2b173f5c4a3ec72d48d4003b5dbe27183a772158f9e626d232",
+      "definer": true,
+      "signature": "public.public.update_my_profile(text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "fe9a109ea5a10f2ca5d316473d597039661b858b3208758fd36e4f7e320c5e55",
+      "definer": true,
+      "signature": "public.public.update_my_profile(text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "15dfc0e9eb8e879dc3dd8c04e636fdf9061ccc83d103f43ecd74ab5df086606d",
+      "definer": true,
+      "signature": "public.public.update_project(uuid,text,text,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "f2b08dcd2e3f85b9cbd5cae064afc03fcdaeda2af56350615823e1b33e812d49",
+      "definer": true,
+      "signature": "public.public.update_project(uuid,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "ab93eab6b317082badd13ad2d8c591ea169a742a783ed0164023585d15ab9655",
+      "definer": true,
+      "signature": "public.public.update_task_item(uuid,text,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "21925be7ea288302dea648b62c4ad9fe1c23b31153b21b07d9fa457552fda1da",
+      "definer": true,
+      "signature": "public.public.update_task_item(uuid,text,text,numeric,bigint)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "cecab5fc48173638bbbda98bcff120dc8e358caf0b0df45f344fb775174cd884",
+      "definer": true,
+      "signature": "public.public.update_task_item(uuid,text,text,numeric)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "53df462a6293c519c94b2c5f8c7e3c12af1d295cc991f6f163fa59acb9aae6c0",
+      "definer": true,
+      "signature": "public.public.update_task_template_item(uuid,text,text,numeric)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "97a21de5ef715b01e8c2c87e6f2c891279bbf34e9491e8690cc45a328a1a5aca",
+      "definer": true,
+      "signature": "public.public.update_task_template_item(uuid,text,text,text,text,numeric)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=private, public"
+      ],
+      "sha256": "6c0b32ae36a74a3e157a04d88ae59b1894c9be37fec870db72e2ed8a3fcb4233",
+      "definer": true,
+      "signature": "public.public.update_task_template(uuid,text,text,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "d6a96b279dd4b5c51fee90b8678ee1024afbaa86db8c13e3b3af0521f51ff399",
+      "definer": true,
+      "signature": "public.public.update_task_template(uuid,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "96535a186a5ebf47dbab1faf4619c7809cede6858f401066ef30bc25297995c8",
+      "definer": true,
+      "signature": "public.public.update_task(uuid,text,text,text,text)"
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=\"\""
+      ],
+      "sha256": "ded5bd898c63a3bdf85adec193f9a498cc4251fc9f4e2ac8f3471fa837bf7e6c",
+      "definer": true,
+      "signature": "public.public.update_task(uuid,text,text)"
+    }
+  ],
+  "constraints": [
+    {
+      "name": "audit_item_parents_pkey",
+      "table": "private.audit_item_parents",
+      "definition": "PRIMARY KEY (item_id)"
+    },
+    {
+      "name": "checklist_deadline_state_item_id_fkey",
+      "table": "private.checklist_deadline_state",
+      "definition": "FOREIGN KEY (item_id) REFERENCES public.task_items(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "checklist_deadline_state_pkey",
+      "table": "private.checklist_deadline_state",
+      "definition": "PRIMARY KEY (item_id)"
+    },
+    {
+      "name": "checklist_deadline_state_state_check",
+      "table": "private.checklist_deadline_state",
+      "definition": "CHECK ((state = ANY (ARRAY['normal'::text, 'urgent'::text, 'overdue'::text, 'completed'::text, 'inactive'::text])))"
+    },
+    {
+      "name": "client_operation_receipts_completed_pair",
+      "table": "private.client_operation_receipts",
+      "definition": "CHECK (((result_payload IS NULL) = (completed_at IS NULL)))"
+    },
+    {
+      "name": "client_operation_receipts_pkey",
+      "table": "private.client_operation_receipts",
+      "definition": "PRIMARY KEY (user_id, operation_id)"
+    },
+    {
+      "name": "member_identifier_limits_attempts_check",
+      "table": "private.member_identifier_limits",
+      "definition": "CHECK (((attempts >= 1) AND (attempts <= 21)))"
+    },
+    {
+      "name": "member_identifier_limits_pkey",
+      "table": "private.member_identifier_limits",
+      "definition": "PRIMARY KEY (user_id)"
+    },
+    {
+      "name": "member_identifier_limits_user_id_fkey",
+      "table": "private.member_identifier_limits",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "offline_runtime_config_pkey",
+      "table": "private.offline_runtime_config",
+      "definition": "PRIMARY KEY (singleton)"
+    },
+    {
+      "name": "offline_runtime_config_singleton_check",
+      "table": "private.offline_runtime_config",
+      "definition": "CHECK (singleton)"
+    },
+    {
+      "name": "task_item_sync_changes_change_type_check",
+      "table": "private.task_item_sync_changes",
+      "definition": "CHECK ((change_type = ANY (ARRAY['upsert'::text, 'delete'::text])))"
+    },
+    {
+      "name": "task_item_sync_changes_pkey",
+      "table": "private.task_item_sync_changes",
+      "definition": "PRIMARY KEY (cursor)"
+    },
+    {
+      "name": "task_item_sync_retention_pkey",
+      "table": "private.task_item_sync_retention",
+      "definition": "PRIMARY KEY (singleton)"
+    },
+    {
+      "name": "task_item_sync_retention_retained_after_cursor_check",
+      "table": "private.task_item_sync_retention",
+      "definition": "CHECK ((retained_after_cursor >= 0))"
+    },
+    {
+      "name": "task_item_sync_retention_singleton_check",
+      "table": "private.task_item_sync_retention",
+      "definition": "CHECK (singleton)"
+    },
+    {
+      "name": "template_read_state_pkey",
+      "table": "private.template_read_state",
+      "definition": "PRIMARY KEY (scope)"
+    },
+    {
+      "name": "template_read_state_total_check",
+      "table": "private.template_read_state",
+      "definition": "CHECK ((total >= 0))"
+    },
+    {
+      "name": "audit_log_entity_type_not_blank",
+      "table": "public.audit_log",
+      "definition": "CHECK ((length(btrim(entity_type)) > 0))"
+    },
+    {
+      "name": "audit_log_pkey",
+      "table": "public.audit_log",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "audit_log_user_id_fkey",
+      "table": "public.audit_log",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "item_actions_pkey",
+      "table": "public.item_actions",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "item_actions_user_id_fkey",
+      "table": "public.item_actions",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "notifications_pkey",
+      "table": "public.notifications",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "notifications_project_id_fkey",
+      "table": "public.notifications",
+      "definition": "FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE SET NULL"
+    },
+    {
+      "name": "notifications_read_consistency",
+      "table": "public.notifications",
+      "definition": "CHECK (((is_read AND (read_at IS NOT NULL)) OR ((NOT is_read) AND (read_at IS NULL))))"
+    },
+    {
+      "name": "notifications_task_id_fkey",
+      "table": "public.notifications",
+      "definition": "FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE SET NULL"
+    },
+    {
+      "name": "notifications_user_id_fkey",
+      "table": "public.notifications",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "profiles_display_name_valid",
+      "table": "public.profiles",
+      "definition": "CHECK (((char_length(btrim(display_name)) >= 2) AND (char_length(btrim(display_name)) <= 80) AND (btrim(display_name) ~ '^[[:alnum:]_ .-]+$'::text)))"
+    },
+    {
+      "name": "profiles_id_fkey",
+      "table": "public.profiles",
+      "definition": "FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "profiles_pkey",
+      "table": "public.profiles",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "project_members_pkey",
+      "table": "public.project_members",
+      "definition": "PRIMARY KEY (project_id, user_id)"
+    },
+    {
+      "name": "project_members_project_id_fkey",
+      "table": "public.project_members",
+      "definition": "FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "project_members_user_id_fkey",
+      "table": "public.project_members",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "projects_archive_consistency",
+      "table": "public.projects",
+      "definition": "CHECK ((((status = 'archived'::public.project_status) AND (archived_at IS NOT NULL)) OR ((status = 'active'::public.project_status) AND (archived_at IS NULL))))"
+    },
+    {
+      "name": "projects_created_by_fkey",
+      "table": "public.projects",
+      "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "projects_description_length_chk",
+      "table": "public.projects",
+      "definition": "CHECK (((description IS NULL) OR (char_length(description) <= 10000)))"
+    },
+    {
+      "name": "projects_name_length_chk",
+      "table": "public.projects",
+      "definition": "CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 500)))"
+    },
+    {
+      "name": "projects_name_not_blank",
+      "table": "public.projects",
+      "definition": "CHECK ((length(btrim(name)) > 0))"
+    },
+    {
+      "name": "projects_pkey",
+      "table": "public.projects",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "task_assignees_assigned_by_fkey",
+      "table": "public.task_assignees",
+      "definition": "FOREIGN KEY (assigned_by) REFERENCES auth.users(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "task_assignees_pkey",
+      "table": "public.task_assignees",
+      "definition": "PRIMARY KEY (task_id, user_id)"
+    },
+    {
+      "name": "task_assignees_task_id_fkey",
+      "table": "public.task_assignees",
+      "definition": "FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "task_assignees_user_id_fkey",
+      "table": "public.task_assignees",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "task_items_archive_consistency",
+      "table": "public.task_items",
+      "definition": "CHECK ((((NOT is_archived) AND (archived_at IS NULL)) OR (is_archived AND (archived_at IS NOT NULL))))"
+    },
+    {
+      "name": "task_items_comment_length_chk",
+      "table": "public.task_items",
+      "definition": "CHECK (((comment IS NULL) OR (char_length(comment) <= 10000)))"
+    },
+    {
+      "name": "task_items_description_length_chk",
+      "table": "public.task_items",
+      "definition": "CHECK (((description IS NULL) OR (char_length(description) <= 10000)))"
+    },
+    {
+      "name": "task_items_percentage_range",
+      "table": "public.task_items",
+      "definition": "CHECK (((percentage >= 0) AND (percentage <= 100)))"
+    },
+    {
+      "name": "task_items_pkey",
+      "table": "public.task_items",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "task_items_position_valid",
+      "table": "public.task_items",
+      "definition": "CHECK (((\"position\" >= (0)::numeric) AND (\"position\" <> 'NaN'::numeric)))"
+    },
+    {
+      "name": "task_items_sync_version_check",
+      "table": "public.task_items",
+      "definition": "CHECK ((sync_version > 0))"
+    },
+    {
+      "name": "task_items_task_id_fkey",
+      "table": "public.task_items",
+      "definition": "FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "task_items_title_length_chk",
+      "table": "public.task_items",
+      "definition": "CHECK (((char_length(btrim(title)) >= 1) AND (char_length(btrim(title)) <= 500)))"
+    },
+    {
+      "name": "task_items_title_not_blank",
+      "table": "public.task_items",
+      "definition": "CHECK ((length(btrim(title)) > 0))"
+    },
+    {
+      "name": "task_members_pkey",
+      "table": "public.task_members",
+      "definition": "PRIMARY KEY (task_id, user_id)"
+    },
+    {
+      "name": "task_members_role_override_chk",
+      "table": "public.task_members",
+      "definition": "CHECK (((role_override IS NULL) OR (role_override <> 'owner'::public.project_role)))"
+    },
+    {
+      "name": "task_members_set_by_fkey",
+      "table": "public.task_members",
+      "definition": "FOREIGN KEY (set_by) REFERENCES auth.users(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "task_members_task_id_fkey",
+      "table": "public.task_members",
+      "definition": "FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "task_members_user_id_fkey",
+      "table": "public.task_members",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "task_template_items_description_chk",
+      "table": "public.task_template_items",
+      "definition": "CHECK (((description IS NULL) OR (char_length(description) <= 10000)))"
+    },
+    {
+      "name": "task_template_items_pkey",
+      "table": "public.task_template_items",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "task_template_items_position_chk",
+      "table": "public.task_template_items",
+      "definition": "CHECK (((\"position\" >= (0)::numeric) AND (\"position\" <> ALL (ARRAY['NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric]))))"
+    },
+    {
+      "name": "task_template_items_template_id_fkey",
+      "table": "public.task_template_items",
+      "definition": "FOREIGN KEY (template_id) REFERENCES public.task_templates(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "task_template_items_template_position_key",
+      "table": "public.task_template_items",
+      "definition": "UNIQUE (template_id, \"position\")"
+    },
+    {
+      "name": "task_template_items_title_chk",
+      "table": "public.task_template_items",
+      "definition": "CHECK (((char_length(btrim(title)) >= 1) AND (char_length(btrim(title)) <= 500)))"
+    },
+    {
+      "name": "task_templates_created_by_fkey",
+      "table": "public.task_templates",
+      "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "task_templates_description_chk",
+      "table": "public.task_templates",
+      "definition": "CHECK (((description IS NULL) OR (char_length(description) <= 10000)))"
+    },
+    {
+      "name": "task_templates_name_chk",
+      "table": "public.task_templates",
+      "definition": "CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 500)))"
+    },
+    {
+      "name": "task_templates_pkey",
+      "table": "public.task_templates",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "tasks_archive_consistency",
+      "table": "public.tasks",
+      "definition": "CHECK ((((status = 'archived'::public.task_status) AND (archived_at IS NOT NULL)) OR ((status <> 'archived'::public.task_status) AND (archived_at IS NULL))))"
+    },
+    {
+      "name": "tasks_created_by_fkey",
+      "table": "public.tasks",
+      "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "tasks_description_length_chk",
+      "table": "public.tasks",
+      "definition": "CHECK (((description IS NULL) OR (char_length(description) <= 10000)))"
+    },
+    {
+      "name": "tasks_pkey",
+      "table": "public.tasks",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "tasks_position_valid",
+      "table": "public.tasks",
+      "definition": "CHECK (((\"position\" >= (0)::numeric) AND (\"position\" <> 'NaN'::numeric)))"
+    },
+    {
+      "name": "tasks_project_archive_marker_consistency",
+      "table": "public.tasks",
+      "definition": "CHECK (((archived_by_project_at IS NULL) OR (status = 'archived'::public.task_status)))"
+    },
+    {
+      "name": "tasks_project_id_fkey",
+      "table": "public.tasks",
+      "definition": "FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "tasks_title_length_chk",
+      "table": "public.tasks",
+      "definition": "CHECK (((char_length(btrim(title)) >= 1) AND (char_length(btrim(title)) <= 500)))"
+    },
+    {
+      "name": "tasks_title_not_blank",
+      "table": "public.tasks",
+      "definition": "CHECK ((length(btrim(title)) > 0))"
+    }
+  ]
+}

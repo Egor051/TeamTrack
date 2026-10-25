@@ -5,12 +5,18 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import { AUDIT_ARGS, auditGraphSha256, evaluatePolicy, fetchUpstream, parseAudit, runGate, verifyBundles } from '../scripts/security-policy-gate.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const policy = JSON.parse(readFileSync(join(root, 'scripts/security-policy.json'), 'utf8'));
+const reviewedPolicy = JSON.parse(readFileSync(join(root, 'tests/fixtures/security-policy-legacy-policy.json'), 'utf8'));
 const raw = readFileSync(join(root, 'tests/fixtures/security-policy-audit.json'), 'utf8');
-const lockBytes = readFileSync(join(root, 'package-lock.json')), manifestBytes = readFileSync(join(root, 'package.json'));
+// Keep the superseded approved contract as a frozen fixture. The current
+// exception has separate regression coverage; old risk acceptance cannot migrate.
+const lockBytes = Buffer.from(JSON.stringify({ packages: Object.fromEntries(reviewedPolicy.advisories.map(row => ['node_modules/'+row.package,{version:row.version}])) }));
+const manifestBytes = Buffer.from('{"name":"security-policy-unit-fixture"}');
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const policy = { ...reviewedPolicy, lockSha256: hash(lockBytes), packageManifestSha256: hash(manifestBytes) };
 const before = Date.parse('2026-10-25T20:58:59.999Z'), expires = Date.parse('2026-10-25T20:59:00.000Z');
 const upstream = () => Object.fromEntries(policy.advisories.map(row => [row.id, {
   advisory: { ghsa_id: row.id, type: 'reviewed', severity: 'high', withdrawn_at: null, updated_at: row.advisoryUpdatedAt,
@@ -43,6 +49,10 @@ const metadataFetch = async url => {
 };
 
 describe('owner-approved tooling security policy', () => {
+  it('keeps the superseded reviewed exception closed for the current package graph', () => {
+    expect(() => evaluatePolicy(input({ policy: reviewedPolicy, lockBytes: readFileSync(join(root,'package-lock.json')),
+      manifestBytes: readFileSync(join(root,'package.json')) }))).toThrow(/changed: risk reassessment/);
+  });
   it('permits only the two approved GHSA roots and their exact reviewed meta graph; keeps audit FAIL', () => {
     const result = evaluatePolicy(input());
     expect(result.status).toBe('PASS WITH APPROVED EXCEPTION');
@@ -174,9 +184,9 @@ describe('owner-approved tooling security policy', () => {
   it.each(['UTC', 'Pacific/Kiritimati', 'America/Los_Angeles'])('has the same before/at-expiry result in runner timezone %s', zone => {
     const code = `import {evaluatePolicy} from ${JSON.stringify(pathToFileURL(join(root, 'scripts/security-policy-gate.mjs')).href)};
       import {readFileSync} from 'node:fs';
-      const root=${JSON.stringify(root)}, policy=JSON.parse(readFileSync(root+'/scripts/security-policy.json','utf8'));
+      const root=${JSON.stringify(root)}, policy=${JSON.stringify(policy)};
       const args={raw:readFileSync(root+'/tests/fixtures/security-policy-audit.json','utf8'),exitCode:1,policy,
-        lockBytes:readFileSync(root+'/package-lock.json'),manifestBytes:readFileSync(root+'/package.json'),upstream:${JSON.stringify(upstream())}};
+        lockBytes:Buffer.from(${JSON.stringify(lockBytes.toString())}),manifestBytes:Buffer.from(${JSON.stringify(manifestBytes.toString())}),upstream:${JSON.stringify(upstream())}};
       console.log(evaluatePolicy({...args,now:${before}}).status);
       try{evaluatePolicy({...args,now:${expires}});process.exitCode=1;}catch{console.log('expired');}`;
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, TZ: zone }, encoding: 'utf8', windowsHide: true });
@@ -226,6 +236,6 @@ describe('security gate execution and client bundle preconditions', () => {
     } finally { rmSync(directory, { recursive: true }); }
   });
   it('runs the full audit against the official registry without severity suppression', () => {
-    expect(AUDIT_ARGS).toEqual(['audit', '--omit=optional', '--json', '--registry=https://registry.npmjs.org/']);
+    expect(AUDIT_ARGS).toEqual(['audit', '--json', '--registry=https://registry.npmjs.org/']);
   });
 });

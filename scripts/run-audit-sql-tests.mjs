@@ -8,6 +8,8 @@ import { verifyChecklistDeadlineIntegration } from './checklist-deadline-integra
 import { verifyDeadlineCron } from './checklist-deadline-cron.mjs';
 import { securityDatabaseContainers } from './security-test-harness.mjs';
 import { sqlTestSuites } from './sql-test-suites.mjs';
+import { receiptTestPolicySql } from './receipt-test-policy.mjs';
+import { createHash } from 'node:crypto';
 
 const root = resolve(import.meta.dirname, '..');
 const fresh = process.argv.includes('--fresh');
@@ -47,6 +49,7 @@ try {
     upgrade += readFileSync(resolve(root, 'supabase/migrations', name), 'utf8') + '\n';
   }
   sql(upgrade);
+  sql(receiptTestPolicySql);
   console.log(`PASS ${fresh ? 'FRESH' : 'UPGRADE'}: all migrations applied in isolation`);
   for (const name of plan.notApplicable) console.log(`NOT APPLICABLE on fresh DB (mandatory in upgrade run): ${name}`);
   console.log(`MANUAL ONLY: ${plan.manual}; automated equivalent required in test:backend:isolated`);
@@ -59,7 +62,11 @@ try {
   if (process.argv.includes('--advisors')) {
     // Run the official, pinned advisor SQL via the already verified container
     // connection. The CLI's Docker Desktop connection can time out here.
-    const lint = await fetch('https://raw.githubusercontent.com/supabase/splinter/fccca4b1c4d8b48b8ccd69bd6b30e84adcb92975/splinter.sql').then((r) => { if (!r.ok) throw new Error('Advisor SQL download failed'); return r.text(); });
+    const lint = process.env.TASKTRACE_ADVISOR_SQL_FILE
+      ? readFileSync(process.env.TASKTRACE_ADVISOR_SQL_FILE, 'utf8')
+      : await fetch('https://raw.githubusercontent.com/supabase/splinter/fccca4b1c4d8b48b8ccd69bd6b30e84adcb92975/splinter.sql').then((r) => { if (!r.ok) throw new Error('Advisor SQL download failed'); return r.text(); });
+    if (createHash('sha256').update(lint).digest('hex') !== 'd8d558baad3e03832e521c527907fa50a9a172fabd899dd0f5c2504a5a0e9349')
+      throw new Error('Pinned advisor SQL checksum mismatch');
     const start = lint.indexOf('\n(\nwith foreign_keys');
     if (start < 0) throw new Error('Unexpected advisor SQL structure');
     const output = sql(`begin; select set_config('pgrst.db_schemas','public',true);\n${lint.slice(0, start)}\ncreate temporary table deadline_security_findings as ${lint.slice(start)};\nselect name, level, count(*) from pg_temp.deadline_security_findings where 'SECURITY'=any(categories) group by name,level order by name;\ndo $$begin if exists(select 1 from pg_temp.deadline_security_findings where level='ERROR' and 'SECURITY'=any(categories)) then raise exception 'Security advisor errors'; end if; end$$; rollback;`);

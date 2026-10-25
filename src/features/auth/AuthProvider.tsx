@@ -17,12 +17,14 @@ import {
 } from './auth';
 import { closeAllRealtimeChannels } from '@/lib/supabase/realtime';
 import { parseAuthCallbackUrl, stripAuthCallbackParams } from './auth-links';
-import { readCachedModel as readThroughCache, activeCacheUserId, getCached, putCached } from '@/lib/local-cache/cache';
+import { readCachedModel as readThroughCache, activeCacheUserId, getCached, putCached, SupersededReadError } from '@/lib/local-cache/cache';
 import { subscribeReadModelCommits } from '@/lib/local-cache/read-model-events';
 import { clearRuntimeConfig } from '@/lib/local-cache/runtime-config';
 import { uiRead } from '@/lib/supabase/ui-read';
 import { invalidateOfflineRuntime } from '@/lib/local-cache/runtime-state';
-import { clearReadFreshness, currentReadAccount, setReadAccount } from '@/lib/local-cache/read-freshness';
+import { clearReadFreshness, currentReadAccount, setReadAccount, readAccountEpoch } from '@/lib/local-cache/read-freshness';
+import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
+import type { MutationOptions } from '@/lib/supabase/mutation';
 
 type AuthContextType = {
   state: AuthState;
@@ -34,7 +36,8 @@ type AuthContextType = {
   resendConfirmation: (email: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
   refreshSession: () => Promise<void>;
-  updateProfile: (displayName: string, expectedDisplayName: string) => Promise<void>;
+  updateProfile: (displayName: string, expectedDisplayName: string, options?: MutationOptions) => Promise<void>;
+  refreshProfile: () => Promise<Profile>;
   clearError: () => void;
 };
 
@@ -65,6 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(initialState);
   const [passwordNotice, setPasswordNotice] = useState<{ userId: string; message: string } | null>(null);
   const authAttempt = useRef(0);
+  const profileGeneration = useRef(0);
+  const profileController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,14 +107,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setState((prev) => ({ ...prev, isLoading: false, session, user: session.user,
         profile: prev.user?.id === session.user.id ? prev.profile : null, error: null }));
+      if (profileController.current && !profileController.current.signal.aborted) return;
+      const profileRequest = ++profileGeneration.current;
       const profile = await fetchProfile();
-      if (cancelled || currentGeneration !== generation) return;
+      if (cancelled || currentGeneration !== generation || profileRequest !== profileGeneration.current) return;
       setState((prev) => prev.user?.id === session.user.id ? { ...prev, profile } : prev);
     };
 
     const scheduleSessionApply = (session: AuthState['session']) => {
       if (cancelled) return;
       const nextUserId = session?.user?.id ?? null;
+      if (nextUserId !== currentReadAccount() || !nextUserId) {
+        profileGeneration.current += 1; profileController.current?.abort();
+      }
       setPasswordNotice((previous) => previous?.userId === nextUserId ? previous : null);
       // Fence callbacks synchronously, before publishing a different namespace.
       if (nextUserId !== currentReadAccount()) closeAllRealtimeChannels();
@@ -150,9 +160,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     const models = subscribeReadModelCommits((commit) => {
       if (!activeUserId || commit.userId !== activeUserId || !commit.keys.includes('profile:self')) return;
+      // A background cache echo must not supersede an explicit server read/save.
+      if (profileController.current && !profileController.current.signal.aborted) return;
       const currentGeneration = generation;
+      const profileRequest = ++profileGeneration.current;
       void getCached<Profile>(commit.userId, 'profile:self').then((profile) => {
-        if (!cancelled && generation === currentGeneration)
+        if (!cancelled && generation === currentGeneration && profileRequest === profileGeneration.current)
           setState((prev) => prev.user?.id === commit.userId ? { ...prev, profile } : prev);
       });
     });
@@ -179,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      profileGeneration.current += 1; profileController.current?.abort();
       clearRuntimeConfig();
       connectivity(); monitoring(); models();
       if (typeof window !== 'undefined') window.removeEventListener('storage', storageChanged);
@@ -276,14 +290,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateProfile = async (displayName: string, expectedDisplayName: string) => {
+  const updateProfile = async (displayName: string, expectedDisplayName: string, options?: MutationOptions) => {
     const userId = state.user?.id;
-    const { updateMyProfile } = await import('./auth');
-    if (!userId || await activeCacheUserId() !== userId) throw new Error('Сеанс изменился.');
-    const profile = await updateMyProfile(displayName, expectedDisplayName) as unknown as Profile;
-    if (profile?.id !== userId || await activeCacheUserId() !== userId) return;
-    await putCached(userId, 'profile:self', profile);
-    setState((prev) => prev.user?.id === userId ? { ...prev, profile } : prev);
+    const epoch = readAccountEpoch(); const request = ++profileGeneration.current;
+    profileController.current?.abort(); const controller = new AbortController(); profileController.current = controller;
+    const current = async () => {
+      const owner = await activeCacheUserId();
+      return !controller.signal.aborted && epoch === readAccountEpoch() && request === profileGeneration.current && owner === userId;
+    };
+    try {
+      const { updateMyProfile } = await import('./auth');
+      if (!userId || !await current() || controller.signal.aborted || epoch !== readAccountEpoch()) throw new SupersededReadError('Сеанс или профиль изменился.');
+      const profile = (options ? await updateMyProfile(displayName, expectedDisplayName, options)
+        : await updateMyProfile(displayName, expectedDisplayName)) as unknown as Profile;
+      if (profile?.id !== userId || !await current()) throw new SupersededReadError('Сеанс или профиль изменился.');
+      await putCached(userId, 'profile:self', profile, controller.signal);
+      if (!await current()) throw new SupersededReadError('Сеанс или профиль изменился.');
+      setState((prev) => prev.user?.id === userId && epoch === readAccountEpoch() && !controller.signal.aborted ? { ...prev, profile } : prev);
+    } finally { if (profileController.current === controller) profileController.current = null; }
+  };
+
+  const refreshProfile = async (): Promise<Profile> => {
+    if (usesLocalReads()) throw new ConnectivityUnavailableError();
+    const userId = state.user?.id; const epoch = readAccountEpoch(); const request = ++profileGeneration.current;
+    profileController.current?.abort(); const controller = new AbortController(); profileController.current = controller;
+    const current = async () => {
+      const owner = await activeCacheUserId();
+      return !!userId && !controller.signal.aborted && epoch === readAccountEpoch() && request === profileGeneration.current && owner === userId;
+    };
+    try {
+      if (!await current()) throw new SupersededReadError('Сеанс изменился.');
+      const { data, error } = await uiRead(supabase.rpc('get_my_profile'), controller.signal).catch((error) => {
+        if (controller.signal.aborted || epoch !== readAccountEpoch() || request !== profileGeneration.current)
+          throw new SupersededReadError('Сеанс или профиль изменился.');
+        throw error;
+      });
+      if (error) throw error;
+      const profile = data as Profile;
+      if (profile?.id !== userId || !await current()) throw new SupersededReadError('Сеанс или профиль изменился.');
+      await putCached(userId!, 'profile:self', profile, controller.signal);
+      if (!await current()) throw new SupersededReadError('Сеанс или профиль изменился.');
+      setState(prev => prev.user?.id === userId && epoch === readAccountEpoch() && !controller.signal.aborted ? { ...prev, profile } : prev);
+      return profile;
+    } finally { if (profileController.current === controller) profileController.current = null; }
   };
 
   const clearError = () => setState((prev) => ({ ...prev, error: null }));
@@ -299,6 +348,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     updatePassword,
     refreshSession,
     updateProfile,
+    refreshProfile,
     clearError,
   };
 

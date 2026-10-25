@@ -45,6 +45,24 @@ export type Database = {
         }
         Relationships: []
       }
+      followup_upgrade_ids: {
+        Row: {
+          item_id: string | null
+          project_id: string | null
+          task_id: string | null
+        }
+        Insert: {
+          item_id?: string | null
+          project_id?: string | null
+          task_id?: string | null
+        }
+        Update: {
+          item_id?: string | null
+          project_id?: string | null
+          task_id?: string | null
+        }
+        Relationships: []
+      }
       item_actions: {
         Row: {
           action: Database["public"]["Enums"]["item_action_type"]
@@ -542,6 +560,17 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_task_item_comment_operation_v3: {
+        Args: {
+          p_comment: string
+          p_epoch: number
+          p_expected_version: number
+          p_generation: string
+          p_operation_id: string
+          p_task_item_id: string
+        }
+        Returns: Json
+      }
       apply_task_item_percentage_operation: {
         Args: {
           p_operation_id: string
@@ -553,6 +582,17 @@ export type Database = {
       apply_task_item_percentage_operation_v2: {
         Args: {
           p_expected_version: number
+          p_operation_id: string
+          p_percentage: number
+          p_task_item_id: string
+        }
+        Returns: Json
+      }
+      apply_task_item_percentage_operation_v3: {
+        Args: {
+          p_epoch: number
+          p_expected_version: number
+          p_generation: string
           p_operation_id: string
           p_percentage: number
           p_task_item_id: string
@@ -571,6 +611,17 @@ export type Database = {
         Args: {
           p_completed: boolean
           p_expected_version: number
+          p_operation_id: string
+          p_task_item_id: string
+        }
+        Returns: Json
+      }
+      apply_task_item_state_operation_v3: {
+        Args: {
+          p_completed: boolean
+          p_epoch: number
+          p_expected_version: number
+          p_generation: string
           p_operation_id: string
           p_task_item_id: string
         }
@@ -645,6 +696,17 @@ export type Database = {
         Args: { p_args: Json; p_name: string; p_operation_id: string }
         Returns: Json
       }
+      execute_client_mutation_v3: {
+        Args: {
+          p_args: Json
+          p_epoch: number
+          p_generation: string
+          p_name: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
+      get_client_operation_context: { Args: never; Returns: Json }
       get_my_profile: {
         Args: never
         Returns: {
@@ -817,6 +879,26 @@ export type Database = {
       remove_task_member: {
         Args: { p_task_id: string; p_user_id: string }
         Returns: undefined
+      }
+      resolve_client_operation_v3: {
+        Args: {
+          p_epoch: number
+          p_generation: string
+          p_operation_id: string
+          p_payload: Json
+          p_target: string
+          p_type: string
+        }
+        Returns: Json
+      }
+      resolve_legacy_client_operation: {
+        Args: {
+          p_operation_id: string
+          p_payload: Json
+          p_target: string
+          p_type: string
+        }
+        Returns: Json
       }
       restore_project: { Args: { p_project_id: string }; Returns: undefined }
       restore_task: { Args: { p_task_id: string }; Returns: undefined }

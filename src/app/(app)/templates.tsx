@@ -49,6 +49,7 @@ export default function TemplatesScreen() {
   const editingItemDescription = itemDraft?.description ?? '';
   const [templateToDelete, setTemplateToDelete] = useState<TaskTemplate | null>(null);
   const [itemToDelete, setItemToDelete] = useState<TaskTemplateItem | null>(null);
+  const [dialogError, setDialogError] = useState<{ target: string; message: string } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -106,16 +107,18 @@ export default function TemplatesScreen() {
   useOnlineRecovery(load);
   useFocusEffect(useCallback(() => { void load(); return () => { loadRequestRef.current += 1; itemRequestRef.current += 1; }; }, [load]));
 
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<unknown>, dialogTarget?: string) {
     if (actionRef.current) return;
     actionRef.current = true;
     setBusy(true);
     setError('');
+    setDialogError(null);
     try {
       try {
         await action();
       } catch (e) {
-        setError(mutationUserMessage(e, 'Операция не выполнена.'));
+        const message = mutationUserMessage(e, 'Операция не выполнена.');
+        if (dialogTarget) setDialogError({ target: dialogTarget, message }); else setError(message);
         if ((e as { code?: string })?.code === 'PT409') await refreshFromServer();
         return;
       }
@@ -180,7 +183,7 @@ export default function TemplatesScreen() {
                   </Pressable>
                   {expanded ? (
                     <View style={styles.details}>
-                      <View style={styles.row}><ThemedText type="caption" style={styles.flex}>{canEdit ? 'Можно редактировать' : 'Только просмотр'}</ThemedText>{canEdit ? <Button size="sm" variant="destructive" disabled={busy} onPress={() => setTemplateToDelete(template)}>Удалить</Button> : null}</View>
+                      <View style={styles.row}><ThemedText type="caption" style={styles.flex}>{canEdit ? 'Можно редактировать' : 'Только просмотр'}</ThemedText>{canEdit ? <Button size="sm" variant="destructive" disabled={busy} onPress={() => { setDialogError(null); setTemplateToDelete(template); }}>Удалить</Button> : null}</View>
                       {canEdit ? <>
                         <Input label="Название" value={editName} onChangeText={(name) => change({ name })} maxLength={200} disabled={busy} />
                         <Textarea label="Описание" value={editDescription} onChangeText={(description) => change({ description })} maxLength={10000} disabled={busy} />
@@ -195,7 +198,7 @@ export default function TemplatesScreen() {
                            {editingItem === item.id ? <><Button size="sm" loading={busy} disabled={busy || !editingItemTitle.trim() || !itemDraft || draftConflicts(itemDraft, { ...item, name: item.title })} onPress={() => void run(async () => { if (!itemDraft) return; await updateTaskTemplateItem(item.id, editingItemTitle.trim(), editingItemDescription.trim(), undefined, itemDraft.baseline); setEditingItem(null); })}>Сохранить</Button><Button size="sm" variant="ghost" disabled={busy} onPress={() => setEditingItem(null)}>Отмена</Button></> : <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setEditingItem(item.id); beginItem({ ...item, name: item.title }); }}>Изменить</Button>}
                            <Button size="sm" variant="ghost" disabled={busy || index === 0} onPress={() => void run(() => moveTaskTemplateItem(item.id, -1))}>Вверх</Button>
                            <Button size="sm" variant="ghost" disabled={busy || index === expandedItems.length - 1} onPress={() => void run(() => moveTaskTemplateItem(item.id, 1))}>Вниз</Button>
-                           <Button size="sm" variant="ghost" disabled={busy} onPress={() => setItemToDelete(item)}>Удалить</Button>
+                           <Button size="sm" variant="ghost" disabled={busy} onPress={() => { setDialogError(null); setItemToDelete(item); }}>Удалить</Button>
                          </View> : null}
                        </View>)}</View>}
                       {canEdit ? <View style={styles.actions}><Input label="Новый пункт" value={newItem} onChangeText={setNewItem} maxLength={500} placeholder="Проверить сборку" disabled={busy} /><Button loading={busy} disabled={busy || !newItem.trim()} onPress={() => void run(async () => { await createTaskTemplateItem(template.id, newItem.trim()); setNewItem(''); })}>Добавить пункт</Button></View> : null}
@@ -213,14 +216,15 @@ export default function TemplatesScreen() {
         description={`Шаблон «${templateToDelete?.name ?? ''}» и его пункты будут удалены из доступного списка. Операция необратима для пользователя и не может быть отменена.`}
         confirmLabel="Удалить"
         busy={busy}
-        onCancel={() => setTemplateToDelete(null)}
+        error={dialogError?.target === `template:${templateToDelete?.id}` ? dialogError.message : undefined}
+        onCancel={() => { setTemplateToDelete(null); setDialogError(null); }}
         onConfirm={() => {
           const template = templateToDelete;
           if (!template) return;
           void run(async () => {
             await deleteTaskTemplate(template.id);
             setTemplateToDelete(null);
-          });
+          }, `template:${template.id}`);
         }}
       />
       <ConfirmDialog
@@ -229,14 +233,15 @@ export default function TemplatesScreen() {
         description={`Пункт «${itemToDelete?.title ?? ''}» будет удалён из шаблона без возможности восстановления.`}
         confirmLabel="Удалить пункт"
         busy={busy}
-        onCancel={() => setItemToDelete(null)}
+        error={dialogError?.target === `item:${itemToDelete?.id}` ? dialogError.message : undefined}
+        onCancel={() => { setItemToDelete(null); setDialogError(null); }}
         onConfirm={() => {
           const item = itemToDelete;
           if (!item) return;
           void run(async () => {
             await deleteTaskTemplateItem(item.id);
             setItemToDelete(null);
-          });
+          }, `item:${item.id}`);
         }}
       />
     </Screen>

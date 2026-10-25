@@ -22,7 +22,7 @@ export type OfflineRuntime = {
   bootstrap: Pick<BootstrapMetadata, 'user_id' | 'scheme' | 'manifest' | 'datasets' | 'assets_ready' | 'basic_ready'
     | 'extended_ready' | 'offline_ready' | 'completed_at' | 'last_successful_sync_at' | 'verified' | 'retry' | 'error'> | null;
   syncError: string | null;
-  queue: { pendingCount: number; unsyncedCount: number; failedCount: number; conflictCount: number; lastSuccessfulSyncAt: string | null; restored: boolean };
+  queue: { pendingCount: number; unsyncedCount: number; failedCount: number; reviewCount?: number; conflictCount: number; lastSuccessfulSyncAt: string | null; restored: boolean };
 };
 export type OperationTicket = {
   userId: string; slot: OperationSlot; id: number; epoch: number; signal: AbortSignal;

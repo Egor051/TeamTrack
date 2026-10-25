@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   userId: 'user-a' as string | null,
   conflicts: vi.fn(), snapshot: vi.fn(), operations: vi.fn(), mine: vi.fn(), server: vi.fn(),
   retry: vi.fn(), discard: vi.fn(), back: vi.fn(), removeBack: vi.fn(),
+  inspect: vi.fn(), onlineInspect: vi.fn(), acknowledge: vi.fn(), entries: vi.fn(),
   conflictListeners: new Set<(userId: string) => void>(), syncListeners: new Set<(userId: string) => void>(),
 }));
 vi.mock('react-native', () => ({
@@ -36,9 +37,12 @@ vi.mock('@/lib/local-cache/status', () => ({
   },
 }));
 vi.mock('@/lib/local-cache/outbox', () => ({ listPendingOperations: mocks.operations }));
+vi.mock('@/lib/local-cache/driver', () => ({ localCacheDriver: { listEntries: mocks.entries } }));
+vi.mock('@/lib/supabase/mutation', () => ({ inspectOnlineMutation: mocks.onlineInspect, acknowledgeOnlineReview: mocks.acknowledge, retryOnlineMutation: mocks.retry }));
 vi.mock('@/lib/local-cache/sync', () => ({
   chooseMine: mocks.mine, syncPendingOperations: vi.fn(async () => undefined),
   retryFailedOperation: mocks.retry, discardFailedOperation: mocks.discard,
+  inspectReviewOperation: mocks.inspect,
 }));
 
 import { ConflictGate } from '@/lib/local-cache/ConflictGate';
@@ -78,6 +82,55 @@ async function press(renderer: ReactTestRenderer, children: string) {
   await act(async () => { await renderer.root.findByProps({ children }).props.onPress(); });
 }
 
+describe('operation outcome review UI', () => {
+  it('keeps an expired draft visible without ordinary retry or a global conflict gate', async () => {
+    mocks.operations.mockResolvedValue([{ ...failed, status: 'review', last_error: 'TT_OPERATION_EXPIRED' }]);
+    mocks.snapshot.mockResolvedValue({ ...clean, reviewCount: 1, unsyncedCount: 1 });
+    const renderer = await render(createElement(RealtimeIndicator, { status: 'connected' }));
+    expect(body(renderer)).toContain('требуется согласование');
+    await act(async () => { renderer.root.findByProps({ accessibilityHint: 'Показать или скрыть действия синхронизации' }).props.onPress(); });
+    expect(body(renderer)).toContain('Ваш черновик');expect(body(renderer)).not.toContain('Отправить изменение снова');
+    await press(renderer, 'Получить актуальное состояние');
+    expect(mocks.inspect).toHaveBeenCalledWith('user-a','op-a');expect(body(renderer)).toContain('40%');
+    expect(mocks.retry).not.toHaveBeenCalled();expect(mocks.discard).not.toHaveBeenCalled();
+    const appRenderer = await render(gate());expect(blocked(appRenderer)).toBe(false);
+  });
+  it('requires a fresh read before acknowledging a reviewed online outcome', async () => {
+    const mutation = { id: 'online-op', name: 'create_project', args: { p_name: 'Draft' }, phase: 'review' };
+    const guard = JSON.stringify(mutation);
+    mocks.entries.mockResolvedValue([{ key: 'sync:mutation:create_project:self', data: guard }]);
+    mocks.onlineInspect.mockResolvedValue({ guard, current: [{ id: 'project', label: 'Actual server project', detail: '' }], resolution: { state: 'expired' } });
+    const renderer = await render(createElement(RealtimeIndicator, { status: 'connected' }));
+    await act(async () => { renderer.root.findByProps({ accessibilityHint: 'Показать или скрыть действия синхронизации' }).props.onPress(); });
+    expect(body(renderer)).not.toContain('Я сверил данные, закрыть уведомление');
+    await press(renderer,'Получить актуальное состояние');expect(body(renderer)).toContain('Actual server project');
+    await press(renderer,'Я сверил данные, закрыть уведомление');
+    expect(mocks.acknowledge).toHaveBeenCalledWith('user-a','sync:mutation:create_project:self',guard,{ state: 'expired' });
+    expect(mocks.retry).not.toHaveBeenCalled();
+  });
+  it('does not permit a new action while an open-window result remains unknown', async () => {
+    mocks.entries.mockResolvedValue([{ key: 'sync:mutation:create_project:self', data: JSON.stringify({ id: 'pending', phase: 'unknown' }) }]);
+    mocks.onlineInspect.mockResolvedValue({ guard: '{}', current: [], resolution: { state: 'unknown' } });
+    const renderer = await render(createElement(RealtimeIndicator, { status: 'connected' }));
+    await act(async () => { renderer.root.findByProps({ accessibilityHint: 'Показать или скрыть действия синхронизации' }).props.onPress(); });
+    await press(renderer,'Получить актуальное состояние');
+    expect(body(renderer)).not.toContain('Я сверил данные, закрыть уведомление');expect(mocks.acknowledge).not.toHaveBeenCalled();
+  });
+  it('offers an explicit retry of the existing handle only after an unknown-result read', async () => {
+    const mutation = { id: 'pending', phase: 'unknown', handle: { id: 'pending', generation: 'original', epoch: 7 } };
+    const guard = JSON.stringify(mutation);
+    mocks.entries.mockResolvedValue([{ key: 'sync:mutation:create_project:self', data: guard }]);
+    mocks.onlineInspect.mockResolvedValue({ guard, current: [], resolution: { state: 'unknown' } });
+    const renderer = await render(createElement(RealtimeIndicator, { status: 'connected' }));
+    await act(async () => { renderer.root.findByProps({ accessibilityHint: 'Показать или скрыть действия синхронизации' }).props.onPress(); });
+    expect(body(renderer)).not.toContain('Повторить прежнюю отправку');
+    await press(renderer, 'Получить актуальное состояние');
+    await press(renderer, 'Повторить прежнюю отправку');
+    expect(mocks.retry).toHaveBeenCalledWith('user-a', 'sync:mutation:create_project:self', guard, { state: 'unknown' });
+    expect(mocks.acknowledge).not.toHaveBeenCalled();
+  });
+});
+
 beforeEach(() => {
   vi.resetAllMocks(); mocks.userId = 'user-a';
   mocks.conflictListeners.clear(); mocks.syncListeners.clear();
@@ -85,6 +138,7 @@ beforeEach(() => {
   mocks.back.mockReturnValue({ remove: mocks.removeBack });
   mocks.mine.mockResolvedValue(undefined); mocks.server.mockResolvedValue(undefined);
   mocks.retry.mockResolvedValue(undefined); mocks.discard.mockResolvedValue(undefined);
+  mocks.entries.mockResolvedValue([]); mocks.inspect.mockResolvedValue({ state: 'expired', server: { id: 'item-a', percentage: 40, comment: 'Current' } });
   testWindow = Object.assign(new EventTarget(), { confirm: vi.fn(() => true) });
   vi.stubGlobal('window', testWindow); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const consoleError = console.error.bind(console);

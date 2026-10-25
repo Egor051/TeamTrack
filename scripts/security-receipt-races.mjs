@@ -16,7 +16,16 @@ export async function verifyReceiptAndAccessRaces({env,api,ids,fixture,business,
   if(state==='archive')await value(manager.rpc('archive_task_item',{p_task_item_id:f.item}));
   if(state==='delete'){await value(manager.rpc('archive_task_item',{p_task_item_id:f.item}));await value(manager.rpc('hard_delete_task_item',{p_task_item_id:f.item}));}
   const before=await business();
-  assert.deepEqual(await value(user.rpc('apply_task_item_comment_operation_v2',args)),original,'ACK changed after '+state);
+  const replay=await user.rpc('apply_task_item_comment_operation_v2',args);
+  // R01 preserves the historical receipt but suppresses its sensitive body
+  // once current read access is gone. Viewer/archive still retain read access.
+  if(state==='revoke'||state==='delete'){
+   assert.equal(replay.error?.code,'42501');assert.equal(replay.error?.details,'TT_OPERATION_RESULT_REDACTED');
+  }else assert.deepEqual(await value(Promise.resolve(replay)),original,'ACK changed after '+state);
+  const resolved=await value(user.rpc('resolve_legacy_client_operation',{p_operation_id:args.p_operation_id,
+   p_type:'set_task_item_comment_v2',p_target:f.item,p_payload:{comment:args.p_comment}}));
+  if(state==='revoke'||state==='delete')assert.deepEqual(resolved,{state:'result_redacted',terminal:true});
+  else assert.deepEqual(resolved,{state:'completed',result:original});
   assert.equal(await business(),before,'duplicate ACK mutated state after '+state);
   const version=(await env.db.query('select sync_version from public.task_items where id=$1',[f.item])).rows[0]?.sync_version??3;
   const denied=await user.rpc('apply_task_item_comment_operation_v2',{...args,p_operation_id:randomUUID(),p_expected_version:version,p_comment:'Unauthorized new write'});

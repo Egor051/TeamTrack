@@ -19,18 +19,31 @@ import { useTheme, type ThemeMode } from '@/components/ui/theme-provider';
 import { useOfflineBootstrap } from '@/lib/local-cache/use-offline-bootstrap';
 import { selectOfflineScheme } from '@/lib/local-cache/bootstrap';
 import type { OfflineScheme } from '@/lib/local-cache/bootstrap-types';
+import { draftConflicts, useTextDraft } from '@/features/projects/use-text-draft';
 
 const roleLabels = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
 
 export default function ProfileScreen() {
-  const { state, signOut, updateProfile } = useAuth();
+  const { state } = useAuth();
+  return <ProfileContent key={state.user?.id ?? 'signed-out'} />;
+}
+
+function ProfileContent() {
+  const { state, signOut, updateProfile, refreshProfile } = useAuth();
   const theme = useTheme();
   const userId = state.user?.id;
   const [busyAction, setBusyAction] = useState<'save' | 'transfer' | 'logout' | null>(null);
   const actionRef = useRef(false);
+  const retryProfileIntent = useRef(false);
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState('');
-  const [nameBaseline, setNameBaseline] = useState('');
+  const { draft, begin, accept, change, cancel, rebase } = useTextDraft();
+  const name = draft?.name ?? '';
+  const [conflictPending, setConflictPending] = useState(false);
+  const profileRequest = useRef({ generation: 0 });
+  const remote = state.profile ? { id: state.profile.id, name: state.profile.display_name, description: null } : null;
+  const profileConflict = conflictPending || draftConflicts(draft, remote);
+  useEffect(() => { if (state.profile) accept({ id: state.profile.id, name: state.profile.display_name, description: null }); }, [state.profile, accept]);
+  useEffect(() => { const request = profileRequest.current; return () => { request.generation++; }; }, []);
   const [profileError, setProfileError] = useState('');
   const [profileSaved, setProfileSaved] = useState(false);
   const [ownedLoading, setOwnedLoading] = useState(true);
@@ -99,16 +112,35 @@ export default function ProfileScreen() {
   }
 
   async function save() {
-    if (actionRef.current) return;
+    if (actionRef.current || !draft || profileConflict) return;
+    const request = ++profileRequest.current.generation;
     const value = name.trim();
     if (value.length < 2 || value.length > 80) { setProfileError('Ник должен содержать от 2 до 80 символов.'); return; }
     if (!/^[\p{L}\p{N}_ .-]+$/u.test(value)) { setProfileError('Используйте буквы, цифры, пробелы и символы _ . -'); return; }
     actionRef.current = true;
     setBusyAction('save');
     setProfileError('');
-    try { await updateProfile(value, nameBaseline); setEditing(false); setProfileSaved(true); }
-    catch (e) { setProfileError(mutationUserMessage(e, 'Не удалось сохранить ник.')); }
-    finally { actionRef.current = false; setBusyAction(null); }
+    try { await updateProfile(value, draft.baseline.name, { mode: retryProfileIntent.current ? 'retry' : 'new' }); if (request === profileRequest.current.generation) { retryProfileIntent.current = false; setEditing(false); cancel(); setProfileSaved(true); } }
+    catch (e) {
+      if (request !== profileRequest.current.generation) return;
+      const failure = e as { name?: string; code?: string; details?: string };
+      retryProfileIntent.current = failure.name === 'MutationOutcomeUnknownError' || failure.name === 'TimeoutError'
+        || ['TT_RECEIPT_POLICY', 'TT_RECEIPT_LIMIT', 'TT_RECEIPT_RATE'].includes(failure.details ?? '');
+      setProfileError(mutationUserMessage(e, 'Не удалось сохранить ник.'));
+      if ((e as { code?: string })?.code === 'PT409') { setConflictPending(true); await readConflict(request); }
+    }
+    finally { if (request === profileRequest.current.generation) { actionRef.current = false; setBusyAction(null); } }
+  }
+
+  async function readConflict(request: number) {
+    try { await refreshProfile(); if (request === profileRequest.current.generation) setConflictPending(false); }
+    catch (error) { if (request === profileRequest.current.generation) setProfileError(userMessage(error, 'Не удалось получить актуальный профиль. Черновик сохранён.')); }
+  }
+  async function retryProfileRead() {
+    if (actionRef.current) return;
+    actionRef.current = true; setBusyAction('save'); const request = ++profileRequest.current.generation;
+    try { await readConflict(request); }
+    finally { if (request === profileRequest.current.generation) { actionRef.current = false; setBusyAction(null); } }
   }
 
   async function transfer() {
@@ -148,12 +180,17 @@ export default function ProfileScreen() {
         <View style={styles.identityText}><ThemedText type="h2">{state.profile?.display_name || 'Пользователь'}</ThemedText><ThemedText type="small" selectable>{state.user?.email}</ThemedText></View>
       </View>
       {editing ? <>
-        <Input label="Ник" value={name} onChangeText={(value) => { setName(value); setProfileError(''); }} hint="От 2 до 80 символов. Это имя видят участники ваших проектов." error={profileError} autoFocus disabled={busy} maxLength={80} onSubmitEditing={() => void save()} returnKeyType="done" />
+        <Input label="Ник" value={name} onChangeText={(value) => { change({ name: value }); setProfileError(''); }} hint="От 2 до 80 символов. Это имя видят участники ваших проектов." error={profileError} autoFocus disabled={busy} maxLength={80} onSubmitEditing={() => void save()} returnKeyType="done" />
+        {profileConflict ? <View style={styles.heading}>
+          <ThemedText>Профиль изменён в другой сессии. Ваш черновик сохранён.{!conflictPending && remote ? ` На сервере: «${remote.name}».` : ''}</ThemedText>
+          {conflictPending ? <Button variant="outline" disabled={busy} onPress={() => void retryProfileRead()}>Обновить профиль</Button>
+            : remote ? <Button variant="outline" disabled={busy} onPress={() => { retryProfileIntent.current = false; rebase(remote); setProfileError(''); }}>Продолжить с моим черновиком</Button> : null}
+        </View> : null}
         <View style={styles.actions}>
-          <Button loading={busyAction === 'save'} disabled={busy || !name.trim() || name.trim() === state.profile?.display_name} onPress={() => void save()}>Сохранить</Button>
-          <Button variant="outline" disabled={busy} onPress={() => { setEditing(false); setProfileError(''); }}>Отмена</Button>
+          <Button loading={busyAction === 'save'} disabled={busy || profileConflict || !name.trim() || name.trim() === state.profile?.display_name} onPress={() => void save()}>Сохранить</Button>
+          <Button variant="outline" disabled={busy} onPress={() => { profileRequest.current.generation++; cancel(); setEditing(false); setConflictPending(false); setProfileError(''); }}>Отмена</Button>
         </View>
-      </> : <Button size="sm" variant="outline" style={styles.leading} disabled={busy || !state.profile} onPress={() => { const baseline = state.profile?.display_name || ''; setName(baseline); setNameBaseline(baseline); setProfileError(''); setProfileSaved(false); setEditing(true); }}>Изменить ник</Button>}
+      </> : <Button size="sm" variant="outline" style={styles.leading} disabled={busy || !remote} onPress={() => { retryProfileIntent.current = false; if (remote) begin(remote); setConflictPending(false); setProfileError(''); setProfileSaved(false); setEditing(true); }}>Изменить ник</Button>}
       {profileSaved ? <ThemedText type="small" accessibilityLiveRegion="polite" style={{ color: theme.colors.success }}>Ник сохранён.</ThemedText> : null}
     </Card>
     <Card style={styles.section}>

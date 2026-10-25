@@ -75,7 +75,7 @@ try {
     if (mode === 'data-down' && path.startsWith('/rest/v1/')) return route.fulfill({ status: 503, body: 'Gateway temporarily unavailable' });
     if (mode === 'auth-down' && path === '/auth/v1/health') return route.fulfill({ status: 503, contentType: 'application/json', body: '{"message":"Auth unavailable"}' });
     if (mode === 'query-failure' && path === '/rest/v1/projects' && url.searchParams.get('limit') !== '0') return route.abort('failed');
-    if (dropNextMutationResponse && /\/rpc\/apply_task_item_state_operation_v2$/.test(path)) {
+    if (dropNextMutationResponse && /\/rpc\/apply_task_item_state_operation_v3$/.test(path)) {
       dropNextMutationResponse = false;
       const response = await route.fetch(); assert.equal(response.status(), 200, 'Mutation must commit before losing its response');
       dropped = true; return route.abort('failed');
@@ -120,7 +120,7 @@ try {
   await refresh(); assert.equal((await pending(user.id))[0].operation_id, firstOperation, 'Offline Refresh changed the operation identity');
   await context.setOffline(false); await connected(); await until(async () => (await pending(user.id)).length === 0, 'Offline outbox did not drain');
   assert.equal((await db.query('select percentage from public.task_items where id=$1', [item])).rows[0].percentage, 100);
-  assert.equal((await db.query('select count(*)::int as n from private.client_operation_receipts where user_id=$1 and operation_id=$2', [user.id, firstOperation])).rows[0].n, 1);
+  assert.equal((await db.query('select count(*)::int as n from private.client_operation_receipts_v3 where user_id=$1 and operation_id=$2', [user.id, firstOperation])).rows[0].n, 1);
   pass('offline Refresh retains the outbox and reconnect commits its operation once');
 
   await page.goto(taskUrl); await checkbox.waitFor(); await connected(); await context.setOffline(true); await checkbox.click();
@@ -130,7 +130,7 @@ try {
   await page.goto(`${origin}/projects`); await page.getByText('Connectivity recovery project', { exact: true }).waitFor();
   await refresh(); await until(async () => (await pending(user.id)).length === 0, 'Lost response did not reconcile');
   assert.equal((await db.query('select percentage from public.task_items where id=$1', [item])).rows[0].percentage, 0);
-  assert.equal((await db.query('select count(*)::int as n from private.client_operation_receipts where user_id=$1 and operation_id=$2', [user.id, secondOperation])).rows[0].n, 1);
+  assert.equal((await db.query('select count(*)::int as n from private.client_operation_receipts_v3 where user_id=$1 and operation_id=$2', [user.id, secondOperation])).rows[0].n, 1);
   pass('lost committed RPC response replays the same operation without a duplicate mutation');
   assert.deepEqual(errors, []); await page.screenshot({ path: resolve(evidence, 'recovered.png'), fullPage: true });
 } catch (error) {

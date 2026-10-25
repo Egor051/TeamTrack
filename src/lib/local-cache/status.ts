@@ -13,6 +13,7 @@ export type SyncState = {
   pendingCount: number;
   unsyncedCount: number;
   failedCount: number;
+  reviewCount?: number;
   conflictCount: number;
   lastSuccessfulSyncAt: string | null;
   lastErrorKind: string | null;
@@ -88,8 +89,9 @@ export async function getSyncState(userId: string): Promise<SyncState> {
   const value = last ? JSON.parse(last.data) as unknown : null;
   const queue = {
     pendingCount: operations.filter((row) => row.status === 'pending' || row.status === 'synced_unreconciled').length,
-    unsyncedCount: operations.filter((row) => ['pending', 'synced_unreconciled', 'failed', 'conflict'].includes(row.status)).length,
+    unsyncedCount: operations.length,
     failedCount: operations.filter((row) => row.status === 'failed').length,
+    reviewCount: operations.filter((row) => row.status === 'review').length,
     conflictCount: conflicts.length,
     lastSuccessfulSyncAt: typeof value === 'string' ? value : null,
   };

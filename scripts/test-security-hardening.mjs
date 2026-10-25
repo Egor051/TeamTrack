@@ -5,6 +5,7 @@ import {createSecurityDatabase,asUser,root} from './security-test-harness.mjs';
 import {startSecurityApi} from './security-test-api.mjs';
 import {restoreHostedSecurityFixture} from './security-hosted-fixture.mjs';
 import {verifyReceiptAndAccessRaces} from './security-receipt-races.mjs';
+import {receiptTestPolicySql} from './receipt-test-policy.mjs';
 const output=process.env.TASKTRACE_SECURITY_EVIDENCE||root+'/.expo/security-evidence';
 mkdirSync(output,{recursive:true});
 const checks=[],coverage=[];
@@ -16,6 +17,7 @@ try{
   await restoreHostedSecurityFixture(env);
   for(const file of readdirSync(root+'/supabase/migrations').filter(n=>n.endsWith('.sql')&&n>='20261016191158_').sort())
    env.sql('set role postgres;set search_path=public,extensions;\n'+readFileSync(root+'/supabase/migrations/'+file,'utf8'));
+  env.sql(receiptTestPolicySql);
  }
  api=await startSecurityApi(env);
  const ids=Array.from({length:7},()=>randomUUID());

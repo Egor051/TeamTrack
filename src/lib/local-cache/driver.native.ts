@@ -3,6 +3,7 @@ import type { CacheEntry, LocalCacheDriver, OfflineOperation, OfflineOperationIn
 import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
 import { assertDiscardableChain } from './failed-chain';
+import { assertConflictDiscardable, bindAttempt, rebaseAttempts } from './operation-attempt';
 
 const pullKey = 'sync:task-items:cursor';
 type Tx = SQLite.SQLiteDatabase;
@@ -83,6 +84,11 @@ function database(): Promise<SQLite.SQLiteDatabase> {
           await tx.execAsync('ALTER TABLE pending_operations ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 1; PRAGMA user_version = 5;');
         });
       }
+      if ((version?.user_version ?? 0) < 6) {
+        await db.withExclusiveTransactionAsync(async tx => {
+          await tx.execAsync('ALTER TABLE pending_operations ADD COLUMN operation_handle TEXT; ALTER TABLE pending_operations ADD COLUMN logical_operation_id TEXT; PRAGMA user_version = 6;');
+        });
+      }
       return db;
     })().catch((error) => {
       databasePromise = null;
@@ -98,6 +104,18 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
     exclusiveBase(db, async (tx) => { check(); await action(tx); check(); });
   return {
   withOperation: operationDriver,
+  async bindOperationHandle(userId, operationId, handle) {
+    const db = await database(); let saved: OfflineOperation | undefined;
+    await exclusive(db, async tx => {
+      const row = await tx.getFirstAsync<OfflineOperation & { payload: string; operation_handle: string | null }>(
+        'SELECT * FROM pending_operations WHERE user_id = ? AND operation_id = ?', [userId, operationId]);
+      if (!row) throw new Error('Операция недоступна.');
+      saved = bindAttempt({ ...row, payload: JSON.parse(row.payload), operation_handle: row.operation_handle ? JSON.parse(row.operation_handle) : null }, handle);
+      await tx.runAsync('UPDATE pending_operations SET operation_handle = ?, logical_operation_id = ? WHERE user_id = ? AND operation_id = ?',
+        [JSON.stringify(saved.operation_handle), saved.logical_operation_id ?? operationId, userId, operationId]);
+    });
+    return saved!;
+  },
   async commitCacheBatch(userId, batch, removeKeys = [], guards = []) {
     if (batch.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
     const db = await database();
@@ -193,14 +211,25 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
       taskId ? [userId, taskId] : [userId],
     );
     return rows.map((row) => ({ ...row, payload: JSON.parse(row.payload) as OfflineOperation['payload'],
+      operation_handle: typeof row.operation_handle === 'string' ? JSON.parse(row.operation_handle) : row.operation_handle,
       server_result: row.server_result == null ? undefined : JSON.parse(row.server_result as string) as OfflineOperation['server_result'] }));
   },
-  async markOperation(userId, operationId, status, result, error) {
+  async markOperation(userId, operationId, status, result, error, reviewConflictId) {
     const db = await database();
     await exclusive(db, async (tx) => { await tx.runAsync(
       'UPDATE pending_operations SET status = ?, server_result = ?, last_error = ? WHERE user_id = ? AND operation_id = ?',
       [status, result === undefined ? null : JSON.stringify(result), error ?? null, userId, operationId],
-    ); });
+    );
+      if (status === 'review' && reviewConflictId) {
+        const row = await tx.getFirstAsync<{ data: string }>('SELECT data FROM sync_conflicts WHERE conflict_id = ? AND user_id = ?', [reviewConflictId, userId]);
+        const operation = await tx.getFirstAsync('SELECT operation_id FROM pending_operations WHERE user_id = ? AND operation_id = ?', [userId, operationId]);
+        if (operation && row && decodeConflict(row).operation_ids.includes(operationId)) {
+          for (const id of decodeConflict(row).operation_ids) if (id !== operationId)
+            await tx.runAsync('UPDATE pending_operations SET status = ? WHERE user_id = ? AND operation_id = ? AND status = ?', ['pending', userId, id, 'conflict']);
+          await tx.runAsync('DELETE FROM sync_conflicts WHERE conflict_id = ? AND user_id = ?', [reviewConflictId, userId]);
+        }
+      }
+    });
   },
   async acknowledgeOperation(userId, operationId, version, conflictId, item) {
     const db = await database();
@@ -250,15 +279,21 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
       if (!row) throw new Error('Conflict unavailable');
       const conflict = decodeConflict(row);
       const chain = await tx.getAllAsync<OfflineOperation>(
-        'SELECT operation_id, status, sequence FROM pending_operations WHERE user_id = ? AND task_item_id = ? ORDER BY sequence',
+        'SELECT * FROM pending_operations WHERE user_id = ? AND task_item_id = ? ORDER BY sequence',
         [userId, conflict.task_item_id]);
-      const first = chain.find((operation) => conflict.operation_ids.includes(operation.operation_id)
-        && operation.status !== 'synced_unreconciled');
-      for (const operation of chain) {
-        if (!conflict.operation_ids.includes(operation.operation_id) || operation.status === 'synced_unreconciled') continue;
-        await tx.runAsync('UPDATE pending_operations SET expected_version = CASE WHEN operation_id = ? THEN ? ELSE expected_version END, status = ? WHERE user_id = ? AND operation_id = ?',
-          [first?.operation_id ?? '', version, 'pending', userId, operation.operation_id]);
+      const selected = chain.filter(row => conflict.operation_ids.includes(row.operation_id));
+      const rebased = rebaseAttempts(selected, version);
+      if (rebased.operations === selected) return;
+      for (const operation of rebased.operations) {
+        const old = selected.find(row => row.sequence === operation.sequence)!;
+        await tx.runAsync('UPDATE pending_operations SET operation_id = ?, expected_version = ?, status = ?, operation_handle = ?, logical_operation_id = ?, depends_on_operation_id = ?, last_error = NULL WHERE user_id = ? AND sequence = ?',
+          [operation.operation_id, operation.expected_version ?? null, operation.status,
+            operation.operation_handle ? (typeof operation.operation_handle === 'string' ? operation.operation_handle : JSON.stringify(operation.operation_handle)) : null,
+            operation.logical_operation_id ?? old.operation_id, operation.depends_on_operation_id ?? null, userId, operation.sequence]);
       }
+      for (const [oldId, newId] of rebased.ids) await tx.runAsync('UPDATE pending_operations SET depends_on_operation_id = ? WHERE user_id = ? AND depends_on_operation_id = ?', [newId, userId, oldId]);
+      await tx.runAsync('UPDATE sync_conflicts SET data = ? WHERE conflict_id = ? AND user_id = ?',
+        [JSON.stringify({ ...conflict, operation_ids: conflict.operation_ids.map(id => rebased.ids.get(id) ?? id) }), conflictId, userId]);
     });
   },
   async resolveServerConflict(userId, conflictId) {
@@ -267,6 +302,8 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
       const row = await tx.getFirstAsync<{ data: string }>('SELECT data FROM sync_conflicts WHERE conflict_id = ? AND user_id = ?', [conflictId, userId]);
       if (!row) throw new Error('Conflict unavailable');
       const conflict = decodeConflict(row);
+      const chain = await tx.getAllAsync<OfflineOperation>('SELECT operation_id, status FROM pending_operations WHERE user_id = ? AND task_item_id = ?', [userId, conflict.task_item_id]);
+      assertConflictDiscardable(chain.filter(operation => conflict.operation_ids.includes(operation.operation_id)));
       const before = await readEntries(tx, userId);
       const after = applyPullToEntries(before, [{ cursor: 0, task_id: conflict.task_id,
         task_item_id: conflict.task_item_id, change_type: conflict.server_state ? 'upsert' : 'delete',

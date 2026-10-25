@@ -1,0 +1,314 @@
+{
+  "status": "APPROVED_ACTIVE_TEMPORARY_EXCEPTION",
+  "approved": true,
+  "owner": null,
+  "approvalReference": "Explicit project-owner approval for only GHSA-86w9-cpqp-85rv and GHSA-mrhx-c7xc-m3w5 for 14 days in attachments 282cee6b-fd99-4fc2-b61a-a39ebe323c87 and 388a3e23-7ac1-4bfa-af74-7e4eb655173e, 2026-10-25; latter authorizes activation after compatible patches and verification. No publication or production authorization.",
+  "startsAt": "2026-10-25T10:32:09.000Z",
+  "expiresAt": "2026-11-08T10:32:09.000Z",
+  "durationDays": 14,
+  "exceptionProfile": "expo57-unsigned-tooling-20261025",
+  "updatedPackages": [
+    {
+      "name": "fast-uri",
+      "from": "3.1.8",
+      "to": "3.1.9",
+      "parent": "workbox-build@7.4.1 > ajv@8.20.0",
+      "parentRange": "^3.0.1"
+    },
+    {
+      "name": "serialize-javascript",
+      "from": "7.1.2",
+      "to": "7.1.4",
+      "parent": "workbox-build@7.4.1 > @rollup/plugin-terser@1.0.0",
+      "parentRange": "^7.0.3"
+    }
+  ],
+  "removedAdvisoryIds": [
+    "GHSA-w74x-v6f9-j3xg",
+    "GHSA-xhq7-xmqj-769h",
+    "GHSA-wjr9-j795-jxcr",
+    "GHSA-333x-w4r6-6crp",
+    "GHSA-m5mm-p8h7-m29v"
+  ],
+  "remainingAdvisories": [
+    {
+      "id": "GHSA-86w9-cpqp-85rv",
+      "package": "node-forge",
+      "version": "1.4.0",
+      "severity": "high",
+      "npmSource": 1240912,
+      "range": "<=1.4.0",
+      "advisoryUpdatedAt": "2026-10-01T21:09:10Z",
+      "firstPatchedVersion": null,
+      "compatibleMajor": 1,
+      "latestVersion": "1.4.0",
+      "rationale": "No official patched node-forge release. Certificate/RSA/CSR verification remains in tooling; unsigned export wrapper rejects configured signing inputs and known privileged credentials. Privileged signing is outside this exception."
+    },
+    {
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "version": "3.25.76",
+      "severity": "high",
+      "npmSource": 1243066,
+      "range": "<4.6.6",
+      "advisoryUpdatedAt": "2026-10-23T18:26:52Z",
+      "firstPatchedVersion": "4.6.6",
+      "compatibleMajor": 3,
+      "latestVersion": "4.6.7",
+      "rationale": "Patched 4.6.6 is outside Expo CLI ^3.25.76. Reviewed unsigned export does not start network DevTools; plugins/config come from frozen reviewed inputs. Any compatible backport or Expo 57 tooling release blocks for reassessment."
+    }
+  ],
+  "reviewedPackages": [
+    {
+      "package": "@expo/cli",
+      "paths": [
+        {
+          "path": "node_modules/expo/node_modules/@expo/cli",
+          "version": "57.0.32"
+        }
+      ]
+    },
+    {
+      "package": "@expo/code-signing-certificates",
+      "paths": [
+        {
+          "path": "node_modules/@expo/code-signing-certificates",
+          "version": "0.0.6"
+        }
+      ]
+    },
+    {
+      "package": "expo",
+      "paths": [
+        {
+          "path": "node_modules/expo",
+          "version": "57.0.31"
+        }
+      ]
+    },
+    {
+      "package": "node-forge",
+      "paths": [
+        {
+          "path": "node_modules/node-forge",
+          "version": "1.4.0"
+        }
+      ]
+    },
+    {
+      "package": "zod",
+      "paths": [
+        {
+          "path": "node_modules/zod",
+          "version": "3.25.76"
+        }
+      ]
+    },
+    {
+      "package": "fast-uri",
+      "paths": [
+        {
+          "path": "node_modules/fast-uri",
+          "version": "3.1.9"
+        }
+      ]
+    },
+    {
+      "package": "serialize-javascript",
+      "paths": [
+        {
+          "path": "node_modules/serialize-javascript",
+          "version": "7.1.4"
+        }
+      ]
+    }
+  ],
+  "rawAuditExitCode": 1,
+  "vulnerabilities": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 5,
+    "critical": 0,
+    "total": 5
+  },
+  "lockSha256": "11dea78e22dc9fca39b5df454a2b580c4a983fbe160bdee4f4044742df006808",
+  "packageManifestSha256": "50a22385d9f0808baf27102019c5baae2b28530353387f3c43f4da5d8ba177a8",
+  "auditGraphNormalization": "arborist-derived-metadata-v2",
+  "auditGraphSha256": "090c1d76aa282ff1eb710412aa74f1b5a2c93d3d0cfb97bd1531d6b0340c18ed",
+  "lockGraphSha256": "48d0673c48cc6584fa7a07e24dad8329ceb07a80b58bb40cbcedc8436d6cb885",
+  "controlHashNormalization": "utf8-lf-v1",
+  "controlsSha256": "f2f57ff988d3212e5c3b4610244eaa935c4605bb08eba2a4d41ce9b1172eb384",
+  "releaseManifestSha256": "734f8a88143c924ae0f8f4e4e66e43c4bff9af4633576d4c7a9b86b5d1ddc4c9",
+  "policyFile": "scripts/security-policy.json",
+  "scope": "isolated-unsigned-static-export",
+  "compensatingMeasures": [
+    "Guarded Expo export only; EXPO_NO_DOTENV=1 is forced; signing/private-key arguments are not accepted",
+    "Configured code-signing and dynamic Expo config are rejected; known signing/cloud credentials and Node preload are rejected",
+    "Dev server defaults are localhost; networked DevTools and external privileged EAS/signing processes are outside approval",
+    "CI uses hosted isolated runners, read-only repository permission, pinned actions, no secret references, and checkout without persisted credentials",
+    "Control files, full lock, manifest, audit graph, exact installed versions/paths and all three bundle source maps are verified; build provenance binds current source/config/lock",
+    "Raw full npm audit is preserved with its true exit code; unknown advisory, missing metadata, drift, violated controls or expiry fail closed",
+    "Release decision preserves clean versus exception classification and rechecks hashes and expiry; F07 and production hold remain independent"
+  ],
+  "earlyTermination": [
+    "Absolute UTC expiry reached",
+    "New advisory, severity/scope/official metadata change",
+    "Lock/manifest/audit/installed graph or version drift",
+    "Compensating controls or source-map/provenance violation",
+    "Compatible upstream library or Expo 57 tooling release appears",
+    "Audit/advisory/registry evidence unavailable or malformed"
+  ],
+  "renewal": "Never renewed by CI, audit, build or lock update. A new explicit owner decision and reassessment are required.",
+  "externalScopeLimitations": [
+    "Privileged EAS/signing and networked DevTools are outside this exception; no external settings inspected or changed",
+    "Exports and browser descriptors are not physical Android/iOS or signed native/OTA acceptance",
+    "Actual GitHub workflow run is pending authorized delivery; local workflow/decision validation passed"
+  ],
+  "verification": {
+    "node22": {
+      "version": "22.20.0",
+      "tests": 992,
+      "passed": 992,
+      "success": true
+    },
+    "node24": {
+      "version": "24.15.0",
+      "tests": 992,
+      "passed": 992,
+      "success": true
+    },
+    "priorUnitTests": 931,
+    "addedUnitTests": 61,
+    "securityFocused": {
+      "legacyGate": 49,
+      "currentException": 61,
+      "releaseTools": 16,
+      "total": 126
+    },
+    "cleanNpmCi": 0,
+    "cleanNpmLs": 0,
+    "mainNpmCi": 0,
+    "mainNpmLs": 0,
+    "npmExplain": 0,
+    "typecheck": 0,
+    "lint": 0,
+    "expoDoctor": "21/21 PASS",
+    "webExport": 0,
+    "allPlatformExports": 0,
+    "workbox": {
+      "precacheEntries": 6,
+      "revisionValidation": "PASS"
+    },
+    "pwa": [
+      {
+        "name": "android-chromium",
+        "pass": true,
+        "navigationRecoveryMs": 5096,
+        "bodyRecoveryMs": 5048,
+        "updateReloads": 2,
+        "errors": []
+      },
+      {
+        "name": "ios-webkit",
+        "pass": true,
+        "navigationRecoveryMs": 5336,
+        "bodyRecoveryMs": 5160,
+        "updateReloads": 2,
+        "errors": []
+      }
+    ],
+    "browserStorage": [
+      "Chromium PASS: old SW/v5 coexistence, v6 compatible fallback, blocked upgrade recovery, real process restart with v2/v3 queue and handles",
+      "WebKit PASS: old SW/v5 coexistence, v6 compatible fallback, blocked upgrade recovery, real process restart with v2/v3 queue and handles"
+    ],
+    "workflowValidation": 0,
+    "actionlint": 0,
+    "sqlManifestCheck": 0,
+    "githubWorkflowExecuted": false,
+    "actualSecurityCliExitCode": 0,
+    "actualRawAuditExitCode": 1,
+    "releaseDecisionClassification": {
+      "status": "PASS WITH APPROVED EXCEPTION",
+      "npmAudit": "FAIL",
+      "policySha256": "e07122de4ababd6057457ea3b55c522da484a0b9688ce07c245dcb6cf1e8d8b7",
+      "lockSha256": "11dea78e22dc9fca39b5df454a2b580c4a983fbe160bdee4f4044742df006808",
+      "expiresAt": "2026-11-08T10:32:09.000Z"
+    },
+    "fullReleaseReceiptCreated": false
+  },
+  "bundleEvidence": {
+    "mode": "Per-build hashes plus current source/lock provenance; local map hashes are review evidence, not a cross-platform reproducibility assertion",
+    "inputsSha256": "15bfa98f970e490e3a15ada608d6c3bae3e04600c2eb8c41a30926b536940a40",
+    "maps": [
+      {
+        "platform": "android",
+        "sources": 1461,
+        "mapSha256": "ef89417e5bb019576aba1c7f3ab877855624c171a5bd52033a21998a37558356",
+        "bundleSha256": "792ca96d2c1ffb98f612058e0b562e90e807ea9e29d61ff8bfee99a202b03de4",
+        "map": "_expo/static/js/android/entry-504cbee9a6f691ca0ca576aa46bc68d4.hbc.map"
+      },
+      {
+        "platform": "ios",
+        "sources": 1326,
+        "mapSha256": "8303d2e0345baaa4cfb4e367a823c4298366a7ac00a333fdfafbb529a66c09d9",
+        "bundleSha256": "7095367b1acd09e5b05b3c812c79a3b989129d1c44ffb87e9fdcaea8034c72fb",
+        "map": "_expo/static/js/ios/entry-ef355fd9baee0fc31c68647c00c76232.hbc.map"
+      },
+      {
+        "platform": "web",
+        "sources": 974,
+        "mapSha256": "6f427f5eda207d0021c3a825eb4f51f712a76116043e462fe738cf618f781fc7",
+        "bundleSha256": "b07b31865496c7d6a28edec62a029eeeede3e7518e800ff3736e3b6a730ad1a7",
+        "map": "_expo/static/js/web/entry-cea316e659b51bfcda7887d5a14dfabc.js.map"
+      }
+    ],
+    "artifact": ".expo/compatible-rollback/rollback-manifest.json",
+    "localVerificationOnly": true,
+    "fileCount": 103,
+    "proof": "Per-build source/lock/manifest and map/bundle hashes are checked; the final full-source rollback manifest is regenerated after these documents"
+  },
+  "changedFiles": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/release-acceptance.yml",
+    "docs/release/runbook.md",
+    "docs/release/security-proposal.json",
+    "docs/release/security-proposal.md",
+    "package-lock.json",
+    "package.json",
+    "scripts/build-compatible-rollback.mjs",
+    "scripts/check-release-workflows.mjs",
+    "scripts/pwa-mobile-browser-smoke.mjs",
+    "scripts/release-decision.mjs",
+    "scripts/release-storage-browser.mjs",
+    "scripts/security-export.mjs",
+    "scripts/security-policy-gate.mjs",
+    "scripts/security-policy.json",
+    "scripts/security-tooling-conditions.mjs",
+    "tests/ci-coverage.test.mjs",
+    "tests/fixtures/security-exception-audit.json",
+    "tests/fixtures/security-policy-legacy-policy.json",
+    "tests/security-exception.test.mjs",
+    "tests/security-policy-gate.test.mjs"
+  ],
+  "git": {
+    "head": "810f1a367b7d350b5e3ce1bb0b62f22093ba9049",
+    "staged": 0,
+    "modified": 61,
+    "untracked": 56
+  },
+  "finalVerdicts": {
+    "rawNpmAudit": "FAIL",
+    "securityGate": "PASS WITH APPROVED EXCEPTION",
+    "F06": "CLOSED WITH TEMPORARY EXCEPTION",
+    "productionRelease": "HOLD"
+  },
+  "F07Changed": false,
+  "sourceBusinessLogicChanged": false,
+  "sqlMigrationsChanged": false,
+  "productionChanged": false,
+  "commitPushDeployPerformed": false,
+  "evidenceDirectory": ".expo/f06-activation-2026-10-25",
+  "earlierEvidencePreserved": true,
+  "validationAttempts": "Earlier failures and fixture corrections are preserved under attempts; final success requires process exit 0, not assertion counts alone"
+}

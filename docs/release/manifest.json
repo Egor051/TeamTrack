@@ -1,0 +1,734 @@
+{
+  "version": 1,
+  "productionReady": false,
+  "project": "diapmbqdjunlgvivwrtp",
+  "baselineSha256": "77843ae88903cce809e1d9acb6e0e9466830f2fdd020884374226708894eaeee",
+  "preflightSha256": "3bf29d07816a6f9bde5d14ee2807b8aa60634ca610a4e0a89697c376ac3d41c4",
+  "postconditionsSha256": "b5e38be8a56be9913c7975bc67126ed1abd0b66662daee9dd128628ee51d5034",
+  "fixtureDifferencesSha256": "7e6dd3dee00090179b39e0fae8a43208df6a06fd7df257998e86aebcbc264e6a",
+  "functionTokenContractSha256": "1f79f8fc5f4c3932affb9ebddecd915602e4b63a83a26277cfd965d69e85a383",
+  "historicalMigrationDigests": [
+    {
+      "version": "20260901000000",
+      "name": "initial_schema",
+      "sha256": "18d444db9a6381407d16fd20da202ba3f6fe890bfb05dcb6121ab0bb8beeb471"
+    },
+    {
+      "version": "20260901203058",
+      "name": "hosted_history_bridge",
+      "sha256": "28c5015e73d5f8dbf63df2eba6ebd7509066f5d8b35e455aa242683cd605d908"
+    },
+    {
+      "version": "20260901203100",
+      "name": "hosted_history_bridge",
+      "sha256": "64637361d644efb00b64689f897ba8017a9e995cd810dcae0e4beff8a8eb8e10"
+    },
+    {
+      "version": "20260901203102",
+      "name": "hosted_history_bridge",
+      "sha256": "14a9c3990317692c14441dbb6106b69f8ec88b89d48f3fb62fa57e268f68b3ec"
+    },
+    {
+      "version": "20260901210712",
+      "name": "enable_tasktrace_realtime",
+      "sha256": "3d8aa480b980039964710c85b78f8c06914819194119ddb8b4b308fa849db454"
+    },
+    {
+      "version": "20260901210737",
+      "name": "hosted_history_bridge",
+      "sha256": "f1477be77339a870dd01b3077c225b615ebc5bd36b79b4f314ed42c3270e5689"
+    },
+    {
+      "version": "20260901211502",
+      "name": "hosted_history_bridge",
+      "sha256": "8a7408c095166382ce4074476cde443cbe5ea74e659fa215d0eb0279c75d3e6c"
+    },
+    {
+      "version": "20260902000000",
+      "name": "rls_authorization",
+      "sha256": "38a43faa88308393b9719ab9335f48a6473f5f826849eec3056ba8cc96ee902b"
+    },
+    {
+      "version": "20260903000000",
+      "name": "profile_provisioning",
+      "sha256": "d457ff1fd732e3afd7838b819d7db3ea82436307e61678b9c138114c95c4b00d"
+    },
+    {
+      "version": "20260903224258",
+      "name": "hosted_history_bridge",
+      "sha256": "464e6d9dbcafac57e4516c15bdc259a80bd81adb55eee3f64d0efd3be784910b"
+    },
+    {
+      "version": "20260903224414",
+      "name": "hosted_history_bridge",
+      "sha256": "0e069472b9b4cd96c26b8632b044de3e9eedb5c72cb7de0f7c3553f5367933a4"
+    },
+    {
+      "version": "20260903224523",
+      "name": "hosted_history_bridge",
+      "sha256": "688a0586f31c8ff58b17be44d90fc360361a5e328f199270b7177fca08a8b648"
+    },
+    {
+      "version": "20260904000000",
+      "name": "enable_tasktrace_realtime_after_provisioning",
+      "sha256": "243f77cb872b578e00d3931c6cc21f24054a5769b4040e20ff6e231ad93bf611"
+    },
+    {
+      "version": "20260904142023",
+      "name": "add_project_member_by_identifier",
+      "sha256": "567ab81bd6308317eb00ac7419783df10d788b128b92c7a8b807184b8d75ad6f"
+    },
+    {
+      "version": "20260904201318",
+      "name": "hosted_history_bridge",
+      "sha256": "f12302d1e45f2e33e62e0a26b67ee77447d263296c332e5dae513e3d929dda15"
+    },
+    {
+      "version": "20260904204217",
+      "name": "restore_and_update_project",
+      "sha256": "480eb0c8e9880f0b97f9624a1d90f43542125bba92610cf5d2de88de622dd84f"
+    },
+    {
+      "version": "20260904204514",
+      "name": "hosted_history_bridge",
+      "sha256": "b85f676d4ee35a18beedf559204d14d504fabb0baacddfeaefdecae7705401dc"
+    },
+    {
+      "version": "20260905000000",
+      "name": "notifications",
+      "sha256": "e29716d6b9bbf63d63b35a0de0dc3860c224fdc45b1b78aa341372a1b4340b55"
+    },
+    {
+      "version": "20260905120000",
+      "name": "contextual_notifications",
+      "sha256": "13b66a0f554d134cfa131606707031ebcb3efd1809235f9d999313bbfbd876aa"
+    },
+    {
+      "version": "20260905172931",
+      "name": "hosted_history_bridge",
+      "sha256": "bcf983dfa08ee66a75fe3cb3544d6af776d27a7c0494057f117e8644bb722268"
+    },
+    {
+      "version": "20260905203929",
+      "name": "hosted_history_bridge",
+      "sha256": "bf8de648a6f45c137846b573109dfa792543c2e8a8039d7b5b7d3a24ac470d90"
+    },
+    {
+      "version": "20260906000000",
+      "name": "harden_authenticated_table_grants",
+      "sha256": "72b3c52270f31ecdbf8c218b075b0fa81b967f02213a1bd99df8c2d68583d187"
+    },
+    {
+      "version": "20260906184242",
+      "name": "hosted_history_bridge",
+      "sha256": "cd5a387b7f220ab8a5bda44fd3f6ee14fef664d3523f3dec483ec5ff526e21fb"
+    },
+    {
+      "version": "20260906185345",
+      "name": "hosted_history_bridge",
+      "sha256": "d6274f5594207069749b26a25e8bd5f7b5a3eed6600f7a832e16223425d974d8"
+    },
+    {
+      "version": "20260907000000",
+      "name": "lock_notification_helpers",
+      "sha256": "4221fd15a259074eabeac138235d9906201ed9047a63071346ca49bef7c7ea41"
+    },
+    {
+      "version": "20260908000000",
+      "name": "security_hardening",
+      "sha256": "a9ee3fdace9941d84078f59bc1d36a45c09cd7360f0b85ad539149f33d86b64b"
+    },
+    {
+      "version": "20260909000000",
+      "name": "restrict_private_function_grants",
+      "sha256": "a37e295cc07c510280c46fc0dff691a4def1e62bfac0e367b2ff696bfa54c14a"
+    },
+    {
+      "version": "20260909221947",
+      "name": "immutable_history_hard_delete_fix",
+      "sha256": "1602c2ddd54dfdb29e4f2553febb5b3ec8cac5590c48f10d1358e80e072580dd"
+    },
+    {
+      "version": "20260909222310",
+      "name": "projects_comment_cleanup",
+      "sha256": "83db568ae7ab7c9ec827bee1df117bf6f5767b9f191de07391a8373526517e44"
+    },
+    {
+      "version": "20260909222314",
+      "name": "batch_remove_project_member_audit",
+      "sha256": "d65a402110a4654b3281486e20a5a8a74e3a54b8f157a5bc3ea06d61ea254bdb"
+    },
+    {
+      "version": "20260909231213",
+      "name": "fix_task_status_delete_trigger",
+      "sha256": "cf1878835a6eeb7ce13f1c04eee7aad597d398c23675eb1496623a3e14e31e46"
+    },
+    {
+      "version": "20260909231225",
+      "name": "recreate_create_task_from_template_percentage",
+      "sha256": "ad7f212920db2e8ad7fd078f8c7bc2cc04383642bf329eb6cb4bb7af9320f1ce"
+    },
+    {
+      "version": "20260910000000",
+      "name": "concurrency_and_input_hardening",
+      "sha256": "091be0a0cdad8b12e0f2263267ecc973670dea6e934d2b1c4fb92647996d30f5"
+    },
+    {
+      "version": "20260911000000",
+      "name": "schema_acl_hardening",
+      "sha256": "08bf8b4c82b209c5420b177aa55d614d860db904d4da85babf1f61cc8ce6b9ba"
+    },
+    {
+      "version": "20260911203043",
+      "name": "task_item_audit_and_template_cleanup",
+      "sha256": "1d4b16a0e916ed3c2eb95f6b281bdc517e735fe324c1cc51523ad45d08e3d784"
+    },
+    {
+      "version": "20260911210124",
+      "name": "reconcile_task_item_audit_and_templates",
+      "sha256": "d405ab47816537f96973d21741a16512e4de38eb4f63364ab1c93f379e2cbb56"
+    },
+    {
+      "version": "20260912000000",
+      "name": "private_function_acl_hardening",
+      "sha256": "c5f19bd43d8bd1ee2146f9e397af483114a6cdcb2896dfd24b4fa12829ac1bf7"
+    },
+    {
+      "version": "20260913000000",
+      "name": "profile_column_acl",
+      "sha256": "b76424e9b7f06013e4390735e85a930e7afb50c265590e2b6aad84cb2b59fac8"
+    },
+    {
+      "version": "20260914000000",
+      "name": "hosted_reconciliation_phase_a",
+      "sha256": "ad5d7c81e183a0cf27d245e7cc552e6292b55568f2a3f284500d8dbf8334d8df"
+    },
+    {
+      "version": "20260915000000",
+      "name": "hosted_reconciliation_phase_b",
+      "sha256": "74c7d0371579be0552b42e7f6f6a50639007ec9ce189324be03bd776d7b49c08"
+    },
+    {
+      "version": "20260916000000",
+      "name": "production_hardening_fixes",
+      "sha256": "e748602480e1c2a160215c49eda488ee0725a149fe02fa00ccadeed660cd5cfc"
+    },
+    {
+      "version": "20260917000000",
+      "name": "improve_pass",
+      "sha256": "aa34e826b992558840730151d710c5cb2bf8751fa1e4b525c9eb7a3ecf2c1800"
+    },
+    {
+      "version": "20260918000000",
+      "name": "add_update_my_profile",
+      "sha256": "2e686bbd86ed8c46480a6b3b0536a8851113f7aa9bdf17f42812578b56db1593"
+    },
+    {
+      "version": "20260918000917",
+      "name": "project_member_task_visibility",
+      "sha256": "cfa55a415bed99b6f342dc827060e9ad291ad6e7b65e654387c221ea781ca707"
+    },
+    {
+      "version": "20260918001643",
+      "name": "checklist_permissions_stage_order_and_ui_support",
+      "sha256": "0bb77317d13b96210fa60f7dc1a5eb9b61f1d00d5809193e2c648ca1d7915598"
+    },
+    {
+      "version": "20260918013357",
+      "name": "disallow_member_task_item_text_edits",
+      "sha256": "01b08d75eeb01c7d8e6adf6abde864c45b2621199d39741d2a668d1bbef638ec"
+    },
+    {
+      "version": "20260919000001",
+      "name": "reconcile_task_item_audit_and_templates",
+      "sha256": "2f27f9c48d234bddc050e299df894713c007c0deecdda4a51b4bec77b1684a14"
+    },
+    {
+      "version": "20260920000000",
+      "name": "last_editor_empty_state",
+      "sha256": "9de9e1a29da2a3feacec571b46e9576543a1bfcd5cf361650c95b5b6b46c3dbf"
+    },
+    {
+      "version": "20260921000000",
+      "name": "rename_task_ui_to_stages",
+      "sha256": "cf23a7decf3c4188b0a7199fdafe728cdbfd0df897c304d4962686f379a33c4c"
+    },
+    {
+      "version": "20260922000000",
+      "name": "daily_progress_audit",
+      "sha256": "c99e6122b819d853e21b92b58352a1dd8166a09263e2e2bff9747d65204595da"
+    },
+    {
+      "version": "20260923000000",
+      "name": "restrict_member_stage_text_edit",
+      "sha256": "f223814dc89e5e904fe07a949176ff5a923cdfa7a778d01ffc4d49530560f1cf"
+    },
+    {
+      "version": "20260924000000",
+      "name": "fix_daily_progress_state_consistency",
+      "sha256": "d776ce11201577bbd5e02a10752397bf2fd6d50100aa7a25591825dfc165f67c"
+    },
+    {
+      "version": "20260925000000",
+      "name": "inherit_project_member_task_access",
+      "sha256": "c53deeebc0fbda002776560481320fa651fd821100027a5915382fa8fb439ec2"
+    },
+    {
+      "version": "20260926000000",
+      "name": "canonical_task_role",
+      "sha256": "4c78bec7cb46d1896fbcea0f6770c1046c99cef741c14d143d68885a9931936f"
+    },
+    {
+      "version": "20260927181742",
+      "name": "backend_security_correctness_remediation",
+      "sha256": "84f193c3e9862e87b23168107f14d26ab1d79230cbbc298415882d008a938956"
+    },
+    {
+      "version": "20260927181857",
+      "name": "implement_backend_remediation",
+      "sha256": "bd37beb4b9d976631bf389ff9760ba70526b0cde3c17da656a433a6162a11b25"
+    },
+    {
+      "version": "20260929060607",
+      "name": "offline_operation_receipts",
+      "sha256": "df1d65067198d46fa4d88499f032fa3538334653fd5a64b8ac5c05114cc0d8bb"
+    },
+    {
+      "version": "20260929065857",
+      "name": "offline_pull_conflicts",
+      "sha256": "f0c4efb02866bdabefe82693fb88cabcf75653d6d3ac7bbc6fc248e878edddb5"
+    },
+    {
+      "version": "20260929205347",
+      "name": "offline_phase6_runtime_retention",
+      "sha256": "234a231ac5f828ac7aaa3c98975644f9837ce98114cfbbe9034a87817d6cf59b"
+    },
+    {
+      "version": "20261001162836",
+      "name": "account_offline_bootstrap",
+      "sha256": "811539a194060f40ef980085f5118061283aa045194235eb18130f987c261757"
+    },
+    {
+      "version": "20261001214834",
+      "name": "offline_bootstrap_stable_snapshots",
+      "sha256": "8e72c2733ac102b3c55f92947249bfd6c70f99aec71b129ddd9e3e3b9facba4b"
+    },
+    {
+      "version": "20261005073937",
+      "name": "audit_template_ordering",
+      "sha256": "7b7bb2faee592ac90522f5c17b557923427f527f8e9f95ba2e4b7ded693f416a"
+    },
+    {
+      "version": "20261015184338",
+      "name": "checklist_deadlines",
+      "sha256": "01c146e99efabba2331fd279c312c3976a786c26c3599f8411de43ee2a2e1f24"
+    },
+    {
+      "version": "20261015185037",
+      "name": "schedule_checklist_deadlines",
+      "sha256": "00d61088a22a4f7c82e395bba1f050bc148fe318db4b56186191ea28d3b2a9d7"
+    },
+    {
+      "version": "20261016153754",
+      "name": "prevent_self_role_changes",
+      "sha256": "d8f91e6c84b738101264dd5d4db7cbf985a16dc163a5d7c93f72186dab33af50"
+    },
+    {
+      "version": "20261016154451",
+      "name": "notification_filter_options",
+      "sha256": "77f18c5b6f1e6e8ad5ec41fe46f8559673eee1f414e3f8d0343cab9e611d48de"
+    },
+    {
+      "version": "20261016191158",
+      "name": "reconcile_security_schema",
+      "sha256": "4c3951acffe8f6d16b7764d4d4de934ada735b1435a24f03c33d533d371f7966"
+    },
+    {
+      "version": "20261016191208",
+      "name": "secure_application_default_privileges",
+      "sha256": "4d8e0e464ad5015b3f01cf56963c42f994b07a1632b280a586bfe9cfcb407906"
+    },
+    {
+      "version": "20261016191219",
+      "name": "pin_history_timestamp_search_paths",
+      "sha256": "d4bd4aef46bf23056389e0532823202cd14517ec9ae0b5eb903a79ebf9b49d5e"
+    },
+    {
+      "version": "20261016191229",
+      "name": "restrict_service_rpc_execution",
+      "sha256": "d437013ebb7b402be23c8cf53ed26dcc7b4572f698545c5fd019328d92fb85aa"
+    },
+    {
+      "version": "20261016191239",
+      "name": "progress_alias_security_invoker",
+      "sha256": "1d22cfa8bd356ebf411721fbc00bbc4db55007b5ac31c3c22d2738c78f773942"
+    },
+    {
+      "version": "20261016191251",
+      "name": "member_identifier_abuse_protection",
+      "sha256": "ac484615ee124cc434ec69cf42afc2cd369bbfa1c83ecc16a1e015381297a7d4"
+    },
+    {
+      "version": "20261016191301",
+      "name": "minimize_client_table_privileges",
+      "sha256": "93cc690226286612e402340284b8340337047a5ceb4c78b40ced1c2fde5af99d"
+    },
+    {
+      "version": "20261017012113",
+      "name": "independent_stage_membership",
+      "sha256": "f961b90266ad382be9ac37e4eac958fd4bf7af6a87092bba95d803a486e96b1f"
+    },
+    {
+      "version": "20261017203226",
+      "name": "audit_reliability_remediation",
+      "sha256": "c4e4c78db59591e2dfbecfc676936b78cc8ae396f47d10349f12112b57d1e1ee"
+    },
+    {
+      "version": "20261018103053",
+      "name": "template_realtime_invalidation",
+      "sha256": "7bc0e07e657b2c8bf6df8e992ff278bdf9568a5b9eb7f787d23188831ceca8d2"
+    },
+    {
+      "version": "20261020194125",
+      "name": "audit_followup_integrity_and_scaling",
+      "sha256": "07c4f0e79ab8d2b6e464483116830bd5c4f5687f43b93a7bfda189865b67bc3e"
+    },
+    {
+      "version": "20261021144300",
+      "name": "regression_write_protocol",
+      "sha256": "ffb7f056ef63cf25d80e65e376824f7d0605e070dc34d5453e4377bdd7e96f27"
+    }
+  ],
+  "historicalDrift": {
+    "localOnly": [
+      {
+        "version": "20260923000000",
+        "name": "restrict_member_stage_text_edit",
+        "sha256": "f223814dc89e5e904fe07a949176ff5a923cdfa7a778d01ffc4d49530560f1cf"
+      },
+      {
+        "version": "20260924000000",
+        "name": "fix_daily_progress_state_consistency",
+        "sha256": "d776ce11201577bbd5e02a10752397bf2fd6d50100aa7a25591825dfc165f67c"
+      },
+      {
+        "version": "20260925000000",
+        "name": "inherit_project_member_task_access",
+        "sha256": "c53deeebc0fbda002776560481320fa651fd821100027a5915382fa8fb439ec2"
+      },
+      {
+        "version": "20260926000000",
+        "name": "canonical_task_role",
+        "sha256": "4c78bec7cb46d1896fbcea0f6770c1046c99cef741c14d143d68885a9931936f"
+      },
+      {
+        "version": "20260927181742",
+        "name": "backend_security_correctness_remediation",
+        "sha256": "84f193c3e9862e87b23168107f14d26ab1d79230cbbc298415882d008a938956"
+      },
+      {
+        "version": "20260927181857",
+        "name": "implement_backend_remediation",
+        "sha256": "bd37beb4b9d976631bf389ff9760ba70526b0cde3c17da656a433a6162a11b25"
+      },
+      {
+        "version": "20261005073937",
+        "name": "audit_template_ordering",
+        "sha256": "7b7bb2faee592ac90522f5c17b557923427f527f8e9f95ba2e4b7ded693f416a"
+      },
+      {
+        "version": "20261015184338",
+        "name": "checklist_deadlines",
+        "sha256": "01c146e99efabba2331fd279c312c3976a786c26c3599f8411de43ee2a2e1f24"
+      },
+      {
+        "version": "20261015185037",
+        "name": "schedule_checklist_deadlines",
+        "sha256": "00d61088a22a4f7c82e395bba1f050bc148fe318db4b56186191ea28d3b2a9d7"
+      },
+      {
+        "version": "20261016153754",
+        "name": "prevent_self_role_changes",
+        "sha256": "d8f91e6c84b738101264dd5d4db7cbf985a16dc163a5d7c93f72186dab33af50"
+      },
+      {
+        "version": "20261016154451",
+        "name": "notification_filter_options",
+        "sha256": "77f18c5b6f1e6e8ad5ec41fe46f8559673eee1f414e3f8d0343cab9e611d48de"
+      },
+      {
+        "version": "20261016191158",
+        "name": "reconcile_security_schema",
+        "sha256": "4c3951acffe8f6d16b7764d4d4de934ada735b1435a24f03c33d533d371f7966"
+      },
+      {
+        "version": "20261016191208",
+        "name": "secure_application_default_privileges",
+        "sha256": "4d8e0e464ad5015b3f01cf56963c42f994b07a1632b280a586bfe9cfcb407906"
+      },
+      {
+        "version": "20261016191219",
+        "name": "pin_history_timestamp_search_paths",
+        "sha256": "d4bd4aef46bf23056389e0532823202cd14517ec9ae0b5eb903a79ebf9b49d5e"
+      },
+      {
+        "version": "20261016191229",
+        "name": "restrict_service_rpc_execution",
+        "sha256": "d437013ebb7b402be23c8cf53ed26dcc7b4572f698545c5fd019328d92fb85aa"
+      },
+      {
+        "version": "20261016191239",
+        "name": "progress_alias_security_invoker",
+        "sha256": "1d22cfa8bd356ebf411721fbc00bbc4db55007b5ac31c3c22d2738c78f773942"
+      },
+      {
+        "version": "20261016191251",
+        "name": "member_identifier_abuse_protection",
+        "sha256": "ac484615ee124cc434ec69cf42afc2cd369bbfa1c83ecc16a1e015381297a7d4"
+      },
+      {
+        "version": "20261016191301",
+        "name": "minimize_client_table_privileges",
+        "sha256": "93cc690226286612e402340284b8340337047a5ceb4c78b40ced1c2fde5af99d"
+      }
+    ],
+    "remoteOnly": [
+      {
+        "name": "inherit_project_member_task_access",
+        "version": "20260920130249"
+      },
+      {
+        "name": "canonical_task_role",
+        "version": "20260921112916"
+      },
+      {
+        "name": "backend_security_correctness_remediation",
+        "version": "20260928135023"
+      },
+      {
+        "name": "reconcile_hosted_task_enhancements_for_remediation",
+        "version": "20260928135405"
+      },
+      {
+        "name": "implement_backend_remediation",
+        "version": "20260928135413"
+      },
+      {
+        "name": "audit_template_ordering",
+        "version": "20261005084257"
+      },
+      {
+        "name": "checklist_deadlines",
+        "version": "20261015205014"
+      },
+      {
+        "name": "schedule_checklist_deadlines",
+        "version": "20261015205434"
+      },
+      {
+        "name": "prevent_self_role_changes",
+        "version": "20261016174131"
+      },
+      {
+        "name": "notification_filter_options",
+        "version": "20261016174144"
+      },
+      {
+        "name": "reconcile_security_schema",
+        "version": "20261017000443"
+      },
+      {
+        "name": "secure_application_default_privileges",
+        "version": "20261017000449"
+      },
+      {
+        "name": "pin_history_timestamp_search_paths",
+        "version": "20261017000458"
+      },
+      {
+        "name": "restrict_service_rpc_execution",
+        "version": "20261017000504"
+      },
+      {
+        "name": "progress_alias_security_invoker",
+        "version": "20261017000511"
+      },
+      {
+        "name": "member_identifier_abuse_protection",
+        "version": "20261017000517"
+      },
+      {
+        "name": "minimize_client_table_privileges",
+        "version": "20261017000523"
+      }
+    ],
+    "differentNames": [
+      {
+        "version": "20260901203058",
+        "local": "hosted_history_bridge",
+        "remote": "initial_schema"
+      },
+      {
+        "version": "20260901203100",
+        "local": "hosted_history_bridge",
+        "remote": "rls_authorization"
+      },
+      {
+        "version": "20260901203102",
+        "local": "hosted_history_bridge",
+        "remote": "profile_provisioning"
+      },
+      {
+        "version": "20260901210737",
+        "local": "hosted_history_bridge",
+        "remote": "enable_tasktrace_realtime"
+      },
+      {
+        "version": "20260901211502",
+        "local": "hosted_history_bridge",
+        "remote": "enable_tasktrace_realtime_after_provisioning"
+      },
+      {
+        "version": "20260903224258",
+        "local": "hosted_history_bridge",
+        "remote": "hosted_reconciliation_phase_a"
+      },
+      {
+        "version": "20260903224414",
+        "local": "hosted_history_bridge",
+        "remote": "hosted_reconciliation_phase_b"
+      },
+      {
+        "version": "20260903224523",
+        "local": "hosted_history_bridge",
+        "remote": "hosted_reconciliation_phase_c"
+      },
+      {
+        "version": "20260904201318",
+        "local": "hosted_history_bridge",
+        "remote": "add_project_member_by_identifier"
+      },
+      {
+        "version": "20260904204514",
+        "local": "hosted_history_bridge",
+        "remote": "restore_and_update_project"
+      },
+      {
+        "version": "20260905172931",
+        "local": "hosted_history_bridge",
+        "remote": "contextual_notifications"
+      },
+      {
+        "version": "20260905203929",
+        "local": "hosted_history_bridge",
+        "remote": "production_hardening_fixes"
+      },
+      {
+        "version": "20260906184242",
+        "local": "hosted_history_bridge",
+        "remote": "immutable_history_hard_delete_fix"
+      },
+      {
+        "version": "20260906185345",
+        "local": "hosted_history_bridge",
+        "remote": "projects_comment_cleanup"
+      },
+      {
+        "version": "20260909221947",
+        "local": "immutable_history_hard_delete_fix",
+        "remote": "task_enhancements"
+      },
+      {
+        "version": "20260909222310",
+        "local": "projects_comment_cleanup",
+        "remote": "reconcile_task_edit_comments_progress_templates"
+      },
+      {
+        "version": "20260909222314",
+        "local": "batch_remove_project_member_audit",
+        "remote": "fix_task_status_delete_trigger"
+      },
+      {
+        "version": "20260909231213",
+        "local": "fix_task_status_delete_trigger",
+        "remote": "recreate_create_task_from_template_percentage"
+      },
+      {
+        "version": "20260909231225",
+        "local": "recreate_create_task_from_template_percentage",
+        "remote": "lock_create_task_from_template_execute"
+      }
+    ]
+  },
+  "preflight": "Compare all function definitions/ACL/config, columns, policies and exact version/name history to production-preconditions-2026-10-24.json BEFORE maintenance; stop on any difference.",
+  "maintenanceSha256": "56365755d78a8257f757b56d1c3a767a01f4ff86fac10600a9e626a499508361",
+  "generalDbPushAllowed": false,
+  "steps": [
+    {
+      "order": 1,
+      "file": "20261022201114_audit_task_snapshot_revision.sql",
+      "version": "20261022201114",
+      "name": "audit_task_snapshot_revision",
+      "sha256": "4eedb3703de380c5ad88331d60c6c194beeca2d176a514cb8a9c9f323d1d9e8e",
+      "dependsOn": null,
+      "writeFence": "maintenance=true; verify user RPC and direct DML return 503",
+      "check": "snapshot revision/backfill/ACL",
+      "failure": "Stop; keep maintenance and hosting hold. Prior migration commits remain. Repair forward on a reviewed copy; never clear receipts."
+    },
+    {
+      "order": 2,
+      "file": "20261022201149_audit_rpc_outcomes.sql",
+      "version": "20261022201149",
+      "name": "audit_rpc_outcomes",
+      "sha256": "fbc31a1a60e3cea536a01351b028036402248d8d66464d5a3f7f1a509f5a5d8a",
+      "dependsOn": "20261022201114_audit_task_snapshot_revision.sql",
+      "writeFence": "maintenance=true; verify user RPC and direct DML return 503",
+      "check": "historical HTTP 400/429 replay",
+      "failure": "Stop; keep maintenance and hosting hold. Prior migration commits remain. Repair forward on a reviewed copy; never clear receipts."
+    },
+    {
+      "order": 3,
+      "file": "20261022202128_audit_receipt_budgets.sql",
+      "version": "20261022202128",
+      "name": "audit_receipt_budgets",
+      "sha256": "0ee7827f0a215ee5684c7bbda49a8295922d49ad92364011cb847cf5997ea808",
+      "dependsOn": "20261022201149_audit_rpc_outcomes.sql",
+      "writeFence": "maintenance=true; verify user RPC and direct DML return 503",
+      "check": "legacy accounting; keep maintenance until configured",
+      "failure": "Stop; keep maintenance and hosting hold. Prior migration commits remain. Repair forward on a reviewed copy; never clear receipts."
+    },
+    {
+      "order": 4,
+      "file": "20261023115036_operation_window_protocol.sql",
+      "version": "20261023115036",
+      "name": "operation_window_protocol",
+      "sha256": "13f30261df13ccad2e91bb13a78f5d385f32037b2829bd24dd9c6b36ce237a9f",
+      "dependsOn": "20261022202128_audit_receipt_budgets.sql",
+      "writeFence": "maintenance=true; verify user RPC and direct DML return 503",
+      "check": "v3 namespace/private ACL/types",
+      "failure": "Stop; keep maintenance and hosting hold. Prior migration commits remain. Repair forward on a reviewed copy; never clear receipts."
+    },
+    {
+      "order": 5,
+      "file": "20261023115657_operation_window_lifecycle.sql",
+      "version": "20261023115657",
+      "name": "operation_window_lifecycle",
+      "sha256": "9bede1a1d6ea21485f335672d6c4534780f4435d915d611b9e6ab98b9311ad5a",
+      "dependsOn": "20261023115036_operation_window_protocol.sql",
+      "writeFence": "maintenance=true; verify user RPC and direct DML return 503",
+      "check": "lifecycle immutable guards and cron",
+      "failure": "Stop; keep maintenance and hosting hold. Prior migration commits remain. Repair forward on a reviewed copy; never clear receipts."
+    },
+    {
+      "order": 6,
+      "file": "20261024142519_release_blocker_guards.sql",
+      "version": "20261024142519",
+      "name": "release_blocker_guards",
+      "sha256": "aa4bc2b00df0f4c2da5544130493c2b5359fc97f3db8df9c452e428b81fd3c48",
+      "dependsOn": "20261023115657_operation_window_lifecycle.sql",
+      "writeFence": "maintenance=true; verify user RPC and direct DML return 503",
+      "check": "multi-user GC, account/namespace guards, both-policy initialization",
+      "failure": "Stop; keep maintenance and hosting hold. Prior migration commits remain. Repair forward on a reviewed copy; never clear receipts."
+    }
+  ]
+}

@@ -62,6 +62,8 @@ beforeEach(async () => {
   remote.server = { id: 'item-1', task_id: 'task-1', percentage: 20, is_completed: false,
     comment: null, sync_version: 10, is_archived: false };
   remote.replay.mockImplementation(async (name: string, args: { p_percentage?: number }) => {
+    if (name === 'get_client_operation_context') return { data: { protocol_version: 3, fingerprint_version: 1,
+      generation: '11111111-1111-4111-8111-111111111111', epoch: 1, admit_until: '2030-01-02', replay_until: '2030-04-02' }, error: null };
     if (name === 'pull_task_item_changes_v2')
       return { data: { changes: [], next_cursor: 0, has_more: false }, error: null };
     if (name === 'get_task_item_snapshot_page') return { data: { revision: 0, total: 1, offset: 0, rows: [{ ...remote.server }] }, error: null };
@@ -75,15 +77,22 @@ beforeEach(async () => {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('persistent user-scoped runtime capabilities', () => {
-  it('persists the validated server confirmation using entries and keeps IndexedDB v5', async () => {
+  it('accepts v3 without widening existing write and sync flags', async () => {
+    remote.rpc.mockResolvedValueOnce({ data: { ...enabled, protocol_version: 3, write_enabled: false }, error: null, status: 200 });
+    expect(await runtimeCapabilities('user-a')).toEqual({ write: false, sync: true, available: true });
+    expect((await persisted())?.value?.protocol_version).toBe(3);
+  });
+  it('persists v3 confirmation without upgrading the released IndexedDB v5 schema', async () => {
     expect(await runtimeCapabilities('user-a')).toEqual(allowed);
     expect(await persisted()).toEqual({ user_id: 'user-a', value: enabled, fetched_at: expect.any(Number) });
     expect(remote.notify).toHaveBeenCalledWith('user-a');
     const db = await new Promise<IDBDatabase>((resolve) => {
       const r = indexedDB.open('tasktrace-local-cache'); r.onsuccess = () => resolve(r.result);
     });
-    expect(db.version).toBe(5);
-    expect(Array.from(db.objectStoreNames)).toEqual(['entries', 'pending_operations', 'sync_conflicts']); db.close();
+    try {
+      expect(db.version).toBe(5);
+      expect(Array.from(db.objectStoreNames)).toEqual(['entries', 'pending_operations', 'sync_conflicts']);
+    } finally { db.close(); }
   });
 
   it('keeps build flags as a hard ceiling, including sync-only queue drain', async () => {
@@ -150,7 +159,7 @@ describe('persistent user-scoped runtime capabilities', () => {
     vi.stubGlobal('navigator', { onLine: false }); await edit(); vi.stubGlobal('navigator', { onLine: true });
     remote.replay.mockClear(); await syncPendingOperations('user-a', true);
     expect(remote.rpc).toHaveBeenCalledOnce();
-    expect(remote.replay.mock.calls.map(([name]) => name)).toEqual(['pull_task_item_changes_v2', 'apply_task_item_percentage_operation_v2', 'get_task_item_snapshot_page', 'pull_task_item_changes_v2']);
+    expect(remote.replay.mock.calls.map(([name]) => name)).toEqual(['pull_task_item_changes_v2', 'get_client_operation_context', 'apply_task_item_percentage_operation_v3', 'get_task_item_snapshot_page', 'pull_task_item_changes_v2']);
   });
 
   it.each(['Failed to fetch', 'fetch failed', 'Network request failed', 'DNS network error', 'timeout'])(
@@ -198,7 +207,7 @@ describe('persistent user-scoped runtime capabilities', () => {
     clearRuntimeConfig(); vi.stubGlobal('navigator', { onLine: true });
     await syncPendingOperations('user-a', true);
     expect(remote.rpc.mock.invocationCallOrder[1]).toBeLessThan(remote.replay.mock.invocationCallOrder[0]);
-    expect(remote.replay).toHaveBeenCalledWith('apply_task_item_percentage_operation_v2',
+    expect(remote.replay).toHaveBeenCalledWith('apply_task_item_percentage_operation_v3',
       expect.objectContaining({ p_operation_id: operation.operation_id, p_percentage: 70 }));
     expect(remote.server.percentage).toBe(70);
     expect(await localCacheDriver.listPending('user-a')).toEqual([]);

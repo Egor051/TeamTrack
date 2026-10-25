@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { TaskItem } from '@/lib/supabase/client';
 
 const state = vi.hoisted(() => ({ reply: null as null | (() => void) }));
-vi.mock('@/lib/supabase/client', () => ({ supabase: { auth: { getSession: async () => ({ data: { session: { user: { id: 'user' } } }, error: null }) }, from: (table: string) => {
+vi.mock('@/lib/supabase/client', () => ({ supabase: { rpc: () => new Promise(resolve => { state.reply = () => resolve({data:{revision:10,total:1,offset:0,rows:[item(10)]},error:null}); }), auth: { getSession: async () => ({ data: { session: { user: { id: 'user' } } }, error: null }) }, from: (table: string) => {
   const query = { select: () => query, eq: () => query, order: () => query, range: () => query,
     maybeSingle: async () => ({ data: { id: 'task' }, error: null }),
     then: (resolve: (value: unknown) => void) => new Promise<void>((done) => {

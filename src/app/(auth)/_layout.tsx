@@ -24,5 +24,7 @@ export default function AuthGroupLayout() {
     return <Redirect href="/projects" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />;
+  // A cached shell can recreate this group before a deep-link redirect settles.
+  // Its fallback must be login, rather than the first alphabetically named file.
+  return <Stack initialRouteName="login" screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />;
 }
