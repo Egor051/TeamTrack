@@ -45,6 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - name: Initialize database diagnostics before startup
         run: node scripts/release-database-stage.mjs initialize
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -65,6 +66,7 @@ jobs:
             .expo/release-acceptance/
             .expo/r03/
             .expo/operation-window*/
+            .expo/audit-fixes/
           include-hidden-files: true
           if-no-files-found: error
       - name: Stop only the disposable CI stack

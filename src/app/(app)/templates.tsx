@@ -63,9 +63,13 @@ export default function TemplatesScreen() {
     setLoading(true);
     setError('');
     try {
-      const [{ data }, rows] = await Promise.all([getCurrentUser(), listTaskTemplates()]);
+      const { data } = await getCurrentUser();
       if (request !== loadRequestRef.current) return;
+      // Subscribe before the list settles: an initial read fenced by a
+      // reconnect must still receive the existing scheduler's fresh load.
       setCurrentUserId(data.user?.id ?? null);
+      const rows = await listTaskTemplates();
+      if (request !== loadRequestRef.current) return;
       setTemplates(rows);
       if (expandedId) {
         const fresh = rows.find((row) => row.id === expandedId) ?? null;

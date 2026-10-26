@@ -58,7 +58,7 @@ function entryKey(userId: string, key: string): string {
   return `${userId}:${key}`;
 }
 
-async function transactBase<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void, tx: IDBTransaction) => void, storeName = STORE, signal?: AbortSignal, extraStores: string[] = []): Promise<T> {
+async function transactBase<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void, tx: IDBTransaction, fail: (error: unknown) => void) => void, storeName = STORE, signal?: AbortSignal, extraStores: string[] = []): Promise<T> {
   const db = await openDatabase(signal);
   try {
     return await boundedOperation((deadline) => new Promise<T>((resolve, reject) => {
@@ -66,11 +66,12 @@ async function transactBase<T>(mode: IDBTransactionMode, action: (store: IDBObje
       const abort = () => { try { tx.abort(); } catch { /* Already committed/aborted. */ } };
       deadline.addEventListener('abort', abort, { once: true });
       const finish = () => deadline.removeEventListener('abort', abort);
+      const fail = (error: unknown) => { abort(); finish(); reject(error); };
       let value: T;
       tx.oncomplete = () => { finish(); resolve(value); };
       tx.onerror = (event) => { finish(); reject((event.target as IDBRequest).error ?? tx.error ?? new Error('IndexedDB transaction failed')); };
       tx.onabort = () => { finish(); reject(tx.error ?? new Error('IndexedDB transaction aborted')); };
-      action(tx.objectStore(storeName), (result) => { value = result; }, tx);
+      action(tx.objectStore(storeName), (result) => { value = result; }, tx, fail);
     }), 10_000, signal);
   } finally {
     db.close();
@@ -90,7 +91,7 @@ function operationTransaction(db: IDBDatabase, stores: string | string[], mode: 
 }
 
 function operationDriver(parent?: AbortSignal): LocalCacheDriver {
-  const transact = <T,>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void, tx: IDBTransaction) => void, storeName = STORE, signal?: AbortSignal, extraStores: string[] = []) =>
+  const transact = <T,>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void, tx: IDBTransaction, fail: (error: unknown) => void) => void, storeName = STORE, signal?: AbortSignal, extraStores: string[] = []) =>
     transactBase(mode, action, storeName, signal ?? parent, extraStores);
   return {
   withOperation: operationDriver,
@@ -105,15 +106,21 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
   }, OUTBOX),
   async commitCacheBatch(userId, entries, removeKeys = [], guards = [], signal) {
     if (entries.some((entry) => entry.user_id !== userId)) throw new Error('Cache batch user mismatch');
-    return transact<boolean>('readwrite', (store, resolve) => {
+    return transact<boolean>('readwrite', (store, resolve, _tx, fail) => {
       let remaining = guards.length;
       let valid = true;
       const commit = () => {
-        if (valid) {
-          for (const key of removeKeys) store.delete(entryKey(userId, key));
-          for (const entry of entries) store.put(entry, entryKey(userId, entry.key));
+        try {
+          if (valid) {
+            for (const key of removeKeys) store.delete(entryKey(userId, key));
+            for (const entry of entries) store.put(entry, entryKey(userId, entry.key));
+          }
+          resolve(valid);
+        } catch (error) {
+          // Guard reads call this asynchronously, outside the Promise executor.
+          // Abort the batch and reject its owner instead of leaking a DOM error.
+          fail(error);
         }
-        resolve(valid);
       };
       if (!remaining) { commit(); return; }
       for (const guard of guards) {

@@ -9,8 +9,25 @@ import { preparePostgresImage, postgresImage } from '../scripts/release-postgres
 import { runAcceptance } from '../scripts/run-release-acceptance.mjs';
 import { runDatabaseStage } from '../scripts/release-database-stage.mjs';
 import { releaseSuites } from '../scripts/release-acceptance-plan.mjs';
+import { expectedProviderDiagnostic } from '../scripts/browser-error-evidence.mjs';
 
 const directories = [];
+it('keeps unhandled errors blocking while classifying only the proved WebKit local RPC console diagnostic', () => {
+  const origin='http://127.0.0.1:54321';
+  const record={engine:'webkit',name:'Fetch API cannot load http',message:'/127.0.0.1:54321/rest/v1/rpc/pull_task_item_changes_v2 due to access control checks.'};
+  expect(expectedProviderDiagnostic(record,origin)).toBe(true);
+  for(const changed of [
+    {...record,engine:'chromium'},
+    {...record,name:'Unhandled Promise Rejection'},
+    {...record,name:'TypeError'},
+    {...record,message:record.message.replace('54321','54322')},
+    {...record,message:record.message.replace('127.0.0.1','example.com')},
+    {...record,message:record.message.replace('/rest/v1/rpc/','/auth/v1/')},
+    {...record,message:'Context is stopped'},
+    {...record,message:'Failed to store record in an IDBObjectStore: The transaction is inactive or finished.'},
+  ])expect(expectedProviderDiagnostic(changed,origin)).toBe(false);
+  expect(expectedProviderDiagnostic(record,'https://127.0.0.1:54321')).toBe(false);
+});
 afterEach(() => {
   for (const directory of directories.splice(0)) {
     const target = resolve(directory);
@@ -162,9 +179,12 @@ describe('database startup, cleanup and truthful evidence', () => {
   it('keeps startup wrappers before their risky commands and uploads diagnostics without allowing a failed job', () => {
     const workflow = parse(readFileSync('.github/workflows/release-acceptance.yml', 'utf8'));
     const steps = workflow.jobs.database.steps;
+    expect(steps[0].with['fetch-depth']).toBe(0);
+    for (const name of ['static', 'security', 'decision']) expect(workflow.jobs[name].steps[0].with['fetch-depth']).toBeUndefined();
     for (const stage of ['dependencies', 'supabase', 'browsers']) expect(steps.some((step) => step.run?.includes('release-database-stage.mjs ' + stage + ' -- '))).toBe(true);
     const upload = steps.find((step) => step.with?.name === 'release-database-evidence');
     expect(upload.if).toBe('always()'); expect(upload.with['include-hidden-files']).toBe(true); expect(upload.with['if-no-files-found']).toBe('error');
+    expect(upload.with.path).toContain('.expo/audit-fixes/');
     expect(steps.every((step) => step['continue-on-error'] !== true)).toBe(true);
     expect(workflow.jobs.decision.needs).toEqual(['static', 'database', 'security']);
     expect(releaseSuites).toHaveLength(18);

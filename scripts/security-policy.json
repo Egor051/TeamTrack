@@ -3,7 +3,7 @@
   "exceptionProfile": "expo57-unsigned-tooling-20261025",
   "decision": "owner-approved-temporary-risk",
   "activated": true,
-  "approvalReference": "Explicit project-owner approval for only GHSA-86w9-cpqp-85rv and GHSA-mrhx-c7xc-m3w5 for 14 days in attachments 282cee6b-fd99-4fc2-b61a-a39ebe323c87 and 388a3e23-7ac1-4bfa-af74-7e4eb655173e, 2026-10-25; latter authorizes activation after compatible patches and verification. No publication or production authorization. On 2026-10-26 the owner separately approved the reviewed release CI diagnostic workflow hash 4f1adc2435ccd3b428b521d261b430c3b3d76d70f12ab159775c2efb765f36a2 and controlsSha256 87e6490182a65c2231c5fa73646d4b305043352839112ee483729a78fefa1817 in this conversation, without changing startsAt, expiresAt or advisory scope.",
+  "approvalReference": "Explicit project-owner approval for only GHSA-86w9-cpqp-85rv and GHSA-mrhx-c7xc-m3w5 for 14 days in attachments 282cee6b-fd99-4fc2-b61a-a39ebe323c87 and 388a3e23-7ac1-4bfa-af74-7e4eb655173e, 2026-10-25; latter authorizes activation after compatible patches and verification. No publication or production authorization. On 2026-10-26 the owner separately approved the reviewed release CI diagnostic workflow hash 4f1adc2435ccd3b428b521d261b430c3b3d76d70f12ab159775c2efb765f36a2 and controlsSha256 87e6490182a65c2231c5fa73646d4b305043352839112ee483729a78fefa1817 in this conversation, without changing startsAt, expiresAt or advisory scope. On 2026-10-26, in this conversation, the project owner explicitly authorized activation of the final reviewed workflow control SHA-256 6390321de7f1e05e1f788cf262e298105350c3d7cdcb345a584e7f73f91f5e12 and controlsSha256 3b6db01dbc9bca39576b87083a308e35d1a0aee9e56fdee4770316bcd12aaf8e for the preceding reviewed local Release Acceptance diff (working-tree patch SHA-256 7ab3e1b7a2bddf8cd8e315f0c32479a1dbe87028ef5f3b283eb4cc9d80e3b38a). Only these fingerprints and this approval record are updated. The original startsAt, expiresAt, fourteen-day duration, two advisory IDs, reviewed package versions and dependency graph remain unchanged. No Git commit/push or production action is authorized.",
   "startsAt": "2026-10-25T10:32:09.000Z",
   "expiresAt": "2026-11-08T10:32:09.000Z",
   "durationDays": 14,
@@ -146,7 +146,7 @@
     ".babelrc.js": null,
     ".babelrc.cjs": null,
     ".github/workflows/ci.yml": "83c2098000eeed7d2f5ea6cf38a3b47b166a141a72fc2bd6b9864c59f9caa845",
-    ".github/workflows/release-acceptance.yml": "4f1adc2435ccd3b428b521d261b430c3b3d76d70f12ab159775c2efb765f36a2",
+    ".github/workflows/release-acceptance.yml": "6390321de7f1e05e1f788cf262e298105350c3d7cdcb345a584e7f73f91f5e12",
     "scripts/security-policy-gate.mjs": "6e795bd3b2c2ede42c8d953acfb9e8769e0f34938879a1af30c96b8fb251eb47",
     "scripts/security-tooling-conditions.mjs": "6cba2cc4eefea9da9860e5ab2353feca25e8a2d814c5960c2049e284fbd7b6ff",
     "scripts/security-export.mjs": "01ac423efec998aab7c6b43b80ed2b770ac02789a8e6efd5f2eea5c202204570",
@@ -155,7 +155,7 @@
     "scripts/release-decision.mjs": "cc2a7f07900606720907b5ac2529d7a71edfa66e7ca3441131b93192966c6379",
     "scripts/check-release-workflows.mjs": "5ae2e718a6cf5215b87e6013970024e400169deeb40cd7857efaee1cae2c37ca"
   },
-  "controlsSha256": "87e6490182a65c2231c5fa73646d4b305043352839112ee483729a78fefa1817",
+  "controlsSha256": "3b6db01dbc9bca39576b87083a308e35d1a0aee9e56fdee4770316bcd12aaf8e",
   "scope": "isolated-unsigned-static-export",
   "compensatingMeasures": [
     "Guarded Expo export only; EXPO_NO_DOTENV=1 is forced; signing/private-key arguments are not accepted",

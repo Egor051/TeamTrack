@@ -1,0 +1,4 @@
+# Release evidence hashes exact migration bytes on Windows and Linux.
+supabase/migrations/*.sql text eol=lf
+docs/release/*.sql text eol=lf
+docs/release/*.json text eol=lf

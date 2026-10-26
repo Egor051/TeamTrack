@@ -1,5 +1,6 @@
 // Exported application, real Auth/PostgREST, real IndexedDB. Disposable stack only.
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
@@ -11,6 +12,7 @@ import pg from 'pg';
 import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
 import { stopSmokeServer } from './smoke-process-cleanup.mjs';
 import { fixtureCas } from './fixture-cas.mjs';
+import { expectedProviderDiagnostic } from './browser-error-evidence.mjs';
 
 const local=getLocalSupabaseStatus();
 assert.ok(process.env.TASKTRACE_ISOLATED_CONFIG && local.kind==='tasktrace-isolated-security-test'
@@ -20,7 +22,7 @@ const db=new pg.Client({connectionString:local.DB_URL}),auth={persistSession:fal
 const admin=createClient(local.API_URL,local.SERVICE_ROLE_KEY,{auth});let client;
 const evidence=resolve('.expo','operation-window-ui',String(Date.now()));await mkdir(evidence,{recursive:true});
 const value=async q=>{const r=await q;if(r.error)throw r.error;return r.data;};
-const results=[],errors=[],sockets=new Set();let server,browser,persistent,proxy,dropOffline,dropConflictAck,terminalConflict,observePost=()=>{},proxyFailure;
+const results=[],errors=[],providerErrors=[],sockets=new Set();let server,browser,persistent,proxy,dropOffline,dropConflictAck,terminalConflict,observePost=()=>{},proxyFailure;
 const buildConfig=resolve(evidence,'isolated-build.json');
 async function until(check,label){const deadline=Date.now()+45_000;while(Date.now()<deadline){if(proxyFailure)throw proxyFailure;if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error(label);}
 async function retire(handle){
@@ -29,7 +31,14 @@ async function retire(handle){
  try {await db.query('select private.run_client_operation_lifecycle(500)');}
  finally {await db.query("create or replace function private.operation_clock() returns timestamptz language sql volatile set search_path='' as $$ select clock_timestamp() $$");}
 }
-async function rows(page,store){return page.evaluate(store=>new Promise((ok,no)=>{const r=indexedDB.open('tasktrace-local-cache');r.onerror=()=>no(r.error);r.onsuccess=()=>{const db=r.result,tx=db.transaction(store),get=tx.objectStore(store).getAll();get.onsuccess=()=>ok(get.result);get.onerror=()=>no(get.error);tx.oncomplete=()=>db.close();};}),store);}
+async function rows(page,store){return page.evaluate(store=>new Promise((ok,no)=>{const r=indexedDB.open('tasktrace-local-cache');r.onerror=()=>no(r.error);r.onsuccess=()=>{
+ const db=r.result,tx=db.transaction(store),get=tx.objectStore(store).getAll();let result;
+ get.onsuccess=()=>{result=get.result;};get.onerror=()=>no(get.error);
+ // A successful request is not a finished transaction. Await its completion
+ // before asserting stored state or deliberately tearing down this context.
+ tx.oncomplete=()=>{db.close();ok(result);};
+ tx.onabort=tx.onerror=()=>{db.close();no(tx.error??new Error('Fixture read transaction failed'));};
+ };}),store);}
 try{
  await db.connect();await db.query('update private.offline_runtime_config set write_enabled=true,sync_enabled=true');
  // Fault injection lives at the HTTP server boundary. WebKit service-worker
@@ -66,7 +75,8 @@ try{
   });upstream.on('error',()=>socket.destroy());upstream.end();
  });
  await new Promise(r=>proxy.listen(0,'127.0.0.1',r));
- await writeFile(buildConfig,JSON.stringify({...local,API_URL:'http://127.0.0.1:'+proxy.address().port}),{mode:0o600});
+ const proxyOrigin='http://127.0.0.1:'+proxy.address().port;
+ await writeFile(buildConfig,JSON.stringify({...local,API_URL:proxyOrigin}),{mode:0o600});
  const build=spawn(process.execPath,['scripts/build-phase6-local-smoke.mjs'],{stdio:'inherit',windowsHide:true,env:{...process.env,TASKTRACE_ISOLATED_CONFIG:buildConfig}});
  await new Promise((ok,no)=>{build.on('error',no);build.on('exit',code=>code===0?ok():no(Error('Application export failed')));});
  server=spawn(process.execPath,['scripts/serve-web.mjs'],{env:{...process.env,PORT:'4187'},stdio:'ignore',windowsHide:true});
@@ -78,13 +88,24 @@ try{
   const email=`window-ui-${engine}-${Date.now()}@test.local`,password='WindowUiFixture#123';
   const {user}=await value(admin.auth.admin.createUser({email,password,email_confirm:true,user_metadata:{display_name:'Window review fixture'}}));
   const {session}=await value(client.auth.signInWithPassword({email,password}));
-  const profile=resolve(evidence,engine+'-synthetic-profile');let context,page;
+  const profile=resolve(evidence,engine+'-synthetic-profile');let context,page,phase='active';
+  const closeContext=async()=>{phase='intentional context teardown';try{await context.close();}finally{phase='closed';}};
   const setupPage=async()=>{
+   phase='active';
+   await context.exposeBinding('tasktraceUnhandledError',(source,event)=>errors.push({engine,phase,url:source.page.url(),at:new Date().toISOString(),...event}));
+   await context.addInitScript(()=>{
+    addEventListener('error',event=>{void globalThis.tasktraceUnhandledError({kind:'error',message:event.message,stack:event.error?.stack??null});});
+    addEventListener('unhandledrejection',event=>{void globalThis.tasktraceUnhandledError({kind:'unhandledrejection',message:String(event.reason?.message??event.reason),stack:event.reason?.stack??null});});
+   });
    await context.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort('internetdisconnected'));
-   await context.addInitScript(({session,theme})=>{localStorage.setItem('sb-127-auth-token',JSON.stringify(session));localStorage.setItem('tasktrace.theme',theme);},{session,theme});
+   await context.addInitScript(({session,theme,origin})=>{if(location.origin!==origin)return;localStorage.setItem('sb-127-auth-token',JSON.stringify(session));localStorage.setItem('tasktrace.theme',theme);},{session,theme,origin});
    page=context.pages()[0]??await context.newPage();await page.bringToFront();
    assert.equal(await page.evaluate(()=>document.visibilityState),'visible');
-   page.on('pageerror',e=>errors.push(e.message));
+   page.on('pageerror',error=>{
+    const record={engine,phase,url:page.url(),at:new Date().toISOString(),name:error.name,message:error.message,stack:error.stack};
+    providerErrors.push(record);
+    if(!expectedProviderDiagnostic(record,proxyOrigin))errors.push(record);
+   });
   };
   const openProfile=async()=>{
    context=persistent=await type.launchPersistentContext(profile,{headless:true,viewport:{width,height:900}});browser=context.browser();await setupPage();
@@ -100,6 +121,9 @@ try{
   const item=await value(client.rpc('create_task_item',{p_task_id:task,p_title:'Expired durable change'}));
   await retire(handle);
   await page.goto(origin+'/projects');await page.getByText(`Current server project ${engine}`,{exact:true}).waitFor();
+  // Do not interrupt the initial bootstrap with the fixture's reload: its
+  // unfinished lease would otherwise outlive this page and delay readiness.
+  await page.getByText('Офлайн: готово',{exact:true}).waitFor();
   const key='sync:mutation:create_project:self',mutation={id,name:'create_project',args,phase:'review',protocol_version:3,handle,review_reason:'TT_OPERATION_EXPIRED'};
   await page.evaluate(({user,key,mutation})=>new Promise((ok,no)=>{const r=indexedDB.open('tasktrace-local-cache');r.onerror=()=>no(r.error);r.onsuccess=()=>{const db=r.result,tx=db.transaction('entries','readwrite');tx.objectStore('entries').put({user_id:user,key,data:JSON.stringify(mutation),schema_version:1,last_synced_at:new Date().toISOString()},user+':'+key);tx.oncomplete=()=>{db.close();ok();};tx.onerror=()=>no(tx.error);tx.onabort=()=>no(tx.error);};}),{user:user.id,key,mutation});
   await page.reload();await page.getByRole('button',{name:'Синхронизация: требуется согласование',exact:true}).click();
@@ -143,7 +167,7 @@ try{
   assert.equal(new Set(posted.filter(row=>row.p_operation_id===op.operation_id).map(row=>row.p_operation_id)).size,1);
   assert.equal((await db.query('select count(*)::int n from private.client_operation_receipts_v3 where operation_id=$1',[op.operation_id])).rows[0].n,0);
   results.push({engine,case:'offline lost ACK past expiry',theme,width,result:'PASS',handle:committedHandle});console.log('PASS '+engine+' expired offline outbox: original handle retained, no duplicate effect, explicit keep-server');
-  await context.close();await browser.close();browser=null;await openProfile();
+  await closeContext();await browser.close();browser=null;await openProfile();
   await page.goto(origin+'/projects');await page.getByText(`Current server project ${engine}`,{exact:true}).waitFor();
   await until(async()=>(await rows(page,'entries')).some(row=>{
    if(row.user_id!==user.id||row.key!=='runtime:offline-capabilities')return false;
@@ -177,7 +201,7 @@ try{
   assert.ok(conflictPosts.every(row=>row.p_operation_id===unknown.operation_id&&row.p_generation===unknown.operation_handle.generation&&row.p_epoch===unknown.operation_handle.epoch));
   assert.equal((await db.query('select sync_version::int version from public.task_items where id=$1',[recoveryItem])).rows[0].version,3);
   dropConflictAck=null;
-  await context.close();persistent=null;browser=null;await openProfile();
+  await closeContext();persistent=null;browser=null;await openProfile();
   await page.goto(taskUrl);await page.getByRole('button',{name:'Оставить моё',exact:true}).waitFor();
   assert.deepEqual((await rows(page,'pending_operations')).find(row=>row.task_item_id===recoveryItem).operation_handle,unknown.operation_handle);
   const beforeRetry=posted.length;
@@ -244,7 +268,7 @@ try{
   }));
   results.push({engine,case:'persistent profile asset diagnostics; separate from conflict acceptance',observation:profileReadiness});
   terminalConflict=null;
-  await context.close();persistent=null;browser=null;
+  await closeContext();persistent=null;browser=null;
  }
  assert.deepEqual(errors,[]);
 }catch(error){
@@ -253,5 +277,5 @@ try{
    runtime:await rows(page,'entries').then(rows=>rows.filter(row=>/bootstrap:metadata|runtime:|sync:/.test(row.key))).catch(e=>({error:e.message}))});
   await page.screenshot({path:resolve(evidence,'failure-'+pages.length+'.png'),fullPage:true}).catch(()=>undefined);
  }
- await writeFile(resolve(evidence,'failure.json'),JSON.stringify({error:error.message,pages,errors},null,2));throw error;
-}finally{await writeFile(resolve(evidence,'results.json'),JSON.stringify({results,errors},null,2));await persistent?.close();await browser?.close();await stopSmokeServer(server);for(const socket of sockets)socket.destroy();if(proxy)await new Promise(r=>proxy.close(r));await unlink(buildConfig).catch(error=>{if(error.code!=='ENOENT')throw error;});await db.end();}
+ await writeFile(resolve(evidence,'failure.json'),JSON.stringify({error:error.message,pages,errors,providerErrors},null,2));throw error;
+}finally{await writeFile(resolve(evidence,'results.json'),JSON.stringify({results,errors,providerErrors},null,2));await persistent?.close();await browser?.close();await stopSmokeServer(server);for(const socket of sockets)socket.destroy();if(proxy)await new Promise(r=>proxy.close(r));await unlink(buildConfig).catch(error=>{if(error.code!=='ENOENT')throw error;});await db.end();}

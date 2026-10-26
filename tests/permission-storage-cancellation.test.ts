@@ -36,3 +36,29 @@ it('REG-02: cancelling an active ACL write aborts its real IndexedDB transaction
   expect(await localCacheDriver.listEntries('user')).toEqual([]);
   expect(()=>invalidateReadModels('user',undefined,'access',controller.signal)).toThrow('Operation cancelled');
 });
+
+it('REG-UI: cancelling a guarded cache batch never leaks a late write exception or partial state', async () => {
+  const {localCacheDriver:driver}=await import('@/lib/local-cache/driver.web');
+  const entry=(key:string,data:string)=>({user_id:'user',key,data,last_synced_at:'',schema_version:1});
+  await driver.put(entry('guard','owner'));await driver.put(entry('retained','old'));
+  const controller=new AbortController(),put=IDBObjectStore.prototype.put;
+  vi.spyOn(IDBObjectStore.prototype,'put').mockImplementation(function(this:IDBObjectStore,...args:Parameters<IDBObjectStore['put']>){
+    const request=put.apply(this,args);if(args[1]==='user:first')controller.abort();return request;
+  });
+  await expect(driver.withOperation!(controller.signal).commitCacheBatch('user',[entry('first','new'),entry('second','new')],['retained'],[{key:'guard',data:'owner'}])).rejects.toMatchObject({name:'AbortError'});
+  vi.restoreAllMocks();
+  expect(await driver.get('user','first')).toBeNull();expect(await driver.get('user','second')).toBeNull();expect((await driver.get('user','retained'))?.data).toBe('old');
+});
+
+it('REG-UI: a guarded batch write failure rejects with its cause and rolls back earlier queued writes', async () => {
+  const {localCacheDriver:driver}=await import('@/lib/local-cache/driver.web');
+  const entry=(key:string,data:string)=>({user_id:'user',key,data,last_synced_at:'',schema_version:1});
+  await driver.put(entry('guard','owner'));await driver.put(entry('retained','old'));
+  const put=IDBObjectStore.prototype.put,injected=new DOMException('Fixture write quota','QuotaExceededError');
+  vi.spyOn(IDBObjectStore.prototype,'put').mockImplementation(function(this:IDBObjectStore,...args:Parameters<IDBObjectStore['put']>){
+    if(args[1]==='user:second')throw injected;return put.apply(this,args);
+  });
+  await expect(driver.commitCacheBatch('user',[entry('first','new'),entry('second','new')],['retained'],[{key:'guard',data:'owner'}])).rejects.toBe(injected);
+  vi.restoreAllMocks();
+  expect(await driver.get('user','first')).toBeNull();expect(await driver.get('user','second')).toBeNull();expect((await driver.get('user','retained'))?.data).toBe('old');
+});

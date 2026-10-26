@@ -9,16 +9,34 @@ import pg from 'pg';
 import { fixtureCas } from './fixture-cas.mjs';
 import { getLocalSupabaseStatus } from './local-supabase-status.mjs';
 import { stopSmokeServer } from './smoke-process-cleanup.mjs';
+import { sanitize } from './release-ci-process.mjs';
 const local=getLocalSupabaseStatus(); if(local.kind!=='tasktrace-isolated-security-test')throw Error('Disposable stack required');
 const db=new pg.Client({connectionString:local.DB_URL});
 const options={auth:{persistSession:false,autoRefreshToken:false}};
 const admin=createClient(local.API_URL,local.SERVICE_ROLE_KEY,options),owner=createClient(local.API_URL,local.ANON_KEY,options);
 const base='http://127.0.0.1:4183',password='AuditFixesUnique9!',email='audit-fixes-'+process.pid+'@test.local';
-const evidence=resolve('.expo/audit-fixes');mkdirSync(evidence,{recursive:true});
+const evidence=resolve('.expo/audit-fixes',`${Date.now()}-${process.pid}`);mkdirSync(evidence,{recursive:true});
 const rpc=async(name,args)=>{const r=await fixtureCas(owner,name,args);if(r.error)throw r.error;return r.data;};
-const measurements=[],failures=[],profileResponses=[];let browser,server,user,page;
-async function check(label,fn){try{await fn();console.log('PASS '+label);}catch(e){failures.push(label);console.error('FAIL '+label+': '+e.message);
- if(page){writeFileSync(resolve(evidence,'failure-'+failures.length+'.txt'),await page.locator('body').innerText());writeFileSync(resolve(evidence,'failure-'+failures.length+'.json'),JSON.stringify({profileResponses,profile:(await db.query('select display_name from public.profiles where id=$1',[user])).rows},null,2));await page.screenshot({path:resolve(evidence,'failure-'+failures.length+'.png'),fullPage:true});}}}
+const measurements=[],failures=[],profileResponses=[],templateResponses=[],browserEvents=[],checks=[];let browser,context,server,user,page;
+async function check(label,fn){
+ const entry={label,startedAt:new Date().toISOString()};checks.push(entry);
+ try{await fn();entry.status='PASS';console.log('PASS '+label);}
+ catch(e){
+  entry.status='FAIL';entry.error=sanitize(e.message);failures.push(label);console.error('FAIL '+label+': '+e.message);
+  if(page){
+   const report={url:page.url(),profileResponses,templateResponses,browserEvents,checks,diagnosticErrors:[]};
+   try{report.profile=(await db.query('select display_name from public.profiles where id=$1',[user])).rows;report.templates=(await db.query('select to_jsonb(t) value from public.task_templates t')).rows;}
+   catch(error){report.diagnosticErrors.push(sanitize(error.message));}
+   try{report.cache=await page.evaluate(async user=>{
+    const request=indexedDB.open('tasktrace-local-cache');const cache=await new Promise((ok,no)=>{request.onsuccess=()=>ok(request.result);request.onerror=()=>no(request.error);});
+    try{if(!cache.objectStoreNames.contains('entries'))return null;return await new Promise((ok,no)=>{const read=cache.transaction('entries').objectStore('entries').get(user+':templates');read.onsuccess=()=>ok(read.result??null);read.onerror=()=>no(read.error);});}finally{cache.close();}
+   },user);}catch(error){report.diagnosticErrors.push(sanitize(error.message));}
+   try{writeFileSync(resolve(evidence,'failure-'+failures.length+'.txt'),sanitize(await page.locator('body').innerText({timeout:2000})));await page.screenshot({path:resolve(evidence,'failure-'+failures.length+'.png'),fullPage:true,timeout:5000});}
+   catch(error){report.diagnosticErrors.push(sanitize(error.message));}
+   writeFileSync(resolve(evidence,'failure-'+failures.length+'.json'),sanitize(JSON.stringify(report,null,2)));
+  }
+ }finally{entry.finishedAt=new Date().toISOString();}
+}
 async function eventually(probe){const end=Date.now()+10000;while(Date.now()<end){if(await probe())return;await new Promise(r=>setTimeout(r,50));}throw Error('Expected browser transition did not finish');}
 try{
  await db.connect(); const created=await admin.auth.admin.createUser({email,password,email_confirm:true,user_metadata:{display_name:'Original name'}});
@@ -30,9 +48,15 @@ try{
  await new Promise((ok,no)=>{const child=spawn(process.execPath,['scripts/build-phase6-local-smoke.mjs'],{stdio:'inherit',windowsHide:true});child.on('error',no);child.on('exit',c=>c===0?ok():no(Error('Export '+c)));});
  server=spawn(process.execPath,['scripts/serve-web.mjs'],{env:{...process.env,PORT:'4183'},stdio:'ignore',windowsHide:true});
  for(let n=0;n<100;n++){try{if((await fetch(base)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
- browser=await chromium.launch({headless:true});const context=await browser.newContext();
+ // These UI error contracts inject HTTP outcomes with route(). PWA/service
+ // worker acceptance runs separately with real workers in the mandatory plan.
+ browser=await chromium.launch({headless:true});context=await browser.newContext({serviceWorkers:'block'});
+ await context.tracing.start({screenshots:true,snapshots:true,sources:true});
  await context.route('**/*',route=>[base,new URL(local.API_URL).origin].includes(new URL(route.request().url()).origin)?route.continue():route.abort());
- page=await context.newPage();page.on('response',async response=>{if(response.url().endsWith('/rpc/execute_client_mutation_v3')){const request=response.request().postDataJSON();if(request?.p_name==='update_my_profile')profileResponses.push({request,status:response.status(),body:await response.json().catch(()=>null)});}});
+ page=await context.newPage();page.on('response',async response=>{if(response.url().endsWith('/rpc/execute_client_mutation_v3')){const request=response.request().postDataJSON();if(request?.p_name==='update_my_profile')profileResponses.push({request,status:response.status(),body:await response.json().catch(()=>null)});}if(response.url().includes('/rpc/get_task_template_page_v2'))templateResponses.push({at:new Date().toISOString(),request:response.request().postDataJSON(),status:response.status(),body:await response.json().catch(()=>null)});});
+ page.on('console',message=>browserEvents.push({at:new Date().toISOString(),type:message.type(),text:sanitize(message.text())}));
+ page.on('pageerror',error=>browserEvents.push({at:new Date().toISOString(),type:'pageerror',text:sanitize(error.message)}));
+ page.on('requestfailed',request=>browserEvents.push({at:new Date().toISOString(),type:'requestfailed',url:new URL(request.url()).pathname,error:request.failure()?.errorText}));
  await page.goto(base+'/login');await page.getByLabel('Email',{exact:true}).fill(email);await page.getByLabel('Пароль',{exact:true}).fill(password);
  await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('heading',{name:'Проекты',exact:true}).waitFor();
  await check('P05 real project and stage progress geometry',async()=>{
@@ -144,12 +168,14 @@ try{
   await context.unroute('**/rest/v1/rpc/get_task_item_snapshot_page',race);
  });
  await check('P04 destructive failures stay inside their active dialogs and clear on reopen',async()=>{
-  const deny=async route=>{const args=route.request().postDataJSON();if(!['archive_project','hard_delete_project','hard_delete_task','hard_delete_task_item','archive_task_template','delete_task_template_item'].includes(args.p_name))return route.continue();
-   await route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({code:'42501',message:'Access denied',details:null,hint:null})});};
+  const deniedOperations=[];
+  const deny=async route=>{if(route.request().method()!=='POST')return route.continue();const args=route.request().postDataJSON();if(!['archive_project','hard_delete_project','hard_delete_task','hard_delete_task_item','archive_task_template','delete_task_template_item'].includes(args?.p_name))return route.continue();
+   deniedOperations.push(args.p_name);browserEvents.push({at:new Date().toISOString(),type:'injected403',operation:args.p_name});
+   await route.fulfill({status:403,contentType:'application/json',headers:{'access-control-allow-origin':base,'access-control-allow-credentials':'true'},body:JSON.stringify({code:'42501',message:'Access denied',details:null,hint:null})});};
   await context.route('**/rest/v1/rpc/execute_client_mutation_v3',deny);
   const error='Доступ запрещён. У вашей роли нет прав на это действие.';
   async function failDialog(title,button){const dialog=page.getByLabel(title,{exact:true});await dialog.getByRole('button',{name:button,exact:true}).click();
-   await dialog.getByRole('alert').getByText(error,{exact:true}).waitFor();await dialog.getByRole('button',{name:'Отмена',exact:true}).click();return dialog;}
+   await dialog.getByRole('alert').getByText(error,{exact:true}).waitFor();await dialog.getByRole('button',{name:'Отмена',exact:true}).click();await dialog.waitFor({state:'hidden'});return dialog;}
   await page.goto(base+`/projects/${project}`);await page.getByRole('button',{name:'Архивировать проект',exact:true}).click();
   await failDialog('Архивировать проект?','Архивировать');await page.getByRole('button',{name:'Архивировать проект',exact:true}).click();
   assert.equal(await page.getByLabel('Архивировать проект?',{exact:true}).getByRole('alert').count(),0);await page.getByRole('button',{name:'Отмена',exact:true}).click();
@@ -161,11 +187,13 @@ try{
   await page.getByRole('button',{name:/^Открыть детали пункта /}).click();await page.getByRole('button',{name:'Удалить навсегда',exact:true}).click();await failDialog('Удалить пункт навсегда?','Удалить навсегда');
   const template=await rpc('create_task_template',{p_name:'Dialog template'});await rpc('create_task_template_item',{p_template_id:template,p_title:'Dialog item'});
   await page.goto(base+'/templates');await page.getByRole('button',{name:'Раскрыть шаблон Dialog template',exact:true}).click();
+  await page.getByText('1. Dialog item',{exact:true}).waitFor();await page.getByRole('button',{name:'Удалить',exact:true}).nth(1).waitFor();
   await page.getByRole('button',{name:'Удалить',exact:true}).first().click();await failDialog('Удалить шаблон?','Удалить');
-  await page.getByRole('button',{name:'Удалить',exact:true}).last().click();assert.equal(await page.getByLabel('Удалить пункт шаблона?',{exact:true}).getByRole('alert').count(),0);await failDialog('Удалить пункт шаблона?','Удалить пункт');
+  await page.getByRole('button',{name:'Удалить',exact:true}).nth(1).click();await page.getByLabel('Удалить пункт шаблона?',{exact:true}).waitFor();assert.equal(await page.getByLabel('Удалить пункт шаблона?',{exact:true}).getByRole('alert').count(),0);await failDialog('Удалить пункт шаблона?','Удалить пункт');
   assert.equal((await db.query('select count(*)::int n from public.projects where id=$1',[project])).rows[0].n,1);
+  assert.deepEqual(deniedOperations,['archive_project','hard_delete_project','hard_delete_task','hard_delete_task_item','archive_task_template','delete_task_template_item']);
   await context.unroute('**/rest/v1/rpc/execute_client_mutation_v3',deny);
  });
- writeFileSync(resolve(evidence,'results.json'),JSON.stringify({measurements,failures},null,2));
+ writeFileSync(resolve(evidence,'results.json'),sanitize(JSON.stringify({measurements,failures,checks,templateResponses,browserEvents},null,2)));
  if(failures.length)throw Error('Browser regressions: '+failures.join(', '));
-}finally{await browser?.close();if(server)await stopSmokeServer(server);await db.end();}
+}finally{try{if(context)await context.tracing.stop({path:resolve(evidence,'trace.zip')});}finally{await browser?.close();if(server)await stopSmokeServer(server);await db.end();}}

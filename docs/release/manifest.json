@@ -11,7 +11,7 @@
     {
       "version": "20260901000000",
       "name": "initial_schema",
-      "sha256": "18d444db9a6381407d16fd20da202ba3f6fe890bfb05dcb6121ab0bb8beeb471"
+      "sha256": "4ab649b30b866c84963d79535daab26ef2c02f95489b3362bba009de36d201ea"
     },
     {
       "version": "20260901203058",
@@ -31,7 +31,7 @@
     {
       "version": "20260901210712",
       "name": "enable_tasktrace_realtime",
-      "sha256": "3d8aa480b980039964710c85b78f8c06914819194119ddb8b4b308fa849db454"
+      "sha256": "30d11cfa5c29d4bd6a9578317d8f5983f6c0e226e73d0af470bc56fbc9b7c66a"
     },
     {
       "version": "20260901210737",
@@ -46,12 +46,12 @@
     {
       "version": "20260902000000",
       "name": "rls_authorization",
-      "sha256": "38a43faa88308393b9719ab9335f48a6473f5f826849eec3056ba8cc96ee902b"
+      "sha256": "9ac0242804e706615e4963dbd0934b1b697464689b61c0900d8719cef00a6792"
     },
     {
       "version": "20260903000000",
       "name": "profile_provisioning",
-      "sha256": "d457ff1fd732e3afd7838b819d7db3ea82436307e61678b9c138114c95c4b00d"
+      "sha256": "312051c3af37063a84d35266f4dbecdc1643127054cf34d95ffb2d2d45e6fd30"
     },
     {
       "version": "20260903224258",
@@ -76,7 +76,7 @@
     {
       "version": "20260904142023",
       "name": "add_project_member_by_identifier",
-      "sha256": "567ab81bd6308317eb00ac7419783df10d788b128b92c7a8b807184b8d75ad6f"
+      "sha256": "8989cd5655728318fe9de81fde0f01a076a05f8cd59380db29b57de5a5880e84"
     },
     {
       "version": "20260904201318",
@@ -86,7 +86,7 @@
     {
       "version": "20260904204217",
       "name": "restore_and_update_project",
-      "sha256": "480eb0c8e9880f0b97f9624a1d90f43542125bba92610cf5d2de88de622dd84f"
+      "sha256": "b6177ba4c158f54d61b4d8a2d4edd8982ea0c0dbc48843f6eca6e384382ef9df"
     },
     {
       "version": "20260904204514",
@@ -96,12 +96,12 @@
     {
       "version": "20260905000000",
       "name": "notifications",
-      "sha256": "e29716d6b9bbf63d63b35a0de0dc3860c224fdc45b1b78aa341372a1b4340b55"
+      "sha256": "6000a5df7f529b00edea06956aeec1230c8589b31541155dc9f590c0e94cee09"
     },
     {
       "version": "20260905120000",
       "name": "contextual_notifications",
-      "sha256": "13b66a0f554d134cfa131606707031ebcb3efd1809235f9d999313bbfbd876aa"
+      "sha256": "dd4e7b603d92c32c4328909e4a6b926d79c0a55bed263073d7095eba4bcc0e5c"
     },
     {
       "version": "20260905172931",
@@ -136,12 +136,12 @@
     {
       "version": "20260908000000",
       "name": "security_hardening",
-      "sha256": "a9ee3fdace9941d84078f59bc1d36a45c09cd7360f0b85ad539149f33d86b64b"
+      "sha256": "681e1b3e00b936e4f7178bfa5f2bfa9cb65f7653a51083e405875950cf821284"
     },
     {
       "version": "20260909000000",
       "name": "restrict_private_function_grants",
-      "sha256": "a37e295cc07c510280c46fc0dff691a4def1e62bfac0e367b2ff696bfa54c14a"
+      "sha256": "f177934f39c7c4353d37d929e86bf9bbb7371678bec488c0114017e3a9144a06"
     },
     {
       "version": "20260909221947",
@@ -171,12 +171,12 @@
     {
       "version": "20260910000000",
       "name": "concurrency_and_input_hardening",
-      "sha256": "091be0a0cdad8b12e0f2263267ecc973670dea6e934d2b1c4fb92647996d30f5"
+      "sha256": "ce876b0ef9428b0860b9a1513f71b883ab45a05e201d6a33ff0fecac21a0ad41"
     },
     {
       "version": "20260911000000",
       "name": "schema_acl_hardening",
-      "sha256": "08bf8b4c82b209c5420b177aa55d614d860db904d4da85babf1f61cc8ce6b9ba"
+      "sha256": "08b80cf2e4174ac640e6ee9c7a105edba5b66ba107f4792fbd54a639cfd7ec79"
     },
     {
       "version": "20260911203043",
@@ -186,12 +186,12 @@
     {
       "version": "20260911210124",
       "name": "reconcile_task_item_audit_and_templates",
-      "sha256": "d405ab47816537f96973d21741a16512e4de38eb4f63364ab1c93f379e2cbb56"
+      "sha256": "f6afb7abdf67d702a7a45f3758d6f98733e4917eda42b8750c1008a04e72a818"
     },
     {
       "version": "20260912000000",
       "name": "private_function_acl_hardening",
-      "sha256": "c5f19bd43d8bd1ee2146f9e397af483114a6cdcb2896dfd24b4fa12829ac1bf7"
+      "sha256": "d45f7433506ca6887db401c761f4c2311fbde3889c799bf33e3441509010407f"
     },
     {
       "version": "20260913000000",
@@ -201,27 +201,27 @@
     {
       "version": "20260914000000",
       "name": "hosted_reconciliation_phase_a",
-      "sha256": "ad5d7c81e183a0cf27d245e7cc552e6292b55568f2a3f284500d8dbf8334d8df"
+      "sha256": "5be5d5f8146a47593d89363706689b11eb0d90728bfa9bada28235af17443192"
     },
     {
       "version": "20260915000000",
       "name": "hosted_reconciliation_phase_b",
-      "sha256": "74c7d0371579be0552b42e7f6f6a50639007ec9ce189324be03bd776d7b49c08"
+      "sha256": "1f33a846cbce8fa5bad5326498d19be1b71358dee8e1d3a930631f4f671005bf"
     },
     {
       "version": "20260916000000",
       "name": "production_hardening_fixes",
-      "sha256": "e748602480e1c2a160215c49eda488ee0725a149fe02fa00ccadeed660cd5cfc"
+      "sha256": "fd42269c8445925bf9db5486b26fbf8d46b366c09f2562860c6b15442e389d49"
     },
     {
       "version": "20260917000000",
       "name": "improve_pass",
-      "sha256": "aa34e826b992558840730151d710c5cb2bf8751fa1e4b525c9eb7a3ecf2c1800"
+      "sha256": "27284a64a13bde9b9999f4555fc6929188aeb58d827dbf790fc8cba29b9ded5a"
     },
     {
       "version": "20260918000000",
       "name": "add_update_my_profile",
-      "sha256": "2e686bbd86ed8c46480a6b3b0536a8851113f7aa9bdf17f42812578b56db1593"
+      "sha256": "8f0aa12d31644f32e9aa385c846561ae52cbe061a7a1e0257457c9f509aabf6d"
     },
     {
       "version": "20260918000917",
@@ -326,7 +326,7 @@
     {
       "version": "20261015185037",
       "name": "schedule_checklist_deadlines",
-      "sha256": "00d61088a22a4f7c82e395bba1f050bc148fe318db4b56186191ea28d3b2a9d7"
+      "sha256": "98f6250b63ab654cabd3317203747212fe08bb6a191219208f01daa37dca9f37"
     },
     {
       "version": "20261016153754",
@@ -444,7 +444,7 @@
       {
         "version": "20261015185037",
         "name": "schedule_checklist_deadlines",
-        "sha256": "00d61088a22a4f7c82e395bba1f050bc148fe318db4b56186191ea28d3b2a9d7"
+        "sha256": "98f6250b63ab654cabd3317203747212fe08bb6a191219208f01daa37dca9f37"
       },
       {
         "version": "20261016153754",
