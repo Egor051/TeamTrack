@@ -45,13 +45,15 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Initialize database diagnostics before startup
+        run: node scripts/release-database-stage.mjs initialize
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npx --yes supabase@2.116.0 start
-      - run: npx playwright install --with-deps chromium webkit
+      - run: node scripts/release-database-stage.mjs dependencies -- npm ci
+      - run: node scripts/release-database-stage.mjs supabase -- npx --yes supabase@2.116.0 start
+      - run: node scripts/release-database-stage.mjs browsers -- npx playwright install --with-deps chromium webkit
       - run: node scripts/run-release-acceptance.mjs
       - run: node scripts/pwa-mobile-browser-smoke.mjs
       - name: Preserve every acceptance result and failure

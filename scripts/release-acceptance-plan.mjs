@@ -1,0 +1,21 @@
+// One mandatory plan, shared by execution and startup diagnostics.
+export const releaseSuites = [
+  ['schema-compatibility', 'scripts/release-schema-compatibility.mjs'],
+  ['blockers', 'scripts/release-blockers-integration.mjs'],
+  ['sql-fresh', 'scripts/run-audit-sql-tests.mjs', '--fresh'],
+  ['sql-upgrade', 'scripts/run-audit-sql-tests.mjs', '--cron', '--advisors', '--generate-types'],
+  ['v3-fresh', 'scripts/operation-window-integration.mjs'],
+  ['v3-upgrade', 'scripts/operation-window-integration.mjs', '--upgrade'],
+  ['audit-fixes-fresh', 'scripts/audit-fixes-integration.mjs'],
+  ['audit-fixes-upgrade', 'scripts/audit-fixes-integration.mjs', '--upgrade'],
+  ['security-fresh', 'scripts/test-security-hardening.mjs'],
+  ['security-upgrade', 'scripts/test-security-hardening.mjs', '--hosted'],
+  ['cross-tab-chromium', 'scripts/regression-mutation-browser.mjs', '--repeat=100'],
+  ['cross-tab-webkit', 'scripts/regression-mutation-browser.mjs', '--webkit', '--repeat=100'],
+  ['storage-chromium', 'scripts/release-storage-browser.mjs'],
+  ['storage-webkit', 'scripts/release-storage-browser.mjs', '--webkit'],
+  ['v3-load', 'scripts/operation-window-load.mjs'],
+  ['gc-scale', 'scripts/release-gc-scale.mjs'],
+  ['ui', 'scripts/run-security-integrations.mjs', 'scripts/operation-window-ui-browser.mjs', 'scripts/audit-fixes-browser.mjs'],
+  ['crash', 'scripts/operation-window-crash.mjs'],
+];

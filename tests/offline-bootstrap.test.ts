@@ -6,7 +6,8 @@ import type { AccountManifest, Dataset } from '@/lib/local-cache/bootstrap-types
 import { BASIC_DATASETS, EXTENDED_DATASETS, BOOTSTRAP_KEY, initialBootstrap } from '@/lib/local-cache/bootstrap-types';
 
 const f = vi.hoisted(() => ({ user: '00000000-0000-4000-8000-000000000001', rpc: vi.fn(), from: vi.fn(),
-  failure: null as { dataset?: string; offset?: number; error: unknown } | null, rows: {} as Record<string, unknown[]> }));
+  failure: null as { dataset?: string; offset?: number; error: unknown } | null, rows: {} as Record<string, unknown[]>,
+  cycleProfiles: [] as { wallMs: number; cpuMs: number }[] }));
 vi.mock('@/lib/supabase/client', () => ({ supabase: { rpc: f.rpc, from: f.from, auth: {
   getSession: async () => ({ data: { session: { user: { id: f.user }, expires_at: Math.floor(Date.now() / 1000) + 3600 } }, error: null }),
 } } }));
@@ -301,9 +302,37 @@ describe('account bootstrap', () => {
     expect(await stored(`task-role:${taskId}`)).toBe('viewer'); expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
   });
   it('20 reload/refresh cycles reuse unchanged content without page requests or writes and keep logical storage bounded', async () => {
+    const started = performance.now(), cpu = process.cpuUsage();
+    const timersBefore = process.getActiveResourcesInfo().filter((name) => name === 'Timeout').length;
+    const activeTransactions = new Set<IDBTransaction>();
+    const database = IDBDatabase.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const transaction = database.transaction;
+    vi.spyOn(database, 'transaction').mockImplementation(function (this: unknown, ...args: unknown[]) {
+      const pending = transaction.apply(this, args) as IDBTransaction;
+      activeTransactions.add(pending);
+      const settled = () => activeTransactions.delete(pending);
+      pending.addEventListener('complete', settled, { once: true });
+      pending.addEventListener('abort', settled, { once: true });
+      return pending;
+    });
+    const phases: { name: string; wallMs: number; cpuMs: number }[] = [];
+    const phase = async <T,>(name: string, action: () => Promise<T>) => {
+      const wall = performance.now(), usage = process.cpuUsage();
+      try { return await action(); }
+      finally { const used = process.cpuUsage(usage); phases.push({ name, wallMs: performance.now() - wall, cpuMs: (used.user + used.system) / 1000 }); }
+    };
+    const storageOperations: Record<string, number> = {};
+    const store = IDBObjectStore.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+    for (const method of ['get', 'getAll', 'openCursor', 'put', 'delete']) {
+      const original = store[method];
+      vi.spyOn(store, method).mockImplementation(function (this: unknown, ...args: unknown[]) {
+        storageOperations[method] = (storageOperations[method] ?? 0) + 1;
+        return original.apply(this, args);
+      });
+    }
     const item = f.rows.items[0] as Record<string, unknown>;
     f.rows.items = Array.from({ length: 1001 }, (_, index) => ({ ...item, id: `item-${index}`, position: index, comment: 'Representative comment '.repeat(30) }));
-    let b = await run(); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
+    let b = await phase('initial-bootstrap', run); const driver = (await import('@/lib/local-cache/driver')).localCacheDriver;
     const measure = async () => { const rows = await driver.listEntries(f.user); return { records: rows.length, pages: rows.filter((row) => row.key.startsWith('bootstrap:page:')).length,
       bytes: rows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row)), 0), allCopies: rows.filter((row) => /^items:.*:all$/.test(row.key)).length }; };
     const baseline = await measure(); const samples = [baseline];
@@ -313,17 +342,35 @@ describe('account bootstrap', () => {
       pageWrites += entries.filter((entry) => entry.key.startsWith('bootstrap:page:')).length;
       return commit(user, entries, remove, guards);
     });
+    // Moving the fake clock needs only the preceding settled retry snapshot.
+    // advance() would re-read and verify all 1001 items on every cycle solely
+    // to calculate that delay. Keep the fresh readiness check after each reload.
+    let metadata = await phase('readiness', () => b.getBootstrapMetadata(f.user));
+    expect(metadata.basic_ready).toBe(true);
     for (let cycle = 0; cycle < 20; cycle++) {
-      f.rpc.mockClear(); await advance(b); await b.runAccountBootstrap(f.user, true);
-      expect(pages()).toHaveLength(0); samples.push(await measure());
-      vi.resetModules(); b = await import('@/lib/local-cache/bootstrap');
-      expect((await b.getBootstrapMetadata(f.user)).basic_ready).toBe(true);
+      f.rpc.mockClear(); vi.setSystemTime(Date.now() + b.bootstrapDelay(metadata) + 1);
+      await phase('bootstrap', () => b.runAccountBootstrap(f.user, true));
+      expect(pages()).toHaveLength(0); samples.push(await phase('storage-size', measure));
+      vi.resetModules(); b = await phase('module-reload', () => import('@/lib/local-cache/bootstrap'));
+      metadata = await phase('readiness', () => b.getBootstrapMetadata(f.user));
+      expect(metadata.basic_ready).toBe(true);
     }
     expect(pageWrites).toBe(0); expect(samples.every((row) => row.records === baseline.records && row.pages === baseline.pages && row.allCopies === 0)).toBe(true);
     expect(Math.max(...samples.map((row) => row.bytes)) - Math.min(...samples.map((row) => row.bytes))).toBeLessThan(4096);
+    await new Promise<void>((done) => setImmediate(done));
+    const timersAfter = process.getActiveResourcesInfo().filter((name) => name === 'Timeout').length;
+    expect(activeTransactions.size).toBe(0); expect(timersAfter).toBeLessThanOrEqual(timersBefore);
     mkdirSync('.expo', { recursive: true });
-    writeFileSync('.expo/cache-storage-cycles.json', JSON.stringify({ fixture: '1001 items, 690 byte comments, Basic, fake IndexedDB, 20 reload cycles', pageWrites, samples }, null, 2));
-  });
+    const used = process.cpuUsage(cpu);
+    const profile = { wallMs: performance.now() - started, cpuMs: (used.user + used.system) / 1000, phases, storageOperations,
+      timersBefore, timersAfter, pendingTransactions: activeTransactions.size, activeResources: process.getActiveResourcesInfo() };
+    f.cycleProfiles.push({ wallMs: profile.wallMs, cpuMs: profile.cpuMs });
+    writeFileSync('.expo/cache-storage-cycles.json', JSON.stringify({ fixture: '1001 items, 690 byte comments, Basic, fake IndexedDB, 20 reload cycles', pageWrites, samples,
+      profile, profiles: f.cycleProfiles }, null, 2));
+  // This integration-sized storage contract performs 20 real IndexedDB/module
+  // reloads. CPU contention reproduced a 5.13s timeout with completed work;
+  // keep a finite per-test bound with headroom, without changing suite defaults.
+  }, 10_000);
   it('one changed page writes only its replacement and collects the old content after commit', async () => {
     const item = f.rows.items[0] as Record<string, unknown>;
     f.rows.items = Array.from({ length: 1001 }, (_, index) => ({ ...item, id: `item-${index}`, position: index }));
