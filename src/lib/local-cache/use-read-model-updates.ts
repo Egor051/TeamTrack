@@ -4,6 +4,7 @@ import { activeCacheUserId } from './cache';
 import { subscribeReadModelCommits } from './read-model-events';
 import { invalidateReadModels, isReadAccessPending, scopeReadPrefixes, type ReadScope } from './read-freshness';
 import { createReadRefreshScheduler } from './refresh-scheduler';
+import { useScreenRefresh } from './use-screen-refresh';
 
 export function useReadModelUpdates(load: () => Promise<unknown>, scope: ReadScope = {}) {
   const latest = useRef(load);
@@ -31,5 +32,6 @@ export function useReadModelUpdates(load: () => Promise<unknown>, scope: ReadSco
     if (owner) await invalidateReadModels(owner, await scopeReadPrefixes(owner, { projectId, taskId, userId, view }), 'refresh');
     await latest.current();
   }, [projectId, taskId, userId, view]);
+  useScreenRefresh(refreshFromServer);
   return { scheduleRefresh, refreshFromServer };
 }

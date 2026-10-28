@@ -15,6 +15,9 @@ import { layout, spacing } from '@/components/ui/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { createTask, createTaskFromTemplate, getProject, listTaskTemplates, listTaskTemplateItems, type ProjectRole, type TaskTemplate, type TaskTemplateItem } from '@/features/projects/projects';
 import { mutationUserMessage, userMessage } from '@/lib/errors/user-message';
+import { useScreenRefresh } from '@/lib/local-cache/use-screen-refresh';
+import { activeCacheUserId } from '@/lib/local-cache/cache';
+import { invalidateReadModels } from '@/lib/local-cache/read-freshness';
 
 type Draft = { title: string; description: string };
 
@@ -22,17 +25,24 @@ function TemplateContents({ templateId }: { templateId: string }) {
   const [items, setItems] = useState<TaskTemplateItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [request, setRequest] = useState({ templateId, retry: 0 });
-  useFocusEffect(useCallback(() => {
-    let active = true;
-    void listTaskTemplateItems(request.templateId).then((rows) => {
-      if (active) { setItems(rows); setError(''); }
-    }).catch((e) => { if (active) setError(userMessage(e, 'Не удалось загрузить пункты шаблона.')); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [request]));
+  const requestRef = useRef(0);
+  const load = useCallback(async () => {
+    const request = ++requestRef.current;
+    setLoading(true);
+    try {
+      const rows = await listTaskTemplateItems(templateId);
+      if (request === requestRef.current) { setItems(rows); setError(''); }
+    } catch (e) { if (request === requestRef.current) setError(userMessage(e, 'Не удалось загрузить пункты шаблона.')); }
+    finally { if (request === requestRef.current) setLoading(false); }
+  }, [templateId]);
+  useScreenRefresh(useCallback(async () => {
+    const owner = await activeCacheUserId();
+    if (owner) await invalidateReadModels(owner, [`template-items:${templateId}`], 'refresh');
+    await load();
+  }, [load, templateId]));
+  useFocusEffect(useCallback(() => { void load(); return () => { requestRef.current += 1; }; }, [load]));
   if (loading) return <LoadingState label="Загружаем пункты шаблона…" />;
-  if (error) return <ErrorState message={error} onRetry={() => { setLoading(true); setRequest((value) => ({ ...value, retry: value.retry + 1 })); }} />;
+  if (error) return <ErrorState message={error} onRetry={load} />;
   return <View style={styles.section}>
     {items.map((item, index) => <View key={item.id}>
       <ThemedText>{index + 1}. {item.title}</ThemedText>
@@ -55,15 +65,21 @@ export default function NewTask() {
   const [busy, setBusy] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const templateRequestRef = useRef(0);
+  const projectRequestRef = useRef(0);
   const submitRef = useRef(false);
   const draft = mode === 'blank' ? blankDraft : templateDraft;
   const selectedTemplate = templates.find((template) => template.id === templateId);
 
-  useEffect(() => {
-    let current = true;
-    if (id) void getProject(id).then((project) => { if (current) { setProjectName(project.name); setProjectRole(project.role); } }).catch(() => undefined);
-    return () => { current = false; };
+  const loadProject = useCallback(async () => {
+    const request = ++projectRequestRef.current;
+    if (!id) return;
+    const project = await getProject(id);
+    if (request === projectRequestRef.current) { setProjectName(project.name); setProjectRole(project.role); }
   }, [id]);
+  useEffect(() => {
+    void loadProject().catch(() => undefined);
+    return () => { projectRequestRef.current += 1; };
+  }, [loadProject]);
 
   const canUseTemplates = projectRole === 'owner' || projectRole === 'admin';
 
@@ -81,6 +97,13 @@ export default function NewTask() {
       if (request === templateRequestRef.current) setLoadingTemplates(false);
     }
   }, []);
+
+  useScreenRefresh(useCallback(async () => {
+    const owner = await activeCacheUserId();
+    if (owner) await invalidateReadModels(owner, [`project:${id}`, 'templates'], 'refresh');
+    await loadProject();
+    if (mode === 'template') await loadTemplates();
+  }, [id, loadProject, loadTemplates, mode]));
 
   useFocusEffect(useCallback(() => {
     if (mode === 'template') void loadTemplates();

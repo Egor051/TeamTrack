@@ -20,6 +20,7 @@ import { useOfflineBootstrap } from '@/lib/local-cache/use-offline-bootstrap';
 import { selectOfflineScheme } from '@/lib/local-cache/bootstrap';
 import type { OfflineScheme } from '@/lib/local-cache/bootstrap-types';
 import { draftConflicts, useTextDraft } from '@/features/projects/use-text-draft';
+import { useScreenRefresh } from '@/lib/local-cache/use-screen-refresh';
 
 const roleLabels = { owner: 'Владелец', admin: 'Администратор', member: 'Участник', viewer: 'Наблюдатель' };
 
@@ -84,15 +85,9 @@ function ProfileContent() {
   useFocusEffect(useCallback(() => { void loadOwned(); return () => { ownedRequestRef.current += 1; }; }, [loadOwned]));
   useEffect(() => () => { membersRequestRef.current += 1; }, []);
 
-  async function openTransfer(project: ProjectWithRole) {
-    if (actionRef.current) return;
+  const loadMembers = useCallback(async (project: ProjectWithRole) => {
     const request = ++membersRequestRef.current;
-    setSelectedId(project.id);
-    setTarget(null);
-    setMembers([]);
     setMembersError('');
-    setTransferError('');
-    setTransferSuccess('');
     setMembersLoading(project.status !== 'archived');
     if (project.status === 'archived') return;
     try {
@@ -109,7 +104,24 @@ function ProfileContent() {
     } finally {
       if (request === membersRequestRef.current) setMembersLoading(false);
     }
+  }, [userId]);
+
+  async function openTransfer(project: ProjectWithRole) {
+    if (actionRef.current) return;
+    setSelectedId(project.id);
+    setTarget(null);
+    setMembers([]);
+    setTransferError('');
+    setTransferSuccess('');
+    await loadMembers(project);
   }
+
+  useScreenRefresh(useCallback(async () => {
+    if (actionRef.current) return;
+    const results = await Promise.allSettled([refreshProfile(), loadOwned(), selected ? loadMembers(selected) : Promise.resolve()]);
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }, [refreshProfile, loadOwned, loadMembers, selected]));
 
   async function save() {
     if (actionRef.current || !draft || profileConflict) return;
