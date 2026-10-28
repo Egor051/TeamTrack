@@ -6,6 +6,8 @@ import { LOCAL_CACHE_SCHEMA_VERSION, type CacheEntry } from './types';
 import { usesLocalReads } from '@/lib/connectivity/state';
 import { getReadSession } from '@/lib/supabase/session';
 import { boundedOperation } from '@/lib/connectivity/deadline';
+import { OperationError } from '@/lib/errors/operation-error';
+import { reportClientError } from '@/lib/errors/error-events';
 
 // TTL schedules online refresh; it never expires an offline confirmation.
 export const RUNTIME_CONFIG_TTL_MS = 60_000;
@@ -18,6 +20,17 @@ const unavailable: Capabilities = { write: false, sync: false, available: false 
 const blocked = new Set<string>();
 const inFlight = new Map<string, Promise<RefreshResult>>();
 let generation = 0;
+
+/** Explain a refusal using the same session policy, without relaxing it. */
+export async function localWriteDenial(capabilities: Capabilities): Promise<OperationError> {
+  if (!capabilities.available) {
+    const session = (await getReadSession()).data.session;
+    if (!session || (session.expires_at && session.expires_at * 1000 <= Date.now()))
+      return new OperationError('session', 'TT_SESSION', 'capabilities');
+    return new OperationError('server', 'TT_CAPABILITIES', 'capabilities');
+  }
+  return new OperationError('write_disabled', 'TT_WRITE_DISABLED', 'capabilities');
+}
 
 export function buildWriteEnabled(): boolean { return process.env.EXPO_PUBLIC_OFFLINE_WRITE_ENABLED === 'true'; }
 export function buildSyncEnabled(): boolean { return process.env.EXPO_PUBLIC_OFFLINE_SYNC_ENABLED === 'true'; }
@@ -114,7 +127,7 @@ export async function runtimeCapabilities(userId: string, forceRefresh = false,
       try {
         const query = supabase.rpc('get_offline_runtime_config');
         const { data, error, status } = await boundedOperation((signal) => query.abortSignal?.(signal) ?? query, 20_000);
-        if (error) throw { ...error, status: status ?? (error as { status?: number }).status };
+        if (error) throw Object.assign(error, { status: status ?? (error as { status?: number }).status });
         const value = validate(data);
         if (await activeCacheUserId() !== userId || generation !== expectedGeneration)
           return { capabilities: unavailable, confirmed: false };
@@ -127,14 +140,17 @@ export async function runtimeCapabilities(userId: string, forceRefresh = false,
         if (await activeCacheUserId() !== userId || generation !== expectedGeneration)
           return { capabilities: unavailable, confirmed: false };
         if (isTransportFailure(error)) {
-          return { capabilities: blocked.has(userId) ? unavailable
-            : effective(snapshot(await getCached<unknown>(userId, RUNTIME_CONFIG_KEY), userId)), confirmed: false };
+          const capabilities = blocked.has(userId) ? unavailable
+            : effective(snapshot(await getCached<unknown>(userId, RUNTIME_CONFIG_KEY), userId));
+          reportClientError(error, { stage: 'capabilities', userId, capabilities });
+          return { capabilities, confirmed: false };
         }
+        reportClientError(error, { stage: 'capabilities', userId, capabilities: unavailable });
         blocked.add(userId);
         // A denial tombstone survives reload; never resurrect a former true
         // after 401/403, invalid JWT or a malformed/business server reply.
         try { await persist({ user_id: userId, value: null, fetched_at: fetchedAt }, expectedGeneration); }
-        catch { /* volatile block remains if storage itself is unavailable */ }
+        catch (error) { reportClientError(error, { stage: 'cache_write', userId, capabilities: unavailable }); /* volatile block remains */ }
         return { capabilities: unavailable, confirmed: false };
       }
     })().finally(() => { if (inFlight.get(userId) === pending) inFlight.delete(userId); });

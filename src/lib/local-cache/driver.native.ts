@@ -4,6 +4,8 @@ import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
 import { assertDiscardableChain } from './failed-chain';
 import { assertConflictDiscardable, bindAttempt, rebaseAttempts } from './operation-attempt';
+import { OperationError } from '@/lib/errors/operation-error';
+import { confirmedItem } from './confirmed-item';
 
 const pullKey = 'sync:task-items:cursor';
 type Tx = SQLite.SQLiteDatabase;
@@ -178,16 +180,15 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
         'SELECT * FROM pending_operations WHERE user_id = ? AND task_item_id = ? ORDER BY sequence DESC LIMIT 1',
         [operation.user_id, operation.task_item_id]);
       if (predecessor?.status === 'failed' || predecessor?.status === 'conflict')
-        throw new Error('Сначала разрешите несинхронизированные изменения пункта.');
+        throw new OperationError('outbox_blocked', 'TT_OUTBOX_BLOCKED', 'enqueue');
       if (predecessor && !validSyncVersion(predecessor.expected_version) && !predecessor.depends_on_operation_id)
-        throw new Error('Сначала разрешите несинхронизированные изменения пункта.');
+        throw new OperationError('outbox_blocked', 'TT_OUTBOX_BLOCKED', 'enqueue');
       const entry = await tx.getFirstAsync<CacheEntry>(
         'SELECT user_id, cache_key AS key, data, last_synced_at, schema_version FROM cache_entries WHERE user_id = ? AND cache_key = ?',
         [operation.user_id, `items:${operation.task_id}:active`]);
-      const item = entry && (JSON.parse(entry.data) as { id: string; sync_version?: number }[])
-        .find((row) => row.id === operation.task_item_id);
+      const item = confirmedItem(entry, operation.task_item_id);
       if (!predecessor && !validSyncVersion(item?.sync_version))
-        throw new Error('Для офлайн-редактирования сначала синхронизируйте данные при подключении к интернету.');
+        throw new OperationError('local_data', 'TT_LOCAL_SNAPSHOT_MISSING', 'enqueue');
       const expected = predecessor
         ? (predecessor.status === 'synced_unreconciled' && validSyncVersion(predecessor.server_version)
           ? predecessor.server_version : null)

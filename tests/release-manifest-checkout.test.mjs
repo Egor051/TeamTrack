@@ -33,6 +33,18 @@ it('a canonical Git copy passes while a changed migration byte or CRLF conversio
     for (const file of sqlFiles) {
       const end = output.indexOf(10, offset), header = output.subarray(offset, end).toString('utf8');
       const match = header.match(/^[a-f0-9]{40} blob (\d+)$/);
+      if (!match) {
+        // A newly authored, uncommitted follow-up has no HEAD blob yet. Keep
+        // every historical/controlled migration bound to its original blob;
+        // require the new file's explicit separate-release hash instead.
+        const followup = manifest().followupMigrations.find(m => `supabase/migrations/${m.file}` === file);
+        expect(header).toBe(`HEAD:${file} missing`);
+        expect(followup?.requiresSeparateRelease).toBe(true);
+        const bytes = readFileSync(file);
+        expect(digest(bytes)).toBe(followup.sha256);
+        expect(bytes.toString('utf8')).not.toContain('\r\n');
+        canonical.set(file, bytes); offset = end + 1; continue;
+      }
       expect(match, `Git blob for ${file}`).not.toBeNull();
       const size = Number(match[1]);
       canonical.set(file, output.subarray(end + 1, end + 1 + size));
@@ -72,6 +84,12 @@ it('a canonical Git copy passes while a changed migration byte or CRLF conversio
     }
     for(const invalid of ['{}','{invalid-json']){writeFileSync(manifestFile,invalid);expect(check().status).not.toBe(0);}
     writeFileSync(manifestFile,manifestBytes);expect(check().status).toBe(0);
+    for (const followup of stored.followupMigrations) {
+      const path = resolve(root, 'supabase/migrations', followup.file), bytes = readFileSync(path);
+      writeFileSync(path, Buffer.concat([bytes, Buffer.from('\n-- changed follow-up bytes\n')]));
+      expect(check().status).not.toBe(0);
+      writeFileSync(path, bytes); expect(check().status).toBe(0);
+    }
   } finally {
     const base = resolve(tmpdir()) + sep;
     if (!root.startsWith(base) || !root.slice(base.length).startsWith('tasktrace-manifest-checkout-')) throw new Error('Unexpected test directory');

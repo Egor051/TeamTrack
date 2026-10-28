@@ -21,6 +21,8 @@ import { nextPushOperation } from './failed-chain';
 import { readAccountEpoch } from './read-freshness';
 import { readSnapshotPages } from './snapshot-pages';
 import { operationContext, operationReview, reviewError, type OperationResolution } from '@/lib/supabase/operation-handle';
+import { annotateError, OperationError } from '@/lib/errors/operation-error';
+import { reportClientError } from '@/lib/errors/error-events';
 
 type V2Result = { status: 'applied' | 'conflict'; version: number; item: ReconciledItem };
 type PullPage = { changes: PullChange[]; next_cursor: number; has_more: boolean } | { reset_required: true; retained_after_cursor: number };
@@ -127,7 +129,7 @@ async function send(client: SupabaseClient<Database>, operation: OfflineOperatio
   if (!validSyncVersion(operation.expected_version)) throw new Error('Operation has no confirmed server version');
   if (operation.protocol_version === 3 && !operation.operation_handle) {
     const context = await syncRead(client.rpc('get_client_operation_context'), ctx);
-    if (context.error) throw context.error;
+    if (context.error) throw annotateError(context.error, { stage: 'sync_context' });
     operation = await ctx.storage.bindOperationHandle(operation.user_id, operation.operation_id,
       { ...operationContext(context.data), id: operation.operation_id });
   }
@@ -151,7 +153,7 @@ async function send(client: SupabaseClient<Database>, operation: OfflineOperatio
         p_percentage: (operation.payload as { percentage: number }).percentage })
       : client.rpc('apply_task_item_comment_operation_v2', { ...common,
         p_comment: (operation.payload as { comment: string | null }).comment ?? '' }), ctx);
-  if (response.error) throw response.error;
+  if (response.error) throw annotateError(response.error, { stage: 'sync_send' });
   if ((response.data as { state?: string } | null)?.state === 'result_redacted') throw reviewError('TT_OPERATION_RESULT_REDACTED');
   const result = response.data as V2Result | null;
   if (!result || !['applied', 'conflict'].includes(result.status) || !validSyncVersion(result.version)
@@ -329,6 +331,8 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
     for (let attempt = 0; attempt < 3 && await ctx.wait(() => sameUser(userId)); attempt += 1) {
       try { result = await send(client, oldest, ctx); break; }
       catch (error) {
+        reportClientError(error, { stage: 'sync_send', operation: oldest.type, userId,
+          taskId: oldest.task_id, itemId: oldest.task_item_id, displayedVersion: oldest.expected_version ?? undefined });
         if (!await ctx.wait(() => sameUser(userId))) return false;
         const protocolCode = operationReview(error as { code?: string; details?: string })
           ?? (error as { details?: string; code?: string })?.details ?? (error as { code?: string })?.code;
@@ -353,12 +357,17 @@ async function push(client: SupabaseClient<Database>, userId: string, ctx: SyncC
     }
     if (!result || !await ctx.wait(() => sameUser(userId))) return false;
     if (result.status === 'conflict') {
+      reportClientError(new OperationError('conflict', 'PT409', 'sync_send'), { operation: oldest.type, userId,
+        taskId: oldest.task_id, itemId: oldest.task_item_id, displayedVersion: oldest.expected_version ?? undefined, serverVersion: result.version });
       await ctx.wait(() => recordConflict({ userId, operations: operations.filter((row) => row.task_item_id === oldest.task_item_id),
         serverState: result.item, serverVersion: result.version, conflictId: allowedConflict?.conflict_id }, ctx.storage));
       return false;
     }
     await ctx.storage.acknowledgeOperation(userId, oldest.operation_id, result.version,
-      allowedConflict?.conflict_id, result.item);
+      allowedConflict?.conflict_id, result.item).catch(error => {
+        reportClientError(error, { stage: 'sync_ack', operation: oldest.type, userId, taskId: oldest.task_id, itemId: oldest.task_item_id });
+        throw error;
+      });
     announceSyncChange(userId);
     try { await reconcile(client, oldest, ctx); completed += 1; } catch { return false; }
   }

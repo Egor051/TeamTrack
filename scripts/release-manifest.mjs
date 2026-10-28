@@ -23,14 +23,19 @@ export function maintenanceSql() {
 export function manifest() {
  const baseline=readFileSync(resolve(root,'docs/release/production-preconditions-2026-10-24.json'),'utf8');
  const remote=JSON.parse(baseline).history;
- const historical=readdirSync(resolve(root,'supabase/migrations')).filter(f=>f.endsWith('.sql')&&!names.includes(f)).sort()
+ const all=readdirSync(resolve(root,'supabase/migrations')).filter(f=>f.endsWith('.sql')).sort();
+ const historical=all.filter(f=>!names.includes(f)&&f<names[0])
   .map(file=>({version:file.slice(0,14),name:file.slice(15,-4),sha256:sha(readFileSync(resolve(root,'supabase/migrations',file)))}));
+ const followupMigrations=all.filter(f=>f>names.at(-1)).map(file=>({file,version:file.slice(0,14),
+  sha256:sha(readFileSync(resolve(root,'supabase/migrations',file))),requiresSeparateRelease:true}));
+ if(all.some(f=>!names.includes(f)&&f>=names[0]&&f<=names.at(-1)))throw Error('Unexpected migration inside the controlled release sequence');
  return {version:1,productionReady:false,project:'diapmbqdjunlgvivwrtp',baselineSha256:sha(baseline),
   preflightSha256:sha(readFileSync(resolve(root,'docs/release/preflight.sql'))),
   postconditionsSha256:sha(readFileSync(resolve(root,'docs/release/postconditions.sql'))),
   fixtureDifferencesSha256:sha(readFileSync(resolve(root,'docs/release/fixture-differences.json'))),
   functionTokenContractSha256:sha(readFileSync(resolve(root,'docs/release/function-token-contract.json'))),
   historicalMigrationDigests:historical,
+  followupMigrations,
   historicalDrift:{localOnly:historical.filter(l=>!remote.some(r=>r.version===l.version)),
    remoteOnly:remote.filter(r=>!historical.some(l=>l.version===r.version)),
    differentNames:historical.filter(l=>remote.some(r=>r.version===l.version&&r.name!==l.name)).map(l=>({version:l.version,local:l.name,remote:remote.find(r=>r.version===l.version).name}))},

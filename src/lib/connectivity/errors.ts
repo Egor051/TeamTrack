@@ -16,7 +16,7 @@ export class ServiceUnavailableError extends Error {
 export function isExplicitAccessError(error: unknown): boolean {
   if (error instanceof ResourceAccessDeniedError) return true;
   const value = error as { status?: number; code?: string; message?: string } | null;
-  const message = value?.message?.toLowerCase() ?? '';
+  const message = typeof value?.message === 'string' ? value.message.toLowerCase() : '';
   return value?.status === 401 || value?.status === 403 || value?.code === '42501' || value?.code === 'PGRST301'
     || /invalid jwt|jwt expired|session expired|auth session missing|access denied|permission denied|not authorized|unauthorized|forbidden/.test(message);
 }
@@ -32,7 +32,7 @@ export function isTransportFailure(error: unknown): boolean {
   if (value?.status === 502 || value?.status === 503 || value?.status === 504) return true;
   if (typeof value?.code === 'string' && value.code && value.code !== 'PGRST000') return false;
   if (value?.status && value.status !== 0) return false;
-  const message = value?.message?.toLowerCase() ?? '';
+  const message = typeof value?.message === 'string' ? value.message.toLowerCase() : '';
   return value?.name === 'TimeoutError'
     || /failed to fetch|fetch failed|network request failed|networkerror|network error|err_network|load failed|timed? out|timeout|connection reset|econnreset|enotfound|dns/.test(message);
 }

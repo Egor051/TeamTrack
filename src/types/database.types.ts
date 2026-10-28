@@ -45,21 +45,48 @@ export type Database = {
         }
         Relationships: []
       }
-      followup_upgrade_ids: {
+      client_error_logs: {
         Row: {
-          item_id: string | null
-          project_id: string | null
-          task_id: string | null
+          app_build: string
+          app_version: string
+          description: string
+          event: Json
+          event_id: string
+          fingerprint: string
+          kind: string
+          occurred_at: string
+          operation: string
+          received_at: string
+          stage: string
+          user_id: string
         }
         Insert: {
-          item_id?: string | null
-          project_id?: string | null
-          task_id?: string | null
+          app_build: string
+          app_version: string
+          description: string
+          event: Json
+          event_id: string
+          fingerprint: string
+          kind: string
+          occurred_at: string
+          operation: string
+          received_at?: string
+          stage: string
+          user_id: string
         }
         Update: {
-          item_id?: string | null
-          project_id?: string | null
-          task_id?: string | null
+          app_build?: string
+          app_version?: string
+          description?: string
+          event?: Json
+          event_id?: string
+          fingerprint?: string
+          kind?: string
+          occurred_at?: string
+          operation?: string
+          received_at?: string
+          stage?: string
+          user_id?: string
         }
         Relationships: []
       }

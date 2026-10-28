@@ -4,6 +4,8 @@ import { applyPullToEntries, validSyncVersion } from './pull-cache';
 import { assertDiscardableChain } from './failed-chain';
 import { boundedOperation } from '@/lib/connectivity/deadline';
 import { assertConflictDiscardable, bindAttempt, rebaseAttempts } from './operation-attempt';
+import { OperationError, storageError } from '@/lib/errors/operation-error';
+import { confirmedItem } from './confirmed-item';
 
 const DB_NAME = 'tasktrace-local-cache';
 const STORE = 'entries';
@@ -12,7 +14,7 @@ const CONFLICTS = 'sync_conflicts';
 const pullKey = 'sync:task-items:cursor';
 
 function openDatabase(signal?: AbortSignal): Promise<IDBDatabase> {
-  return boundedOperation((deadline) => new Promise((resolve, reject) => {
+  return boundedOperation((deadline) => new Promise<IDBDatabase>((resolve, reject) => {
     // v3 adds fields to existing records, not object stores or indexes. Keep
     // the released v5 schema usable by cached old JavaScript and rollback.
     // The unversioned fallback preserves installations that already opened v6.
@@ -51,7 +53,7 @@ function openDatabase(signal?: AbortSignal): Promise<IDBDatabase> {
       blocked = true;
       reject(new Error('Обновление локального хранилища заблокировано другой вкладкой. Закройте другие вкладки TaskTrace и повторите.'));
     };
-  }), 10_000, signal);
+  }), 10_000, signal).catch((error) => { throw storageError(error, 'storage_open'); });
 }
 
 function entryKey(userId: string, key: string): string {
@@ -72,7 +74,7 @@ async function transactBase<T>(mode: IDBTransactionMode, action: (store: IDBObje
       tx.onerror = (event) => { finish(); reject((event.target as IDBRequest).error ?? tx.error ?? new Error('IndexedDB transaction failed')); };
       tx.onabort = () => { finish(); reject(tx.error ?? new Error('IndexedDB transaction aborted')); };
       action(tx.objectStore(storeName), (result) => { value = result; }, tx, fail);
-    }), 10_000, signal);
+    }), 10_000, signal).catch((error) => { throw storageError(error, mode === 'readonly' ? 'storage_read' : 'storage_write'); });
   } finally {
     db.close();
   }
@@ -176,7 +178,7 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
           const chain = (pendingRequest.result as OfflineOperation[])
             .filter((row) => row.task_item_id === operation.task_item_id).sort((a, b) => a.sequence - b.sequence);
           if (chain.some((row) => row.status === 'failed' || row.status === 'conflict')) {
-            semanticError = new Error('Сначала разрешите несинхронизированные изменения пункта.');
+            semanticError = new OperationError('outbox_blocked', 'TT_OUTBOX_BLOCKED', 'enqueue');
             tx.abort(); return;
           }
           const predecessor = chain.at(-1);
@@ -184,14 +186,13 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
           entryRequest.onsuccess = () => {
             try {
               const active = entryRequest.result as CacheEntry | undefined;
-              const item = active ? (JSON.parse(active.data) as { id: string; sync_version?: number }[])
-                .find((row) => row.id === operation.task_item_id) : undefined;
+              const item = confirmedItem(active, operation.task_item_id);
               if (!predecessor && !validSyncVersion(item?.sync_version)) {
-                semanticError = new Error('Для офлайн-редактирования сначала синхронизируйте данные при подключении к интернету.');
+                semanticError = new OperationError('local_data', 'TT_LOCAL_SNAPSHOT_MISSING', 'enqueue');
                 tx.abort(); return;
               }
               if (predecessor && !validSyncVersion(chain[0].expected_version) && !chain[0].depends_on_operation_id) {
-                semanticError = new Error('Сначала разрешите несинхронизированные изменения пункта.');
+                semanticError = new OperationError('outbox_blocked', 'TT_OUTBOX_BLOCKED', 'enqueue');
                 tx.abort(); return;
               }
               const candidate: OfflineOperationInput = { ...operation,
@@ -205,13 +206,13 @@ function operationDriver(parent?: AbortSignal): LocalCacheDriver {
                 saved = { ...candidate, sequence: Number(add.result) };
                 outbox.put(saved);
               };
-            } catch { tx.abort(); }
+            } catch (error) { semanticError = error instanceof Error ? error : new Error('Invalid confirmed snapshot', { cause: error }); tx.abort(); }
           };
         };
       });
     } catch (error) {
       if (semanticError) throw semanticError;
-      throw error;
+      throw storageError(error, 'storage_write');
     } finally { db.close(); }
   },
   listPending: (userId, taskId) => transact<OfflineOperation[]>('readonly', (store, resolve) => {

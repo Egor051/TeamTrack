@@ -78,5 +78,21 @@ export async function verifyDeadlineCron(sourceContainer, base, upgrade) {
       update private.client_operation_window_policy set legacy_admit_until=clock_timestamp()+interval '30 days',legacy_replay_until=clock_timestamp()+interval '120 days';`);
     sql(readFileSync(new URL('../docs/release/postconditions.sql',import.meta.url),'utf8'));
     console.log('PASS actual lifecycle pg_cron: multi-account cleanup, exact budgets, restored five-minute schedule and read-only release postconditions');
+    sql(`do $$begin if not exists(select 1 from cron.job where jobname='tasktrace-client-error-retention' and schedule='43 * * * *' and active and username='postgres') then raise exception 'Diagnostic retention Cron missing'; end if; end$$;
+      insert into auth.users(id,email,raw_user_meta_data) values('a28f0000-0000-4000-8000-000000000099','diagnostic-cron@test.local','{"display_name":"Diagnostic Cron"}');
+      insert into public.client_error_logs(user_id,event_id,received_at,occurred_at,app_version,app_build,kind,operation,stage,description,fingerprint,event)
+      values('a28f0000-0000-4000-8000-000000000099',gen_random_uuid(),clock_timestamp()-interval '15 days',clock_timestamp()-interval '15 days','1.0.0','abcdef12','unknown','unknown','unhandled','Cron fixture','old','{}'),
+      ('a28f0000-0000-4000-8000-000000000099',gen_random_uuid(),clock_timestamp(),clock_timestamp(),'1.0.0','abcdef12','unknown','unknown','unhandled','Cron fixture','fresh','{}');
+      select cron.alter_job((select jobid from cron.job where jobname='tasktrace-client-error-retention'),schedule:='1 second');`);
+    let diagnosticsCleaned=false;
+    for(let n=0;n<30;n++) {
+      const result=sql("select count(*) from public.client_error_logs where fingerprint='old';");
+      if(/\n\s*0\s*\n/.test(result)){diagnosticsCleaned=true;break;}
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    if(!diagnosticsCleaned)throw Error('Actual diagnostic Cron did not remove expired errors');
+    sql(`do $$begin if (select count(*) from public.client_error_logs where fingerprint='fresh')<>1 then raise exception 'Diagnostic Cron deleted fresh data'; end if; end$$;
+      select cron.alter_job((select jobid from cron.job where jobname='tasktrace-client-error-retention'),schedule:='43 * * * *');`);
+    console.log('PASS actual diagnostic pg_cron: expired logs deleted, fresh logs retained, hourly schedule restored');
   } finally { spawnSync('docker', ['rm', '-f', name], { encoding: 'utf8' }); }
 }

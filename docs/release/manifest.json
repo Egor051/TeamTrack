@@ -399,6 +399,14 @@
       "sha256": "ffb7f056ef63cf25d80e65e376824f7d0605e070dc34d5453e4377bdd7e96f27"
     }
   ],
+  "followupMigrations": [
+    {
+      "file": "20261028142906_client_error_diagnostics.sql",
+      "version": "20261028142906",
+      "sha256": "030fd3ced46d3d614fed3e189544d068fe3b7f56daa67be60865890d89ae2362",
+      "requiresSeparateRelease": true
+    }
+  ],
   "historicalDrift": {
     "localOnly": [
       {

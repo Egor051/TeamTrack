@@ -138,6 +138,42 @@ it('fresh online cache returns immediately and repeated readers make no HTTP req
   }
   expect(fetch).not.toHaveBeenCalled();
 });
+it('a confirmed replacement while filtering a cached result cannot publish the previous version as fresh', async () => {
+  await save('items:t:active', [{ id: 'i', sync_version: 2 }]);
+  const c = await import('@/lib/local-cache/cache');
+  let changed = false;
+  const fetch = vi.fn(async () => [{ id: 'i', sync_version: 3 }]);
+  const rows = await c.readCachedModel('items:t:active', fetch, {
+    filterCached: async (_user, rows) => {
+      if (!changed) { changed = true; await save('items:t:active', [{ id: 'i', sync_version: 3 }]); }
+      return rows;
+    },
+  });
+  expect(rows).toEqual([{ id: 'i', sync_version: 3 }]);
+  expect(fetch).not.toHaveBeenCalled();
+});
+it('a virtual all-items read also rechecks the two confirmed partitions', async () => {
+  await save('items:t:active', [{ id: 'i', position: 1, sync_version: 2 }]);
+  await save('items:t:archived', []);
+  const c = await import('@/lib/local-cache/cache');
+  let changed = false;
+  const fetch = vi.fn(async () => []);
+  expect(await c.readCachedModel('items:t:all', fetch, { filterCached: async (_user, rows) => {
+    if (!changed) { changed = true; await save('items:t:active', [{ id: 'i', position: 1, sync_version: 3 }]); }
+    return rows;
+  } })).toEqual([{ id: 'i', position: 1, sync_version: 3 }]);
+  expect(fetch).not.toHaveBeenCalled();
+});
+it('repeated concurrent replacements have a bounded read rather than unbounded retries or a stale result', async () => {
+  await save('items:t:active', [{ id: 'i', sync_version: 1 }]);
+  const c = await import('@/lib/local-cache/cache');
+  let version = 1;
+  const fetch = vi.fn(async () => []);
+  await expect(c.readCachedModel('items:t:active', fetch, { filterCached: async (_user, rows) => {
+    await save('items:t:active', [{ id: 'i', sync_version: ++version }]); return rows;
+  } })).rejects.toBeInstanceOf(c.SupersededReadError);
+  expect(version).toBe(4); expect(fetch).not.toHaveBeenCalled();
+});
 it('stale cache is available before HTTP and ten simultaneous readers share one refresh', async () => {
   const driver = await save('project:p', { name: 'old' }, 65_000); const c = await import('@/lib/local-cache/cache');
   const gate = deferred<{ name: string }>(); const fetch = vi.fn(() => gate.promise);

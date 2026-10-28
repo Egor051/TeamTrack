@@ -4,6 +4,9 @@ import { Button } from '@/components/ui/button';
 import { ThemedText } from '@/components/ui/text';
 import { useTheme } from '@/components/ui/theme-provider';
 import { spacing } from '@/components/ui/theme';
+import { readServiceWorkerVersion } from '@/lib/diagnostics/service-worker';
+import { reportClientError } from '@/lib/errors/error-events';
+import { safeConsoleError } from '@/lib/errors/operation-error';
 
 export function PwaUpdateBanner() {
   const { colors } = useTheme();
@@ -25,6 +28,7 @@ export function PwaUpdateBanner() {
       installing?.addEventListener('statechange', onStateChange);
     };
     const onControllerChange = () => {
+      void readServiceWorkerVersion().catch(() => undefined);
       if (activatingRef.current) window.location.reload();
     };
     const checkForUpdate = () => {
@@ -35,13 +39,15 @@ export function PwaUpdateBanner() {
     void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((next) => {
       if (disposed) return;
       registration = next;
+      void readServiceWorkerVersion().catch(() => undefined);
       next.addEventListener('updatefound', onUpdateFound);
       onUpdateFound();
       onStateChange();
       document.addEventListener('visibilitychange', checkForUpdate);
       void next.update().catch(() => undefined);
     }).catch((error: unknown) => {
-      console.warn('[TaskTrace] Service Worker registration failed', error);
+      console.warn('[TaskTrace] Service Worker registration failed', safeConsoleError(error));
+      reportClientError(error, { stage: 'service_worker' });
     });
 
     // Browser update checks on navigation; this also covers long-open tabs.

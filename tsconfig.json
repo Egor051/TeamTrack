@@ -1,6 +1,7 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "strict": true,
     "types": [
       "node"
@@ -14,6 +15,7 @@
       ]
     }
   },
+  "exclude": ["supabase/functions/client-errors/index.ts"],
   "include": [
     "**/*.ts",
     "**/*.tsx",

@@ -1,4 +1,5 @@
-import { copyFile, stat } from 'node:fs/promises';
+import { appendFile, copyFile, readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import workboxBuild from 'workbox-build';
 import { isAppNavigation } from './pwa-navigation.mjs';
@@ -85,4 +86,6 @@ const { count, size, warnings } = await workboxBuild.generateSW({
 
 if (warnings.length) throw new Error(`Workbox warnings:\n${warnings.join('\n')}`);
 if (count < 5) throw new Error(`Incomplete precache: only ${count} files`);
+const swVersion = createHash('sha256').update(await readFile(join(dist, 'sw.js'))).digest('hex').slice(0, 32);
+await appendFile(join(dist, 'sw.js'), `\nself.addEventListener('message',event=>{if(event.data?.type==='TASKTRACE_SW_VERSION')event.ports?.[0]?.postMessage({type:'TASKTRACE_SW_VERSION',version:'${swVersion}'});});\n`);
 console.log(`Generated ${join(dist, 'sw.js')} with ${count} precached files (${size} bytes).`);

@@ -4,6 +4,11 @@
 # working directory name when running `supabase init`.
 project_id = "TeamTrack"
 
+# User JWT is verified against Auth /user in the handler. This also supports
+# modern signing keys; neither an API key nor a client-supplied user_id suffices.
+[functions.client-errors]
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

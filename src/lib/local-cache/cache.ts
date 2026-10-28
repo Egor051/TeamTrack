@@ -8,6 +8,8 @@ import { announceReadModelCommit, overviewReadModelChanged } from './read-model-
 import { confirmReadFreshness, durableReadInvalidation, freshnessKey, GLOBAL_ACL_KEY, invalidateReadModels, isReadModelKey, readAccountEpoch, READ_FRESHNESS_MS, readConfirmationEntries, readInvalidation, settleReadInvalidations, type DurableReadInvalidation } from './read-freshness';
 import type { TaskItem } from '@/lib/supabase/client';
 import { throwIfAborted } from '@/lib/connectivity/deadline';
+import { reportClientError } from '@/lib/errors/error-events';
+import { OperationError, storageError, safeConsoleError } from '@/lib/errors/operation-error';
 export { isExplicitAccessError, isTransportFailure } from '@/lib/connectivity/errors';
 
 const cachedResults = new WeakSet<object>();
@@ -41,8 +43,9 @@ export function inheritCachedResult<T>(source: unknown, value: T): T {
   return isCachedResult(source) ? markCached(value) : value;
 }
 
-function logCacheError(operation: string, error: unknown): void {
-  console.warn(`[TaskTrace] local cache ${operation} failed`, error);
+function logCacheError(operation: string, error: unknown, userId: string): void {
+  console.warn(`[TaskTrace] local cache ${operation} failed`, safeConsoleError(error));
+  reportClientError(error, { stage: operation === 'read' ? 'cache_read' : 'cache_write', userId });
 }
 
 async function sessionUserId(): Promise<string | null> {
@@ -106,7 +109,7 @@ export async function getCached<T>(userId: string, key: string): Promise<T | nul
     if (!entry || entry.user_id !== userId || entry.key !== key || entry.schema_version !== cacheSchemaVersion(key)) return null;
     return markCached(JSON.parse(entry.data) as T);
   } catch (error) {
-    logCacheError('read', error);
+    logCacheError('read', error, userId);
     return null;
   }
 }
@@ -124,12 +127,12 @@ export async function putCached<T>(userId: string, key: string, value: T, signal
     };
     await (signal && localCacheDriver.withOperation ? localCacheDriver.withOperation(signal) : localCacheDriver).put(entry);
   } catch (error) {
-    logCacheError('write', error);
+    logCacheError('write', error, userId);
   }
 }
 
 async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, expectedData: string | null, durable?: DurableReadInvalidation,
-  partitionGuards?: { key: string; data: string | null }[]): Promise<{ committed: boolean; newer?: T }> {
+  partitionGuards?: { key: string; data: string | null }[]): Promise<{ committed: boolean; newer?: T; error?: unknown }> {
   try {
     const data = JSON.stringify(value);
     const entry = {
@@ -156,9 +159,9 @@ async function putCachedIfUnchanged<T>(userId: string, key: string, value: T, ex
       announceReadModelCommit(userId, partitionGuards ? [key, ...partitions.map((e) => e.key)] : [key], 'read');
     return { committed: true };
   } catch (error) {
-    logCacheError('conditional write', error);
+    logCacheError('conditional write', error, userId);
+    return { committed: false, error };
   }
-  return { committed: false };
 }
 
 async function removeCached(userId: string, key: string, signal?: AbortSignal): Promise<void> {
@@ -166,11 +169,12 @@ async function removeCached(userId: string, key: string, signal?: AbortSignal): 
   try {
     await (signal && localCacheDriver.withOperation ? localCacheDriver.withOperation(signal) : localCacheDriver).remove(userId, key);
   } catch (error) {
-    logCacheError('remove', error);
+    logCacheError('remove', error, userId);
   }
 }
 
 export type ReadOptions<T> = {
+  requireDurable?: boolean;
   cacheFirst?: boolean;
   forceRefresh?: boolean;
   onServerCommit?: (value: T, userId: string, accessBaseline: number) => Promise<void>;
@@ -215,10 +219,11 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
   };
   if (usesLocalReads()) return local(new ConnectivityUnavailableError());
   let baseline: string | null | undefined;
+  let baselineError: unknown;
   let partitionGuards: { key: string; data: string | null }[] | undefined;
   if (userId) {
     try { baseline = (await localCacheDriver.get(userId, key))?.data ?? null; }
-    catch { baseline = undefined; }
+    catch (error) { baseline = undefined; baselineError = error; logCacheError('read', error, userId); }
     if (options.cacheFirst && /^items:.*:all$/.test(key)) {
       const prefix = key.slice(0, -3);
       const keys = [`${prefix}active`, `${prefix}archived`, freshnessKey(`${prefix}active`), freshnessKey(`${prefix}archived`)];
@@ -240,7 +245,9 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     if (userId) {
       if (accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline)))
         throw new SupersededReadError('Доступ был отозван во время загрузки.');
-      const replacement = baseline !== undefined ? await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline, options.cacheFirst || durable.global ? durable : undefined, partitionGuards) : { committed: false };
+      const replacement = baseline !== undefined ? await putCachedIfUnchanged(userId, key, options.cacheValue ? options.cacheValue(value) : value, baseline, options.cacheFirst || durable.global ? durable : undefined, partitionGuards) : { committed: false, error: baselineError };
+      if (options.requireDurable && !replacement.committed && replacement.newer === undefined)
+        throw replacement.error ? storageError(replacement.error, 'storage_write') : new OperationError('storage', 'TT_STORAGE', 'cache_write');
       if (await sessionUserId() !== userId || readAccountEpoch() !== accountBaseline || readInvalidation(userId, key).version > invalidation.version
         || accessKeys.some((accessKey) => deniedSince(userId, accessKey, accessBaseline))) throw new SupersededReadError('Данные изменились во время загрузки.');
       confirmCacheAccess(userId, `cache:${key}`, accessBaseline);
@@ -281,7 +288,7 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     }
     if (!isTransportFailure(error)) {
       if (options.cacheFirst && userId && !isExplicitAccessError(error) && await sessionUserId() === userId) {
-        if (invalidation.kind !== 'refresh' && durable.kind !== 'refresh') await invalidateReadModels(userId, [key], 'refresh').catch((error) => logCacheError('invalidation', error));
+        if (invalidation.kind !== 'refresh' && durable.kind !== 'refresh') await invalidateReadModels(userId, [key], 'refresh').catch((error) => logCacheError('invalidation', error, userId));
         if (!failedRefreshes.has(`${userId}:${key}`)) { failedRefreshes.add(`${userId}:${key}`); announceReadModelCommit(userId, [key], 'error'); }
       }
       throw error;
@@ -300,15 +307,21 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
     refreshes.set(id, { version: invalidation.version, promise }); return promise;
   };
   if (userId && options.cacheFirst && !options.forceRefresh && !accessCheck && invalidation.kind !== 'refresh' && durable.kind !== 'refresh') {
-    let value: T | undefined;
-    try { value = await local(new ConnectivityUnavailableError()); } catch { /* Missing/blocked cache requires the server. */ }
-    if (value !== undefined) {
+    const readKeys = [key, ...(partitionGuards ?? []).map((guard) => guard.key)];
+    let observedData = [baseline ?? null, ...(partitionGuards ?? []).map((guard) => guard.data)];
+    // Filtering/session/ACL checks can yield while reconciliation replaces the
+    // confirmed base. Re-read that base, rather than labelling the old value
+    // fresh using the new record's timestamp. Bound retries under active churn.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let value: T | undefined;
+      try { value = await local(new ConnectivityUnavailableError()); } catch { /* Missing/blocked cache requires the server. */ }
+      if (value === undefined) break;
       let syncedAt = 0;
-      const entry = await localCacheDriver.get(userId, key);
+      const observedEntries = await Promise.all(readKeys.map((readKey) => localCacheDriver.get(userId, readKey)));
+      const entry = observedEntries[0];
       if (entry) syncedAt = Date.parse(entry.last_synced_at);
       else if (/^items:.*:all$/.test(key)) {
-        const prefix = key.slice(0, -3);
-        const partitions = await Promise.all(['active', 'archived'].map((mode) => localCacheDriver.get(userId, `${prefix}${mode}`)));
+        const partitions = observedEntries.slice(1, 3);
         syncedAt = Math.min(...partitions.map((entry) => Date.parse(entry?.last_synced_at ?? '')));
       }
       const pendingAccess = await durableReadInvalidation(userId, key);
@@ -319,6 +332,12 @@ export async function readThroughCache<T>(key: string, online: () => Promise<T>,
       if (latestInvalidation.version !== invalidation.version || pendingAccess.kind === 'refresh'
         || latestInvalidation.kind === 'refresh' || pendingAccess.global?.data !== durable.global?.data)
         return readThroughCache(key, online, options);
+      const currentData = observedEntries.map((entry) => entry?.data ?? null);
+      if (currentData.some((data, index) => data !== observedData[index])) {
+        observedData = currentData;
+        if (attempt === 2) throw new SupersededReadError('Данные изменились во время загрузки.');
+        continue;
+      }
       // A concurrent refresh may have removed the captured stale marker while
       // this reader was awaiting storage. Do not launch a second request then.
       if (latestInvalidation.kind || pendingAccess.kind || !Number.isFinite(syncedAt) || Date.now() < syncedAt || Date.now() - syncedAt >= READ_FRESHNESS_MS) void singleFlight().catch(() => undefined);

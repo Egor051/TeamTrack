@@ -37,10 +37,22 @@ import * as cache from '@/lib/local-cache/cache';
 import { enqueueOperation, applyPendingOperations } from '@/lib/local-cache/outbox';
 import { clearRuntimeConfig, runtimeCapabilities, RUNTIME_CONFIG_KEY, RUNTIME_CONFIG_TTL_MS } from '@/lib/local-cache/runtime-config';
 import { syncPendingOperations } from '@/lib/local-cache/sync';
+import { subscribeClientErrors } from '@/lib/errors/error-events';
 
 const enabled = { write_enabled: true, sync_enabled: true, protocol_version: 2, updated_at: '2026-10-01T00:00:00Z' };
 const disabled = { write: false, sync: false, available: false };
 const allowed = { write: true, sync: true, available: true };
+it('preserves a capability exception and its cause before returning a safe unavailable state', async () => {
+  const cause = new TypeError('private transport detail');
+  const error = Object.assign(new Error('private Auth detail', { cause }), { code: 'PGRST301' });
+  const observer = vi.fn(); const stop = subscribeClientErrors(observer);
+  try {
+    remote.rpc.mockResolvedValueOnce({ data: null, error, status: 401 });
+    expect(await runtimeCapabilities('user-a')).toEqual(disabled);
+    expect(observer).toHaveBeenCalledWith(error, expect.objectContaining({ stage: 'capabilities', userId: 'user-a', capabilities: disabled }));
+    expect(error.cause).toBe(cause); expect(error.message).toBe('private Auth detail');
+  } finally { stop(); }
+});
 const persisted = () => getCached<{ user_id: string; value: typeof enabled | null; fetched_at: number }>('user-a', RUNTIME_CONFIG_KEY);
 const edit = () => enqueueOperation('user-a', 'project-1', 'task-1', 'item-1',
   { type: 'set_task_item_percentage', payload: { percentage: 70 } });

@@ -12,6 +12,7 @@ import { createOfflineCoordinator } from './coordinator';
 import { registerOfflineWork, requestOfflineWork } from './work-requests';
 import { getSyncState } from './status';
 import { subscribeReadModelCommits } from './read-model-events';
+import { startClientDiagnostics, flushClientDiagnostics } from '@/lib/diagnostics/client';
 
 export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -19,6 +20,7 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
   const token = state.session?.access_token ?? null;
   useEffect(() => {
     if (!userId) return;
+    const stopDiagnostics = startClientDiagnostics(userId);
     let nativeActive = AppState.currentState !== 'background' && AppState.currentState !== 'inactive';
     const foregroundActive = () => Platform.OS === 'web'
       ? typeof document === 'undefined' || document.visibilityState === 'visible' : nativeActive;
@@ -45,6 +47,7 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
     });
     void coordinator.request('startup');
     const connectivity = subscribeConnectivity((next) => {
+      if (next !== 'offline') flushClientDiagnostics(userId);
       if (next === 'online') void coordinator.request('reconnect'); else coordinator.networkLost();
     });
     const nativeNetwork = Platform.OS === 'web' ? () => undefined : NetInfo.addEventListener((next) => {
@@ -52,7 +55,7 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
       else if (next.isConnected === true) reportBrowserConnectivity(true);
     });
     const foreground = () => {
-      if (foregroundActive()) void coordinator.request('freshness');
+      if (foregroundActive()) { flushClientDiagnostics(userId); void coordinator.request('freshness'); }
     };
     const appState = AppState.addEventListener('change', (next) => {
       nativeActive = next === 'active';
@@ -78,9 +81,10 @@ export function OfflineRuntimeProvider({ children }: { children: ReactNode }) {
         document.removeEventListener('visibilitychange', foreground);
       }
       coordinator.dispose();
+      stopDiagnostics();
     };
   }, [userId]);
-  useEffect(() => { if (userId && token) void requestOfflineWork(userId, 'freshness'); }, [userId, token]);
+  useEffect(() => { if (userId && token) { flushClientDiagnostics(userId); void requestOfflineWork(userId, 'freshness'); } }, [userId, token]);
   return children;
 }
 

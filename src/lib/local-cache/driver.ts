@@ -5,6 +5,8 @@ import { reconcileEntries, reconciledKeys } from './reconcile';
 import { applyPullToEntries, validSyncVersion } from './pull-cache';
 import { assertDiscardableChain } from './failed-chain';
 import { assertConflictDiscardable, bindAttempt, rebaseAttempts } from './operation-attempt';
+import { OperationError } from '@/lib/errors/operation-error';
+import { confirmedItem } from './confirmed-item';
 
 const pending: OfflineOperation[] = [];
 const entries = new Map<string, import('./types').CacheEntry>();
@@ -37,12 +39,12 @@ export const localCacheDriver: LocalCacheDriver = {
       .sort((a, b) => a.sequence - b.sequence);
     const predecessor = chain.at(-1);
     const entry = entries.get(entryKey(operation.user_id, `items:${operation.task_id}:active`));
-    const item = entry && (JSON.parse(entry.data) as { id: string; sync_version?: number }[]).find((row) => row.id === operation.task_item_id);
+    const item = confirmedItem(entry, operation.task_item_id);
     if (!predecessor && !validSyncVersion(item?.sync_version))
-      throw new Error('Для офлайн-редактирования сначала синхронизируйте данные при подключении к интернету.');
+      throw new OperationError('local_data', 'TT_LOCAL_SNAPSHOT_MISSING', 'enqueue');
     if (predecessor?.status === 'failed' || predecessor?.status === 'conflict'
       || (predecessor && !validSyncVersion(chain[0].expected_version) && !chain[0].depends_on_operation_id))
-      throw new Error('Сначала разрешите несинхронизированные изменения пункта.');
+      throw new OperationError('outbox_blocked', 'TT_OUTBOX_BLOCKED', 'enqueue');
     const saved = { ...operation, sequence: pending.length + 1,
       expected_version: predecessor?.status === 'synced_unreconciled' && validSyncVersion(predecessor.server_version)
         ? predecessor.server_version : predecessor ? null

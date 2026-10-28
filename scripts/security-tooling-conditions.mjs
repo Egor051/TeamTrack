@@ -28,7 +28,10 @@ export function controlFileHashes(directory = root) {
   }));
 }
 export function exportInputSha256(directory = root) {
-  const files = new Set([...CONTROL_FILES, 'package-lock.json', 'tsconfig.json']);
+  // This pure contract is imported by both the app and the Edge handler.
+  // Keep it in the app's input fingerprint despite its Supabase directory.
+  const files = new Set([...CONTROL_FILES, 'package-lock.json', 'tsconfig.json',
+    'supabase/functions/_shared/client-error-schema.ts']);
   const walk = path => {
     if (!existsSync(path)) return;
     assert(!lstatSync(path).isSymbolicLink(), 'Symlink in export inputs');

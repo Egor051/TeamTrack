@@ -5,6 +5,7 @@ import type { OfflineOperation, OfflineOperationInput } from './types';
 import { newAttemptId } from './operation-attempt';
 import { validSyncVersion } from './pull-cache';
 import { buildSyncEnabled, buildWriteEnabled, runtimeCapabilities } from './runtime-config';
+import { OperationError, storageError } from '@/lib/errors/operation-error';
 
 export function offlineWriteEnabled(): boolean {
   return buildWriteEnabled();
@@ -42,8 +43,8 @@ export async function enqueueOperation(
   edit: SupportedEdit,
   displayedVersion?: number,
 ): Promise<OfflineOperation> {
-  if (!(await runtimeCapabilities(userId)).write) throw new Error('Офлайн-редактирование временно отключено.');
-  if (!userId || await activeCacheUserId() !== userId) throw new Error('Требуется авторизация.');
+  if (!(await runtimeCapabilities(userId)).write) throw new OperationError('write_disabled', 'TT_WRITE_DISABLED', 'capabilities', { message: 'Офлайн-редактирование временно отключено.' });
+  if (!userId || await activeCacheUserId() !== userId) throw new OperationError('session', 'TT_SESSION', 'identity');
   const checked = validateEdit(edit);
   const operation: OfflineOperationInput = {
     operation_id: newAttemptId(), user_id: userId, project_id: projectId,
@@ -52,8 +53,8 @@ export async function enqueueOperation(
     expected_version: validSyncVersion(displayedVersion) ? displayedVersion : null,
     protocol_version: 3,
   };
-  const saved = await localCacheDriver.enqueue(operation);
-  if (await activeCacheUserId() !== userId) throw new Error('Сеанс изменился. Обновите страницу.');
+  const saved = await localCacheDriver.enqueue(operation).catch((error) => { throw storageError(error, 'storage_write'); });
+  if (await activeCacheUserId() !== userId) throw new OperationError('session', 'TT_SESSION', 'identity');
   return saved;
 }
 

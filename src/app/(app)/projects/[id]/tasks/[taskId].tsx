@@ -54,6 +54,7 @@ import {
 } from "@/features/projects/projects";
 import { subscribeMany, type RealtimeStatus } from "@/lib/supabase/realtime";
 import { userMessage } from "@/lib/errors/user-message";
+import { annotateError, OperationError } from '@/lib/errors/operation-error';
 import { layout, spacing } from "@/components/ui/theme";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useUser } from "@/features/auth/AuthProvider";
@@ -389,10 +390,11 @@ export default function TaskScreen() {
     setActionError(null);
     try {
       if (!user || !project || !task || !canUpdateChecklistProgress || item.is_archived || item.task_id !== taskId || project.status !== 'active' || task.status === 'archived') {
-        throw new Error('Нет доступа к изменению пункта.');
+        throw new OperationError('permission', '42501', 'ui');
       }
       const result = await performSupportedEdit({ userId: user.id, projectId: id, taskId, itemId: item.id,
-        itemVersion: version, offline: offlineForEdits, edit, onlineAction });
+        itemVersion: version, offline: offlineForEdits, edit, onlineAction,
+        recoverLocalSnapshot: () => ChecklistLocalRepository.recoverItemSnapshot(user.id, taskId, item.id, version) });
       if (result.kind === 'server') {
         afterSave?.();
         await load();
@@ -404,6 +406,7 @@ export default function TaskScreen() {
         afterSave?.();
       }
     } catch (error) {
+      annotateError(error, { stage: 'ui', operation: edit.type, userId: user?.id, taskId, itemId: item.id, displayedVersion: version });
       setActionError({ message: userMessage(error, 'Операция не выполнена.'), target: item.id });
       if ((error as { code?: string })?.code === 'PT409') await load();
     } finally {

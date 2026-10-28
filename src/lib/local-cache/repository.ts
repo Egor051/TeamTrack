@@ -13,6 +13,8 @@ import { ConnectivityUnavailableError } from '@/lib/connectivity/errors';
 import { uiRead } from '@/lib/supabase/ui-read';
 import { durableReadInvalidation, readAccountEpoch, readInvalidation } from './read-freshness';
 import { readSnapshotPages } from './snapshot-pages';
+import { OperationError } from '@/lib/errors/operation-error';
+import { confirmedItem } from './confirmed-item';
 
 export type ChecklistMode = 'active' | 'archived' | 'all';
 const key = (taskId: string, mode: ChecklistMode) => `items:${taskId}:${mode}`;
@@ -41,7 +43,7 @@ export const ChecklistLocalRepository = {
       || (task && await isTaskProjectBlocked(userId, taskId, task.project_id))) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return applyPendingOperations(confirmed, pending, userId, taskId);
   },
-  async refreshTaskItems(userId: string, taskId: string, mode: ChecklistMode, forceRefresh = true): Promise<TaskItem[]> {
+  async refreshTaskItems(userId: string, taskId: string, mode: ChecklistMode, forceRefresh = true, requireDurable = false): Promise<TaskItem[]> {
     const accountBaseline = readAccountEpoch();
     await ensureUser(userId);
     if (usesLocalReads()) {
@@ -62,7 +64,7 @@ export const ChecklistLocalRepository = {
       })));
       await ensureUser(userId);
       return rows;
-    }, { taskId, clearTaskBlockOnSuccess: true, forceRefresh,
+    }, { taskId, clearTaskBlockOnSuccess: true, forceRefresh, requireDurable,
       onServerCommit: async (rows) => { if (old?.data !== JSON.stringify(rows)) announceSyncChange(userId); } });
     await ensureUser(userId);
     const pending = await listPendingOperations(userId, taskId);
@@ -71,6 +73,14 @@ export const ChecklistLocalRepository = {
     if (await getCached<boolean>(userId, `blocked-task:${taskId}`)
       || (parent && await isTaskProjectBlocked(userId, taskId, parent.project_id))) throw new ResourceAccessDeniedError('Нет доступа к этапу.');
     return inheritCachedResult(confirmed, applyPendingOperations(confirmed, pending, userId, taskId));
+  },
+  async recoverItemSnapshot(userId: string, taskId: string, itemId: string, displayedVersion: number): Promise<void> {
+    if (usesLocalReads()) throw new OperationError('local_data', 'TT_LOCAL_SNAPSHOT_MISSING', 'snapshot_recovery');
+    await this.refreshTaskItems(userId, taskId, 'active', true, true);
+    await ensureUser(userId);
+    const item = confirmedItem(await localCacheDriver.get(userId, key(taskId, 'active')), itemId);
+    if (!item) throw new OperationError('local_data', 'TT_LOCAL_SNAPSHOT_MISSING', 'snapshot_recovery');
+    if (item.sync_version !== displayedVersion) throw new OperationError('conflict', 'PT409', 'snapshot_recovery');
   },
   subscribe: subscribeSyncChanges,
   subscribeSyncState,

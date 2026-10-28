@@ -226,6 +226,17 @@ describe('enforced tooling conditions and fresh artifact provenance', () => {
       expect(() => verifyExportEvidence([folder], directory, policy)).toThrow(/artifact hash changed/);
     } finally { removeFixture(directory); }
   });
+  it('binds the shared client diagnostic contract outside src to the runtime export inputs', () => {
+    const directory = tempControls();
+    try {
+      const contract = join(directory, 'supabase/functions/_shared/client-error-schema.ts');
+      mkdirSync(dirname(contract), { recursive: true });
+      writeFileSync(contract, 'export const diagnosticSchema = 1;\n');
+      const before = exportInputSha256(directory);
+      writeFileSync(contract, 'export const diagnosticSchema = 2;\n');
+      expect(exportInputSha256(directory)).not.toBe(before);
+    } finally { removeFixture(directory); }
+  });
   it('runs the full current gate twice without renewing policy and fails if expiry is crossed', async () => {
     const directory = tempControls();
     try {
