@@ -41,4 +41,4 @@ export function Button({ variant = 'primary', size = 'md', disabled = false, loa
   );
 }
 const sizes = { sm: { minHeight: 44, paddingHorizontal: 12 }, md: { minHeight: 48, paddingHorizontal: 16 }, lg: { minHeight: 52, paddingHorizontal: 20 } };
-const styles = StyleSheet.create({ container: { justifyContent: 'center', alignItems: 'center', borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', gap: 8, paddingVertical: 9, maxWidth: '100%' }, text: { fontWeight: '600', textAlign: 'center', flexShrink: 1 }, disabled: { opacity: 0.45 }, pressed: { opacity: 0.75 }, fullWidth: { width: '100%' } });
+const styles = StyleSheet.create({ container: { justifyContent: 'center', alignItems: 'center', borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', gap: 8, paddingVertical: 9, maxWidth: '100%' }, text: { fontWeight: '600', textAlign: 'center', flexShrink: 1, minWidth: 0 }, disabled: { opacity: 0.45 }, pressed: { opacity: 0.75 }, fullWidth: { width: '100%' } });

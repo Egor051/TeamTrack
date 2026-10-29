@@ -1,5 +1,7 @@
 {
-  "status": "APPROVED_ACTIVE_TEMPORARY_EXCEPTION",
+  "status": "HISTORICAL_SUPERSEDED_TEMPORARY_EXCEPTION",
+  "supersededBy": "docs/security-risk-register-2026-10-29.md",
+  "activePolicy": "scripts/security-policy.json",
   "approved": true,
   "owner": null,
   "approvalReference": "Explicit project-owner approval for only GHSA-86w9-cpqp-85rv and GHSA-mrhx-c7xc-m3w5 for 14 days in attachments 282cee6b-fd99-4fc2-b61a-a39ebe323c87 and 388a3e23-7ac1-4bfa-af74-7e4eb655173e, 2026-10-25; latter authorizes activation after compatible patches and verification. No publication or production authorization.",

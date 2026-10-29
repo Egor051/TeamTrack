@@ -76,9 +76,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ steps.security-policy.outputs.status }}
+      commit: ${{ steps.security-policy.outputs.commit }}
       npmAudit: ${{ steps.security-policy.outputs.npmAudit }}
       policySha256: ${{ steps.security-policy.outputs.policySha256 }}
       lockSha256: ${{ steps.security-policy.outputs.lockSha256 }}
+      manifestSha256: ${{ steps.security-policy.outputs.manifestSha256 }}
+      acceptedRiskIds: ${{ steps.security-policy.outputs.acceptedRiskIds }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -117,6 +120,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Fail closed unless every required job succeeded
         env:
           ACCEPTANCE_RESULTS: ${{ toJSON(needs) }}

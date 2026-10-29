@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { sqlTestSuites } from '../scripts/sql-test-suites.mjs';
+import { runExport } from '../scripts/security-export.mjs';
 const root = resolve(import.meta.dirname, '..');
 describe('P01 mandatory CI coverage', () => {
   it('discovers every executable SQL suite, including new files; classifies upgrade/manual cases explicitly', () => {
@@ -35,7 +36,12 @@ describe('P01 mandatory CI coverage', () => {
     expect(workflow).toContain("if: always() && steps.dependencies.outcome == 'success'");
     expect(workflow).toContain('uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
     const exporter=readFileSync(join(root,'scripts/security-export.mjs'),'utf8');
-    expect(exporter).toContain('verifyToolingConditions({ directory: root, environment })');
+    let exported = false;
+    expect(() => runExport(['--platform', 'web', '--output-dir', 'dist'], {
+      environment: { SUPABASE_SERVICE_ROLE_KEY: 'synthetic-forbidden-input' },
+      run: () => { exported = true; return { status: 0 }; },
+    })).toThrow(/credentials/);
+    expect(exported).toBe(false);
     expect(exporter).toContain('node_modules/expo/bin/cli');
     expect(workflow).toContain('path: .expo/security-policy/');
     expect(workflow).toContain('include-hidden-files: true');

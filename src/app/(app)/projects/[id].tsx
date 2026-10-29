@@ -518,7 +518,7 @@ const styles = StyleSheet.create({
   },
   feedback: { gap: spacing.sm },
   badges: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm, maxWidth: '100%' },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, maxWidth: "100%", minWidth: 0 },
   stageActions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
   list: { gap: spacing.md },
   listWide: { flexDirection: "row", flexWrap: "wrap" },

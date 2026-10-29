@@ -88,7 +88,7 @@ export function AppNavigation() {
   </View>;
 }
 const styles = StyleSheet.create({ bar: { borderBottomWidth: 1, paddingHorizontal: 16, paddingVertical: 8 }, links: { width: '100%', maxWidth: layout.appMaxWidth, alignSelf: 'center', flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 },
-  refreshBar: { zIndex: 1 }, notificationActions: { flexDirection: 'row', gap: 8, maxWidth: '100%' },
+  refreshBar: { zIndex: 1 }, notificationActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, maxWidth: '100%' },
   refresh: { zIndex: 1 }, refreshButton: { width: 44, height: 44, paddingHorizontal: 0, paddingVertical: 0, gap: 0 },
   refreshIcon: { fontSize: 24, lineHeight: 28 }, refreshHint: { position: 'absolute', top: 48, left: 0, padding: 8, borderWidth: 1, borderRadius: 8, minWidth: 80 },
   feedback: { width: '100%', maxWidth: layout.appMaxWidth, alignSelf: 'center', marginTop: 8 },

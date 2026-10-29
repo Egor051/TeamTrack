@@ -165,8 +165,26 @@ try {
     await page.getByText('Ожидает синхронизации', { exact: true }).waitFor({ state: 'hidden' });
     await page.waitForLoadState('networkidle');
     await idb(page, actor.id, stage, 'remove_snapshot');
+    // Foreground refresh can restore the entry between deletion and Playwright's
+    // click. Remove it at the actual enqueue read as well, in that transaction,
+    // so this scenario proves the recovery path instead of depending on timing.
+    await page.evaluate(({ userId, taskId }) => {
+      const original = IDBObjectStore.prototype.get;
+      const key = userId + ':items:' + taskId + ':active';
+      globalThis.diagnosticSnapshotFaultObserved = false;
+      IDBObjectStore.prototype.get = function (query) {
+        if (query === key && this.name === 'entries' && this.transaction.mode === 'readwrite'
+          && this.transaction.objectStoreNames.contains('pending_operations')) {
+          IDBObjectStore.prototype.get = original;
+          this.delete(key);
+          globalThis.diagnosticSnapshotFaultObserved = true;
+        }
+        return original.call(this, query);
+      };
+    }, { userId: actor.id, taskId: stage });
     await page.getByRole('checkbox').first().click();
     await until(async () => (await serverItem()).is_completed, name + ' missing snapshot recovery');
+    assert.equal(await page.evaluate(() => globalThis.diagnosticSnapshotFaultObserved), true, 'Missing snapshot reached the real enqueue boundary');
     try { await until(async () => (await logs(actor.id)).length > 0, name + ' remote diagnostic'); }
     catch (error) {
       await writeFile(resolve(root, 'diagnostic-buffer.json'), JSON.stringify(await idb(page, actor.id, stage, 'diagnostics'), null, 2));

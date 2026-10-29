@@ -1,4 +1,6 @@
-# TaskTrace: выпуск после B01–B04, P01 и RA-04
+# Historical release-readiness snapshot (18.10.2026)
+
+> This report preserves the evidence and decisions from its original date. Its temporary security-policy description is superseded by `docs/security-risk-register-2026-10-29.md` and is not an active release condition.
 
 Этот документ — план, а не разрешение на deployment. Hosted Supabase, frontend production и секреты этим этапом не изменяются. Commit/push выполняются только после отдельной команды владельца.
 

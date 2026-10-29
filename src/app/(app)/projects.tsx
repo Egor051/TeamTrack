@@ -191,4 +191,29 @@ export default function ProjectsScreen() {
     ))}</View></>}</View>
   </ScrollView></Screen>;
 }
-const styles = StyleSheet.create({ topbarCompact: { flexDirection: 'column', alignItems: 'stretch' }, userLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, maxWidth: '100%' }, nickname: { flexShrink: 1 }, badges: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, flexShrink: 1, maxWidth: '100%' }, content: { width: '100%', maxWidth: layout.appMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.xl }, topbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.lg }, brand: { gap: spacing.xs }, nav: { alignItems: 'center', maxWidth: '100%', flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, intro: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.lg }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', maxWidth: '100%' }, actionsNarrow: { width: '100%' }, statusBlock: { width: 288, maxWidth: '100%', minHeight: 40, justifyContent: 'center', gap: spacing.xs }, statusBlockNarrow: { width: '100%' }, actionButtons: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm }, section: { gap: spacing.md }, feedback: { gap: spacing.sm }, divider: { height: 1 }, grid: { gap: spacing.md }, gridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' }, gridCard: { flexBasis: '48%', flexGrow: 1 }, cardBody: { flexGrow: 1, gap: spacing.md }, cardHeader: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, cardFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: spacing.sm } });
+const styles = StyleSheet.create({
+  topbarCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  userLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, maxWidth: '100%' },
+  nickname: { flexShrink: 1 },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, flexShrink: 1, maxWidth: '100%' },
+  content: { width: '100%', maxWidth: layout.appMaxWidth, alignSelf: 'center', padding: spacing.xl, gap: spacing.xl },
+  topbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.lg },
+  brand: { gap: spacing.xs },
+  nav: { alignItems: 'center', maxWidth: '100%', flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  intro: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.lg },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', maxWidth: '100%' },
+  actionsNarrow: { width: '100%' },
+  statusBlock: { width: 288, maxWidth: '100%', minHeight: 40, justifyContent: 'center', gap: spacing.xs },
+  statusBlockNarrow: { width: '100%' },
+  actionButtons: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm, maxWidth: '100%', minWidth: 0 },
+  section: { gap: spacing.md },
+  feedback: { gap: spacing.sm },
+  divider: { height: 1 },
+  grid: { gap: spacing.md },
+  gridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
+  gridCard: { flexBasis: '48%', flexGrow: 1 },
+  cardBody: { flexGrow: 1, gap: spacing.md },
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.md },
+  flex: { flex: 1, minWidth: 0 },
+  cardFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: spacing.sm },
+});

@@ -26,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -41,7 +42,7 @@ jobs:
       # Maps are isolated CI evidence, not part of the deployable dist artifact.
       - run: node scripts/security-export.mjs --platform web --platform android --platform ios --source-maps --output-dir .expo/security-export
       - run: npx --yes expo-doctor@1.21.5
-      - name: Full audit and approved security policy gate
+      - name: Full audit and reviewed-risk security policy gate
         if: always() && steps.dependencies.outcome == 'success'
         run: node scripts/security-policy-gate.mjs --bundles .expo/security-export
       - name: Preserve raw audit and policy decision
@@ -59,6 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:

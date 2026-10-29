@@ -41,4 +41,4 @@ export function NotificationFilters({ value, onApply, options }: { value: Filter
       onCancel={() => setDateField(null)} onSave={async (iso) => { setDraft({ ...draft, [dateField]: iso }); setDateField(null); }} /> : null}
   </Card>;
 }
-const styles = StyleSheet.create({ row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12 }, field: { flexBasis: 210, flexGrow: 1, minWidth: 0 } });
+const styles = StyleSheet.create({ row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12 }, field: { flexBasis: 210, flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: '100%' } });
